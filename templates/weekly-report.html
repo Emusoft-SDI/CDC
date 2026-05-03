@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: Arial, sans-serif; }
+    .header { background: #2d5016; color: white; padding: 20px; text-align: center; }
+    .section { margin: 20px 0; }
+    .metric { display: inline-block; background: #f0f7eb; padding: 15px; margin: 10px; border-radius: 8px; min-width: 120px; }
+    table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+    .trend-up { color: green; }
+    .trend-down { color: red; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>NATCODEV Weekly Intelligence Report</h1>
+    <p><?= $period ?></p>
+  </div>
+  
+  <div class="section">
+    <h2>📊 Key Metrics</h2>
+    <div class="metric">Field Agents: <?= $metrics['agents'] ?></div>
+    <div class="metric">Farm Visits: <?= $metrics['visits'] ?></div>
+    <div class="metric">New Growers: <?= $metrics['new_growers'] ?></div>
+    <div class="metric">Geofence Alerts: <?= $metrics['alerts'] ?></div>
+  </div>
+  
+  <div class="section">
+    <h2>📈 Visit Frequency Trends</h2>
+    <table>
+      <tr>
+        <th>Agent</th>
+        <th>This Week</th>
+        <th>Last Week</th>
+        <th>Trend</th>
+      </tr>
+      <?php foreach ($visitTrends as $agent): ?>
+      <tr>
+        <td><?= htmlspecialchars($agent['name']) ?></td>
+        <td><?= $agent['this_week'] ?></td>
+        <td><?= $agent['last_week'] ?></td>
+        <td class="<?= $agent['trend_class'] ?>"><?= $agent['trend_icon'] ?> <?= $agent['trend_text'] ?></td>
+      </tr>
+      <?php endforeach; ?>
+    </table>
+  </div>
+  
+  <div class="section">
+    <h2>🌦️ Weather Forecast Impact</h2>
+    <p><?= $weatherSummary ?></p>
+  </div>
+  
+  <div class="section">
+    <h2>📍 Recent Geofence Alerts</h2>
+    <ul>
+      <?php foreach ($recentAlerts as $alert): ?>
+      <li><?= htmlspecialchars($alert['message']) ?> (<?= $alert['time'] ?>)</li>
+      <?php endforeach; ?>
+    </ul>
+  </div>
+  
+  <p><em>Generated on <?= date('Y-m-d H:i') ?> | NATCODEV Command Center</em></p>
+</body>
+</html>

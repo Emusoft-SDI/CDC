@@ -1,0 +1,26 @@
+Automated Backup Scheduling
+🔹 1. Database Backup Script (/backup/db-backup.sh)
+bash
+123456789101112131415161718192021
+🔹 2. Code Backup Script (/backup/code-backup.sh)
+bash
+12345678910111213
+🔹 3. Set Up Cron Jobs
+Run crontab -e and add:
+bash
+12345678
+🔹 4. Cloud Backup (Optional)
+Add to db-backup.sh after local backup:
+bash
+12345
+🔒 Backup Security Best Practices
+Encrypt sensitive data:
+bash
+12
+Restrict backup directory permissions:
+bash
+12
+Monitor backup success:
+bash
+12
+Test restore procedures monthly
