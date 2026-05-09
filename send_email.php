@@ -34,9 +34,9 @@ if (!preg_match('/^0[7-9][01]\d{8}$/', preg_replace('/[^0-9]/', '', $phone))) {
 
 try {
     $pdo = new PDO(
-        "mysql:host=localhost;dbname=coconutventure_growers;charset=utf8mb4",
-        "coconutventure_growers",
-        "1^v1V&Ak{DIPL~Y."
+        "mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4",
+        "natcodevcom_data",
+        "XC^#3)[;*xTcm&V9"
     );
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
@@ -111,7 +111,7 @@ try {
     }
 
     // === SEND CONFIRMATION EMAIL (enhanced anti-spam) ===
-    $confirm_url = "https://apply.coconutventurehub.ng/confirm_email.php?token=" . urlencode($token);
+    $confirm_url = "https://cfc.natcodev.com.ng/confirm_email.php?token=" . urlencode($token);
 
     // Plain-text version (required)
     $plain_text = "
@@ -187,7 +187,7 @@ Coconut Venture Hub.Ng Limited
 }
 ?>
 <? 
-$confirm_url = "https://apply.coconutventurehub.ng/confirm_email.php?token=" . urlencode($token);
+$confirm_url = "https://cfc.natcodev.com.ng/confirm_email.php?token=" . urlencode($token);
 $message = "
 Dear $name,
 

@@ -1,7 +1,7 @@
 <?php
 header('Content-Type: application/json; charset=utf-8');
 // === SEND CONFIRMATION EMAIL (FIXED - NO RAW MIME) ===
-$confirm_url = "https://apply.coconutventurehub.ng/confirm_email.php?token=" . urlencode($newToken);
+$confirm_url = "https://cfc.natcodev.com.ng/confirm_email.php?token=" . urlencode($newToken);
 
 // Plain-text version
 $plain_text = "
@@ -58,9 +58,9 @@ if (!$email) {
 
 try {
     $pdo = new PDO(
-        "mysql:host=localhost;dbname=coconutventure_growers;charset=utf8mb4",
-        "coconutventure_growers",
-        "1^v1V&Ak{DIPL~Y."
+        "mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4",
+        "natcodevcom_data",
+        "XC^#3)[;*xTcm&V9"
     );
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
@@ -78,7 +78,7 @@ try {
          ->execute([$newToken, $email]);
 
     // === SEND EMAIL EXACTLY LIKE YOUR WORKING send_email.php ===
-    $confirm_url = "https://apply.coconutventurehub.ng/confirm_email.php?token=" . urlencode($newToken);
+    $confirm_url = "https://cfc.natcodev.com.ng/confirm_email.php?token=" . urlencode($newToken);
     
     $message = "
 Dear {$app['name']},

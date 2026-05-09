@@ -17,8 +17,8 @@ if ($amount <= 0) {
 $reference = 'REF_' . time() . '_' . rand(1000, 9999);
 
 try {
-    $pdo = new PDO("mysql:host=localhost;dbname=coconutventure_growers;charset=utf8mb4", 
-                   "coconutventure_growers", "1^v1V&Ak{DIPL~Y.");
+    $pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
+                   "natcodevcom_data", "XC^#3)[;*xTcm&V9");
     
     // Get wallet ID
     $stmt = $pdo->prepare("SELECT id FROM wallets WHERE user_id = ?");

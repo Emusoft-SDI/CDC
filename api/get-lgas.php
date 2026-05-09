@@ -7,7 +7,7 @@ if (!$stateId) {
     exit(json_encode(['error' => 'State ID required']));
 }
 
-$pdo = new PDO("mysql:host=localhost;dbname=coconutventure_growers", "user", "password");
+$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data", "user", "password");
 $stmt = $pdo->prepare("SELECT id, lga_name FROM nigeria_lgas WHERE state_id = ? ORDER BY lga_name");
 $stmt->execute([$stateId]);
 $lgas = $stmt->fetchAll();

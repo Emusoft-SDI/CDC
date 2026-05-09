@@ -1,6 +1,6 @@
 <?php
 // populate-lgas.php - Run once to populate LGAs
-$pdo = new PDO("mysql:host=localhost;dbname=coconutventure_growers", "user", "password");
+$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data", "user", "password");
 
 // Sample LGAs for Lagos (add all 774 in production)
 $lgas = [

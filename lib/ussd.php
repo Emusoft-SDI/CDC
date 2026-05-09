@@ -45,7 +45,7 @@ class USSDPayment {
                 'message_title' => 'NATCODEV Payment',
                 'message_body' => "Pay ₦" . number_format($amount, 2) . " for NATCODEV wallet funding?",
                 'options' => ['Yes', 'No'],
-                'callback_url' => 'https://apply.coconutventurehub.ng/ussd-callback.php'
+                'callback_url' => 'https://cfc.natcodev.com.ng/ussd-callback.php'
             ]);
             
             $ch = curl_init();

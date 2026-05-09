@@ -18,7 +18,7 @@ rm -rf $SITE_DIR
 cp -r $BACKUP_DIR/site_backup_$TIMESTAMP $SITE_DIR
 
 # Restore database (optional - uncomment if needed)
-# mysql -u coconutventure_growers -p$DB_PASS coconutventure_growers < $BACKUP_DIR/db_backup_$TIMESTAMP.sql
+# mysql -u natcodevcom_data -p$DB_PASS natcodevcom_data < $BACKUP_DIR/db_backup_$TIMESTAMP.sql
 
 systemctl reload apache2
 echo "✅ Rollback completed!"

@@ -10,8 +10,8 @@ echo "🚀 Starting NATCODEV Deployment..."
 BACKUP_DIR="/var/backups/natcodev"
 SITE_DIR="/var/www/html"
 DATE=$(date +%Y%m%d_%H%M%S)
-DB_NAME="coconutventure_growers"
-DB_USER="coconutventure_growers"
+DB_NAME="natcodevcom_data"
+DB_USER="natcodevcom_data"
 
 # Step 1: Create backup directory
 mkdir -p $BACKUP_DIR

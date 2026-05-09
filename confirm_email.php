@@ -5,8 +5,8 @@ if (!$token) {
 }
 
 try {
-    $pdo = new PDO("mysql:host=localhost;dbname=coconutventure_growers;charset=utf8mb4", 
-                   "coconutventure_growers", "1^v1V&Ak{DIPL~Y.");
+    $pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
+                   "natcodevcom_data", "XC^#3)[;*xTcm&V9");
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
     // Fetch unconfirmed application
@@ -33,7 +33,7 @@ try {
         die('
             <h2>⚠️ Confirmation Link Expired</h2>
             <p>Your confirmation link has expired for security reasons.</p>
-            <p>Please <a href="https://apply.coconutventurehub.ng/" style="color:#2d5016; text-decoration:underline; font-weight:bold;">click here to reapply</a>.</p>
+            <p>Please <a href="https://cfc.natcodev.com.ng/" style="color:#2d5016; text-decoration:underline; font-weight:bold;">click here to reapply</a>.</p>
         ');
     }
 
@@ -99,7 +99,7 @@ try {
         <li>Upcoming training sessions and grant opportunities</li>
       </ul>
       <p>
-        <a href='https://apply.coconutventurehub.ng/newsletter?email=" . urlencode($app['email']) . "' 
+        <a href='https://cfc.natcodev.com.ng/newsletter?email=" . urlencode($app['email']) . "' 
            style='display: inline-block; background: #2d5016; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;'>
           ✅ Yes, send me NATCODEV GoodNews!
         </a>
@@ -176,8 +176,8 @@ if (!$token) {
 }
 
 try {
-    $pdo = new PDO("mysql:host=localhost;dbname=coconutventure_growers;charset=utf8mb4", 
-                   "coconutventure_growers", "1^v1V&Ak{DIPL~Y.");
+    $pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
+                   "natcodevcom_data", "XC^#3)[;*xTcm&V9");
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
     $stmt = $pdo->prepare("SELECT id, name, email, confirmed FROM applications WHERE confirmation_token = ?");
@@ -209,7 +209,7 @@ try {
 // In confirm_email.php — expiry section
 echo "<h2>⚠️ Link Expired</h2>
       <p>Your confirmation link has expired.</p>
-      <p><a href='https://apply.coconutventurehub.ng/resend-confirmation.php?email=" . urlencode($email) . "' 
+      <p><a href='https://cfc.natcodev.com.ng/resend-confirmation.php?email=" . urlencode($email) . "' 
              style='background:#2d5016; color:white; padding:10px 15px; text-decoration:none; border-radius:5px; display:inline-block;'>
           📤 Request New Link
         </a></p>";

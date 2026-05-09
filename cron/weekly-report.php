@@ -2,8 +2,8 @@
 // cron/weekly-report.php - Run via cron job every Monday at 8 AM
 require_once '../config.php'; // Your DB config
 
-$pdo = new PDO("mysql:host=localhost;dbname=coconutventure_growers;charset=utf8mb4", 
-               "coconutventure_growers", "1^v1V&Ak{DIPL~Y.");
+$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
+               "natcodevcom_data", "XC^#3)[;*xTcm&V9");
 
 // Date ranges
 $endDate = date('Y-m-d');

@@ -82,7 +82,7 @@ session_start();
 <?php
 function getDatabaseStatus() {
     try {
-        $pdo = new PDO("mysql:host=localhost;dbname=coconutventure_growers", "coconutventure_growers", "1^v1V&Ak{DIPL~Y.");
+        $pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data", "natcodevcom_data", "XC^#3)[;*xTcm&V9");
         $count = $pdo->query("SELECT COUNT(*) FROM applications")->fetchColumn();
         return "Connected ($count records)";
     } catch (Exception $e) {
@@ -104,7 +104,7 @@ function getStorageStatus() {
 
 function getPaymentStatus() {
     // Check if API keys exist
-    $pdo = new PDO("mysql:host=localhost;dbname=coconutventure_growers", "coconutventure_growers", "1^v1V&Ak{DIPL~Y.");
+    $pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data", "natcodevcom_data", "XC^#3)[;*xTcm&V9");
     $keys = $pdo->query("SELECT COUNT(*) FROM settings WHERE key_name LIKE '%_key' AND value != ''")->fetchColumn();
     return $keys > 0 ? "Configured" : "Not Configured";
 }

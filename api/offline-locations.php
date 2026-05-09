@@ -2,7 +2,7 @@
 header('Content-Type: application/json');
 
 $type = $_GET['type'] ?? '';
-$pdo = new PDO("mysql:host=localhost;dbname=coconutventure_growers", "user", "password");
+$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data", "user", "password");
 
 switch ($type) {
     case 'states':

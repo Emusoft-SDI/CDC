@@ -1,8 +1,8 @@
 <!-- admin/analytics.php -->
 <?php
 // ... admin auth check ...
-$pdo = new PDO("mysql:host=localhost;dbname=coconutventure_growers;charset=utf8mb4", 
-               "coconutventure_growers", "1^v1V&Ak{DIPL~Y.");
+$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
+               "natcodevcom_data", "XC^#3)[;*xTcm&V9");
 
 // Get visit trends (same as weekly report)
 // ... [reuse visitTrends logic] ...

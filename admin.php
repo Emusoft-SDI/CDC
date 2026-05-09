@@ -12,7 +12,7 @@ require_once 'tcpdf/qrcode.php';
 
 // Generate QR code
 $qrCode = TCPDF2DBarcode::getBarcodePNG(
-    'https://apply.coconutventurehub.ng/verify-certificate?ref=' . urlencode($data['app_ref']),
+    'https://cfc.natcodev.com.ng/verify-certificate?ref=' . urlencode($data['app_ref']),
     'QRCODE,M',
     50,
     50
@@ -32,8 +32,8 @@ $html = "
 ";
 
 // Fetch data
-    $pdo = new PDO("mysql:host=localhost;dbname=coconutventure_growers;charset=utf8mb4", 
-                   "coconutventure_growers", "1^v1V&Ak{DIPL~Y.");
+    $pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
+                   "natcodevcom_data", "XC^#3)[;*xTcm&V9");
     $stmt = $pdo->prepare("
         SELECT a.name, a.app_ref, a.farm_size, a.location, u.email 
         FROM applications a 
@@ -65,7 +65,7 @@ $html = "
         <p style='margin-top:40px;'><img src='signature.png' width='200'></p>
         <p>Authorized Signatory<br>NATCODEV Management</p>
         <p style='font-size:12px; margin-top:30px;'>
-            Verify at: https://apply.coconutventurehub.ng/verify-certificate?ref=" . urlencode($data['app_ref']) . "
+            Verify at: https://cfc.natcodev.com.ng/verify-certificate?ref=" . urlencode($data['app_ref']) . "
         </p>
     </div>-->
     ";
@@ -176,7 +176,7 @@ function sendWelcomeEmailWithPDF($email, $name, $password, $appId) {
     <p><strong>Name:</strong> $name</p>
     <p><strong>Email:</strong> $email</p>
     <p><strong>Your Dashboard Login:</strong></p>
-    <p>URL: https://apply.coconutventurehub.ng/dashboard/</p>
+    <p>URL: https://cfc.natcodev.com.ng/dashboard/</p>
     <p>Password: <strong>$password</strong> (change after first login)</p>
     <p>— The NATCODEV Team</p>
     ";

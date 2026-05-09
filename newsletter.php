@@ -12,8 +12,8 @@ if (!$email) {
 
 // Prevent abuse: require email to already exist in applications (optional but recommended)
 try {
-    $pdo = new PDO("mysql:host=localhost;dbname=coconutventure_growers;charset=utf8mb4", 
-                   "coconutventure_growers", "1^v1V&Ak{DIPL~Y.");
+    $pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
+                   "natcodevcom_data", "XC^#3)[;*xTcm&V9");
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
     // Optional: Only allow opt-in if email is in applications (enhances legitimacy)

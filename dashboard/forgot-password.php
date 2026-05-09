@@ -15,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ")->execute([$token, $expires, $userId]);
         
         // Send reset email
-        $resetUrl = "https://apply.coconutventurehub.ng/dashboard/reset-password.php?token=$token";
+        $resetUrl = "https://cfc.natcodev.com.ng/dashboard/reset-password.php?token=$token";
         mail($email, "NATCODEV Password Reset", 
              "Click to reset your password: $resetUrl", 
              "From: noreply@coconutventurehub.ng");
