@@ -74,9 +74,15 @@ class MobileDatabase {
       timestamp: Date.now()
     });
     
-    // Register background sync
-    if ('serviceWorker' in navigator && 'sync' in registration) {
-      registration.sync.register('pending-actions');
+    if ('serviceWorker' in navigator) {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        if ('sync' in registration) {
+          await registration.sync.register('pending-actions');
+        }
+      } catch (err) {
+        console.warn('Background sync registration failed:', err);
+      }
     }
   }
 }

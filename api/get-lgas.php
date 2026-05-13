@@ -1,16 +1,31 @@
 <?php
-header('Content-Type: application/json');
+declare(strict_types=1);
 
-$stateId = intval($_GET['state_id'] ?? 0);
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../lib/nigeria-locations.php';
+
+$stateId = filter_input(INPUT_GET, 'state_id', FILTER_VALIDATE_INT);
 if (!$stateId) {
-    http_response_code(400);
-    exit(json_encode(['error' => 'State ID required']));
+    json_response(['success' => false, 'error' => 'State ID required'], 422);
 }
 
-$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data", "user", "password");
-$stmt = $pdo->prepare("SELECT id, lga_name FROM nigeria_lgas WHERE state_id = ? ORDER BY lga_name");
-$stmt->execute([$stateId]);
-$lgas = $stmt->fetchAll();
+try {
+    $pdo = db();
+    $stateStmt = $pdo->prepare("SELECT id, state_name, state_code FROM nigeria_states WHERE id = ? LIMIT 1");
+    $stateStmt->execute([$stateId]);
+    $state = $stateStmt->fetch();
+    if (!$state) {
+        json_response(['success' => true, 'items' => []]);
+    }
 
-echo json_encode($lgas);
-?>
+    $rows = nigeria_ensure_lgas_for_state($pdo, (int) $state['id'], (string) $state['state_name'], (string) ($state['state_code'] ?? ''));
+    json_response(['success' => true, 'items' => $rows]);
+
+    $stmt = $pdo->prepare("SELECT id, lga_name FROM nigeria_lgas WHERE state_id = ? ORDER BY lga_name");
+    $stmt->execute([$stateId]);
+
+    json_response(['success' => true, 'items' => $stmt->fetchAll()]);
+} catch (Throwable $e) {
+    error_log('Get LGAs API error: ' . $e->getMessage());
+    json_response(['success' => true, 'items' => []]);
+}

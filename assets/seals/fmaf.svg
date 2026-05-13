@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title">
+  <title id="title">FMAF Seal</title>
+  <circle cx="80" cy="80" r="74" fill="#fffdf5" stroke="#2d5016" stroke-width="7"/>
+  <circle cx="80" cy="80" r="55" fill="#edf6e6" stroke="#c9a227" stroke-width="4"/>
+  <path d="M80 34c11 17 19 30 19 43 0 17-9 30-19 39-10-9-19-22-19-39 0-13 8-26 19-43Z" fill="#2d5016"/>
+  <text x="80" y="128" text-anchor="middle" font-family="Arial" font-size="20" font-weight="700" fill="#2d5016">FMAF</text>
+</svg>

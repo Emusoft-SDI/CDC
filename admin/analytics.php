@@ -1,60 +1,71 @@
-<!-- admin/analytics.php -->
 <?php
-// ... admin auth check ...
-$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
-               "natcodevcom_data", "XC^#3)[;*xTcm&V9");
+declare(strict_types=1);
 
-// Get visit trends (same as weekly report)
-// ... [reuse visitTrends logic] ...
+require_once __DIR__ . '/../lib/admin-layout.php';
 
-// Weather forecast
-require_once '../lib/weather.php';
-$weather = getWeatherForecast();
+session_start();
+$pdo = db();
+admin_ensure_schema($pdo);
+admin_require($pdo);
+
+$applicationTrend = [];
+try {
+    $applicationTrend = $pdo->query("
+        SELECT DATE(created_at) label, COUNT(*) total
+        FROM applications
+        WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        GROUP BY DATE(created_at)
+        ORDER BY label
+    ")->fetchAll();
+} catch (Throwable $e) {
+    $applicationTrend = [];
+}
+
+$statusCounts = $pdo->query("
+    SELECT
+      SUM(CASE WHEN confirmed = 1 THEN 1 ELSE 0 END) confirmed,
+      SUM(CASE WHEN confirmed = 0 THEN 1 ELSE 0 END) pending
+    FROM applications
+")->fetch() ?: ['confirmed' => 0, 'pending' => 0];
+
+admin_page_start('Analytics', [
+    'active' => 'analytics.php',
+    'description' => 'Track application flow, confirmation progress, and operational activity trends.',
+    'wide' => true,
+]);
 ?>
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Predictive Analytics - NATCODEV</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <style>
-    .chart-container { width: 100%; height: 400px; margin: 20px 0; }
-    .weather-card { background: #e8f5e9; padding: 15px; border-radius: 8px; margin: 20px 0; }
-  </style>
-</head>
-<body>
-  <h1>Predictive Analytics Dashboard</h1>
-  
-  <div class="weather-card">
-    <h2>🌦️ Weather Forecast</h2>
-    <div id="weatherChart" class="chart-container"></div>
+<section class="stats">
+  <div class="stat"><span>Confirmed</span><div class="metric"><?= (int) $statusCounts['confirmed'] ?></div></div>
+  <div class="stat"><span>Pending</span><div class="metric"><?= (int) $statusCounts['pending'] ?></div></div>
+</section>
+
+<section class="grid">
+  <div class="panel">
+    <h2>Applications: Last 30 Days</h2>
+    <canvas id="applicationTrend" height="130"></canvas>
   </div>
-  
-  <div class="chart-container">
-    <canvas id="visitTrendChart"></canvas>
+  <div class="panel">
+    <h2>Confirmation Status</h2>
+    <canvas id="statusChart" height="130"></canvas>
   </div>
-  
-  <script>
-    // Visit Trend Chart
-    const ctx = document.getElementById('visitTrendChart').getContext('2d');
-    new Chart(ctx, {
-      type: 'bar',
-       {
-        labels: <?= json_encode(array_column($visitTrends, 'name')) ?>,
-        datasets: [{
-          label: 'This Week',
-           <?= json_encode(array_column($visitTrends, 'this_week')) ?>,
-          backgroundColor: '#2d5016'
-        }, {
-          label: 'Last Week',
-           <?= json_encode(array_column($visitTrends, 'last_week')) ?>,
-          backgroundColor: '#8fc27d'
-        }]
-      }
-    });
-    
-    // Weather Chart (simplified)
-    const weatherCtx = document.getElementById('weatherChart').getContext('2d');
-    // ... [add weather chart logic] ...
-  </script>
-</body>
-</html>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const trend = <?= json_encode($applicationTrend, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
+new Chart(document.getElementById('applicationTrend'), {
+  type: 'line',
+  data: {
+    labels: trend.map(row => row.label),
+    datasets: [{ label: 'Applications', data: trend.map(row => Number(row.total)), borderColor: '#1f8a55', backgroundColor: 'rgba(31,138,85,.12)', fill: true, tension: .25 }]
+  }
+});
+new Chart(document.getElementById('statusChart'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Confirmed', 'Pending'],
+    datasets: [{ data: [<?= (int) $statusCounts['confirmed'] ?>, <?= (int) $statusCounts['pending'] ?>], backgroundColor: ['#1f8a55', '#c9a227'] }]
+  }
+});
+</script>
+<?php admin_page_end(); ?>

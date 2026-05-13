@@ -1,56 +1,59 @@
-// sw.js - Enhanced for offline sync
-const CACHE_NAME = 'natcodev-mobile-v2';
-const OFFLINE_URLS = [
-  '/api/mobile/marketplace',
-  '/api/mobile/webinars',
-  '/api/mobile/healthcare-form'
-];
-// sw.js - Cache critical assets
-const CACHE_NAME = 'natcodev-v1';
-const urlsToCache = [
-  '/field-agent/',
-  '/field-agent/style.css',
-  '/field-agent/app.js',
-  '/logo.png'
+// sw.js - NATCODEV offline cache and background sync
+const CACHE_NAME = 'natcodev-cache-v3';
+const BASE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, '');
+const scoped = path => `${BASE_PATH}${path}`;
+const CORE_ASSETS = [
+  scoped('/'),
+  scoped('/field-agent/'),
+  scoped('/field-agent/app.js'),
+  scoped('/mobile/index.html'),
+  scoped('/mobile/app.js'),
+  scoped('/mobile/db.js'),
+  scoped('/assets/css/style.css'),
+  scoped('/assets/logo/natcodev-logo.png')
 ];
 
-self.addEventListener('install', (event) => {
+self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(urlsToCache))
+      .then(cache => cache.addAll(CORE_ASSETS))
+      .then(() => self.skipWaiting())
+      .catch(err => console.warn('Core caching skipped:', err))
   );
 });
 
-self.addEventListener('fetch', (event) => {
-  // Only cache GET requests
-  if (event.request.method !== 'GET') return;
-  
-  // Skip API calls
-  if (event.request.url.includes('/api/')) {
-    return fetch(event.request);
-  }
-  
-  event.respondWith(
-    caches.match(event.request)
-      .then((response) => response || fetch(event.request))
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))))
+      .then(() => self.clients.claim())
   );
 });
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      // Cache static assets
-      return cache.addAll([
-        '/mobile/',
-        '/mobile/style.css',
-        '/mobile/app.js',
-        '/logo.png'
-      ]);
+
+self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') return;
+
+  const url = new URL(event.request.url);
+  if (url.pathname.startsWith(scoped('/api/'))) return;
+
+  event.respondWith(
+    caches.match(event.request).then(cached => {
+      if (cached) return cached;
+
+      return fetch(event.request).then(response => {
+        if (!response || response.status !== 200 || response.type === 'opaque') {
+          return response;
+        }
+
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        return response;
+      });
     })
   );
 });
 
-// Background sync for pending actions
-self.addEventListener('sync', (event) => {
+self.addEventListener('sync', event => {
   if (event.tag === 'pending-actions') {
     event.waitUntil(syncPendingActions());
   }
@@ -65,68 +68,54 @@ async function syncPendingActions() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(action.data)
       });
-      
+
       if (response.ok) {
         await removePendingAction(action.id);
       }
     } catch (err) {
-      console.warn('Sync failed for action:', action.id);
+      console.warn('Sync failed for action:', action.id, err);
     }
   }
 }
 
-// Store pending actions in IndexedDB
-async function getPendingActions() {
-  return new Promise((resolve) => {
+function openMobileDb() {
+  return new Promise((resolve, reject) => {
     const request = indexedDB.open('NATCODEV_Mobile', 1);
-    request.onsuccess = (event) => {
-      const db = event.target.result;
+    request.onerror = () => reject(request.error);
+    request.onsuccess = event => resolve(event.target.result);
+  });
+}
+
+async function getPendingActions() {
+  try {
+    const db = await openMobileDb();
+    if (!db.objectStoreNames.contains('pending_actions')) return [];
+
+    return await new Promise(resolve => {
       const transaction = db.transaction(['pending_actions'], 'readonly');
       const store = transaction.objectStore('pending_actions');
-      const getAll = store.getAll();
-      
-      getAll.onsuccess = () => resolve(getAll.result);
-    };
-  });
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => resolve([]);
+    });
+  } catch (err) {
+    return [];
+  }
 }
 
 async function removePendingAction(id) {
-  return new Promise((resolve) => {
-    const request = indexedDB.open('NATCODEV_Mobile', 1);
-    request.onsuccess = (event) => {
-      const db = event.target.result;
+  try {
+    const db = await openMobileDb();
+    if (!db.objectStoreNames.contains('pending_actions')) return;
+
+    await new Promise(resolve => {
       const transaction = db.transaction(['pending_actions'], 'readwrite');
       const store = transaction.objectStore('pending_actions');
       store.delete(id);
-      resolve();
-    };
-  });
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => resolve();
+    });
+  } catch (err) {
+    console.warn('Unable to remove pending action:', id, err);
+  }
 }
-
-// Add to urlsToCache array
-const urlsToCache = [
-  // ... existing assets ...
-  '/resources/farming_guide.pdf',
-  '/resources/pest_control.pdf',
-  '/resources/market_prices.xlsx'
-];
-
-// Cache all resources
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => {
-        // Cache static assets
-        cache.addAll(urlsToCache);
-        
-        // Also cache all resources from API
-        return fetch('/api/resources.php')
-          .then(response => response.json())
-          .then(resources => {
-            const resourceUrls = resources.map(r => `/resources/${r.file_path}`);
-            return cache.addAll(resourceUrls);
-          })
-          .catch(() => console.log('Resource caching skipped'));
-      })
-  );
-});

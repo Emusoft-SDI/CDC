@@ -1,6 +1,13 @@
 <?php
-// populate-lgas.php - Run once to populate LGAs
-$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data", "user", "password");
+declare(strict_types=1);
+
+require_once __DIR__ . '/../config.php';
+
+session_start();
+$pdo = db();
+if (!admin_session_is_authenticated($pdo)) {
+    json_response(['success' => false, 'error' => 'Forbidden'], 403);
+}
 
 // Sample LGAs for Lagos (add all 774 in production)
 $lgas = [
@@ -21,4 +28,3 @@ foreach ($lgas as $stateCode => $lgaList) {
     }
 }
 echo "LGA population completed!";
-?>

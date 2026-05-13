@@ -1,14 +1,19 @@
-
 <?php
-header('Content-Type: application/json');
+declare(strict_types=1);
 
-$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
-               "natcodevcom_data", "XC^#3)[;*xTcm&V9");
+require_once __DIR__ . '/../config.php';
 
-$stmt = $pdo->query("SELECT id, title, file_path, category FROM resources ORDER BY created_at DESC");
-echo json_encode($stmt->fetchAll());
-
-// Only show offline-available resources to agents
-$stmt = $pdo->query("SELECT * FROM resources WHERE offline_available = 1 ORDER BY created_at DESC");
-
-?>
+try {
+    $pdo = db();
+    $offlineOnly = ($_GET['offline'] ?? '') === '1';
+    $sql = "SELECT id, title, file_path, category, description FROM resources";
+    if ($offlineOnly) {
+        $sql .= " WHERE offline_available = 1";
+    }
+    $sql .= " ORDER BY created_at DESC";
+    $stmt = $pdo->query($sql);
+    json_response(['success' => true, 'items' => $stmt->fetchAll()]);
+} catch (Throwable $e) {
+    error_log('Resources API error: ' . $e->getMessage());
+    json_response(['success' => true, 'items' => []]);
+}

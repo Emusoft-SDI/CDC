@@ -1,43 +1,38 @@
-// api/get-template.php
 <?php
-header('Content-Type: application/json');
+declare(strict_types=1);
 
-$templateName = $_GET['name'] ?? '';
-if (!$templateName) {
-    http_response_code(400);
-    exit(json_encode(['error' => 'Template name required']));
+require_once __DIR__ . '/../config.php';
+
+session_start();
+$pdo = db();
+if (!admin_session_is_authenticated($pdo)) {
+    json_response(['success' => false, 'error' => 'Forbidden'], 403);
 }
 
-$stmt = $pdo->prepare("
-    SELECT template_type, message_template, is_active
-    FROM notification_templates 
-    WHERE template_name = ?
-");
-$stmt->execute([$templateName]);
-$templates = $stmt->fetchAll();
-
-$result = [];
-foreach ($templates as $template) {
-    $result[$template['template_type']] = $template;
+$templateName = trim((string) ($_GET['name'] ?? ''));
+if ($templateName === '') {
+    json_response(['success' => false, 'error' => 'Template name required'], 422);
 }
 
-echo json_encode($result);
-?>
+try {
+    if (!app_table_exists($pdo, 'notification_templates')) {
+        json_response(['success' => true]);
+    }
 
-// api/delete-template.php
-<?php
-header('Content-Type: application/json');
+    $stmt = $pdo->prepare("
+        SELECT template_type, message_template, is_active
+        FROM notification_templates
+        WHERE template_name = ?
+    ");
+    $stmt->execute([$templateName]);
 
-$input = json_decode(file_get_contents('php://input'), true);
-$templateName = $input['template_name'] ?? '';
+    $result = ['success' => true];
+    foreach ($stmt->fetchAll() as $template) {
+        $result[$template['template_type']] = $template;
+    }
 
-if (!$templateName) {
-    http_response_code(400);
-    exit(json_encode(['error' => 'Template name required']));
+    json_response($result);
+} catch (Throwable $e) {
+    error_log('Get template API error: ' . $e->getMessage());
+    json_response(['success' => false, 'error' => 'Unable to load template'], 500);
 }
-
-$pdo->prepare("DELETE FROM notification_templates WHERE template_name = ?")
-     ->execute([$templateName]);
-
-echo json_encode(['success' => true]);
-?>

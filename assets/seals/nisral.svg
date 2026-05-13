@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title">
+  <title id="title">NIRSAL Seal</title>
+  <circle cx="80" cy="80" r="74" fill="#fffdf5" stroke="#7a4d13" stroke-width="7"/>
+  <circle cx="80" cy="80" r="55" fill="#fff4dc" stroke="#2d5016" stroke-width="4"/>
+  <path d="M45 98c21-36 45-51 70-45-19 8-31 21-38 39 13-6 25-7 36-3-19 20-42 23-68 9Z" fill="#7a4d13"/>
+  <text x="80" y="128" text-anchor="middle" font-family="Arial" font-size="19" font-weight="700" fill="#7a4d13">NIRSAL</text>
+</svg>

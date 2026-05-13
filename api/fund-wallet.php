@@ -1,15 +1,15 @@
 <?php
-session_start();
-header('Content-Type: application/json');
+declare(strict_types=1);
 
-if (!isset($_SESSION['user_id'])) {
-    http_response_code(403);
-    exit(json_encode(['error' => 'Not logged in']));
-}
+require_once __DIR__ . '/../config.php';
+
+session_start();
+$pdo = db();
+$user = require_user_role($pdo, ['grower', 'admin']);
 
 $amount = floatval($_POST['amount'] ?? 0);
 if ($amount <= 0) {
-    exit(json_encode(['error' => 'Invalid amount']));
+    json_response(['success' => false, 'error' => 'Invalid amount'], 422);
 }
 
 // In production: integrate with Paystack/Flutterwave
@@ -17,32 +17,30 @@ if ($amount <= 0) {
 $reference = 'REF_' . time() . '_' . rand(1000, 9999);
 
 try {
-    $pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
-                   "natcodevcom_data", "XC^#3)[;*xTcm&V9");
-    
+    app_ensure_farmer_engagement_schema($pdo);
+
     // Get wallet ID
     $stmt = $pdo->prepare("SELECT id FROM wallets WHERE user_id = ?");
-    $stmt->execute([$_SESSION['user_id']]);
+    $stmt->execute([(int) $user['id']]);
     $walletId = $stmt->fetchColumn();
-    
+
     if (!$walletId) {
-        exit(json_encode(['error' => 'Wallet not found']));
+        $pdo->prepare("INSERT INTO wallets (user_id) VALUES (?)")->execute([(int) $user['id']]);
+        $walletId = $pdo->lastInsertId();
     }
-    
+
     // Create pending transaction
     $pdo->prepare("
         INSERT INTO wallet_transactions (wallet_id, amount, type, description, reference, status)
         VALUES (?, ?, 'credit', 'Wallet funding', ?, 'pending')
     ")->execute([$walletId, $amount, $reference]);
-    
-    echo json_encode([
+
+    json_response([
         'success' => true,
         'reference' => $reference,
         'payment_url' => '/payment-gateway?ref=' . $reference // Your payment gateway
     ]);
-    
-} catch (Exception $e) {
-    error_log("Wallet error: " . $e->getMessage());
-    echo json_encode(['error' => 'System error']);
+} catch (Throwable $e) {
+    error_log('Wallet error: ' . $e->getMessage());
+    json_response(['success' => false, 'error' => 'System error'], 500);
 }
-?>

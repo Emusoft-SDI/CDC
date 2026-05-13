@@ -1,8 +1,18 @@
 // field-agent/app.js
 let growers = [];
 let pendingVisits = JSON.parse(localStorage.getItem('pendingVisits') || '[]');
+const API_BASE = '../api';
 
-// Load growers from local storage or API
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  }[char]));
+}
+
 async function loadGrowers() {
   const cached = localStorage.getItem('growers');
   if (cached && !navigator.onLine) {
@@ -10,14 +20,13 @@ async function loadGrowers() {
     renderGrowers();
     return;
   }
-  
+
   try {
-    const res = await fetch('/api/growers.php');
-    if (res.ok) {
-      growers = await res.json();
-      localStorage.setItem('growers', JSON.stringify(growers));
-      renderGrowers();
-    }
+    const res = await fetch(`${API_BASE}/growers.php`);
+    const payload = await res.json();
+    growers = payload.items || payload || [];
+    localStorage.setItem('growers', JSON.stringify(growers));
+    renderGrowers();
   } catch (err) {
     if (cached) {
       growers = JSON.parse(cached);
@@ -28,69 +37,29 @@ async function loadGrowers() {
 
 function renderGrowers() {
   const container = document.getElementById('growersList');
+  if (!container) return;
+
   container.innerHTML = growers.map(g => `
-    <div onclick="showVisitForm(${g.id})">
-      <strong>${g.name}</strong><br>
-      ${g.location} | ${g.farm_size} ha
-    </div>
+    <button type="button" class="grower-row" data-grower-id="${Number(g.id)}">
+      <strong>${escapeHtml(g.name)}</strong><br>
+      ${escapeHtml(g.location)} | ${escapeHtml(g.farm_size)} ha
+    </button>
   `).join('');
+
+  container.querySelectorAll('[data-grower-id]').forEach(row => {
+    row.addEventListener('click', () => showVisitForm(row.dataset.growerId));
+  });
 }
 
 function showVisitForm(growerId) {
-  document.getElementById('growerId').value = growerId;
-  document.getElementById('visitForm').style.display = 'block';
+  const growerInput = document.getElementById('growerId');
+  const visitForm = document.getElementById('visitForm');
+  if (!growerInput || !visitForm) return;
+
+  growerInput.value = growerId;
+  visitForm.style.display = 'block';
 }
 
-// Save visit (online or offline)
-document.getElementById('visitForm').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const visit = {
-    grower_id: document.getElementById('growerId').value,
-    notes: document.getElementById('notes').value,
-    timestamp: new Date().toISOString(),
-    synced: false
-  };
-  
-  pendingVisits.push(visit);
-  localStorage.setItem('pendingVisits', JSON.stringify(pendingVisits));
-  
-  alert('Visit saved ' + (navigator.onLine ? 'online' : 'offline'));
-  document.getElementById('visitForm').reset();
-  document.getElementById('visitForm').style.display = 'none';
-});
-
-// Sync when back online
-async function syncPendingVisits() {
-  if (!navigator.onLine || pendingVisits.length === 0) return;
-  
-  const toSync = pendingVisits.filter(v => !v.synced);
-  if (toSync.length === 0) return;
-  
-  try {
-    const res = await fetch('/api/sync-visits.php', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(toSync)
-    });
-    
-    if (res.ok) {
-      // Mark as synced
-      toSync.forEach(v => v.synced = true);
-      localStorage.setItem('pendingVisits', JSON.stringify(pendingVisits));
-      
-      // Clear fully synced visits
-      pendingVisits = pendingVisits.filter(v => !v.synced);
-      localStorage.setItem('pendingVisits', JSON.stringify(pendingVisits));
-    }
-  } catch (err) {
-    console.error('Sync failed:', err);
-  }
-}
-
-// Initialize
-loadGrowers();
-if (navigator.onLine) syncPendingVisits();// After successful sync
-// Get current location (with timeout)
 function getCurrentLocation() {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -98,12 +67,9 @@ function getCurrentLocation() {
       return;
     }
 
-    const timeoutId = setTimeout(() => {
-      reject({ error: 'Location timeout' });
-    }, 10000); // 10 seconds
-
+    const timeoutId = setTimeout(() => reject({ error: 'Location timeout' }), 10000);
     navigator.geolocation.getCurrentPosition(
-      (position) => {
+      position => {
         clearTimeout(timeoutId);
         resolve({
           latitude: position.coords.latitude,
@@ -112,41 +78,33 @@ function getCurrentLocation() {
           source: 'gps'
         });
       },
-      (error) => {
+      error => {
         clearTimeout(timeoutId);
-        // Fallback to last known location or manual entry
         const last = JSON.parse(localStorage.getItem('lastLocation') || '{}');
-        if (last.latitude) {
+        if (last.latitude && last.longitude) {
           resolve({ ...last, source: 'cached' });
         } else {
           reject({ error: 'Location access denied', code: error.code });
         }
       },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 300000 // 5 minutes
-      }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
     );
   });
 }
 
-// Enhanced visit saving with location
 async function saveVisit(growerId, notes) {
   let locationData = {};
-  
+
   try {
     locationData = await getCurrentLocation();
-    // Cache location
     localStorage.setItem('lastLocation', JSON.stringify(locationData));
   } catch (err) {
-    console.warn('Location error:', err);
-    // Continue without location if offline/denied
+    console.warn('Location unavailable; saving visit without coordinates.', err);
   }
 
   const visit = {
     grower_id: growerId,
-    notes: notes,
+    notes,
     timestamp: new Date().toISOString(),
     synced: false,
     ...locationData
@@ -154,34 +112,66 @@ async function saveVisit(growerId, notes) {
 
   pendingVisits.push(visit);
   localStorage.setItem('pendingVisits', JSON.stringify(pendingVisits));
-  
   return visit;
 }
 
-// Update form submission
-document.getElementById('visitForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const growerId = document.getElementById('growerId').value;
-  const notes = document.getElementById('notes').value;
-  
-  await saveVisit(growerId, notes);
-  
-  alert('Visit saved with location!');
-  document.getElementById('visitForm').reset();
-  document.getElementById('visitForm').style.display = 'none';
-});
-
 async function syncPendingVisits() {
-  // ... existing sync logic ...
-  
-  // Refresh cached visits
-  if (navigator.onLine) {
+  if (!navigator.onLine) return;
+
+  const toSync = pendingVisits.filter(v => !v.synced);
+  if (toSync.length > 0) {
     try {
-      const res = await fetch('/api/visits.php');
-      const visits = await res.json();
-      localStorage.setItem('offlineVisits', JSON.stringify(visits));
+      const res = await fetch(`${API_BASE}/sync-visits.php`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(toSync)
+      });
+      const payload = await res.json();
+
+      if (res.ok && payload.success) {
+        pendingVisits = pendingVisits.filter(v => !toSync.includes(v));
+        localStorage.setItem('pendingVisits', JSON.stringify(pendingVisits));
+      }
     } catch (err) {
-      console.warn('Failed to refresh visits cache');
+      console.error('Visit sync failed:', err);
     }
   }
+
+  try {
+    const res = await fetch(`${API_BASE}/visits.php`);
+    const payload = await res.json();
+    localStorage.setItem('offlineVisits', JSON.stringify(payload.items || []));
+  } catch (err) {
+    console.warn('Failed to refresh visits cache:', err);
+  }
 }
+
+function bindVisitForm() {
+  const visitForm = document.getElementById('visitForm');
+  if (!visitForm) return;
+
+  visitForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const growerId = document.getElementById('growerId')?.value;
+    const notes = document.getElementById('notes')?.value || '';
+    if (!growerId) return;
+
+    await saveVisit(growerId, notes);
+    if (navigator.onLine) await syncPendingVisits();
+
+    alert('Visit saved' + (navigator.onLine ? ' and synced.' : ' for offline sync.'));
+    visitForm.reset();
+    visitForm.style.display = 'none';
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  bindVisitForm();
+  loadGrowers();
+  syncPendingVisits();
+});
+
+window.addEventListener('online', () => {
+  loadGrowers();
+  syncPendingVisits();
+});

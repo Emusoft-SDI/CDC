@@ -1,31 +1,41 @@
-<!-- Show all products -->
 <?php
-$stmt = $pdo->query("
-    SELECT m.*, u.name as seller_name 
-    FROM marketplace_items m
-    LEFT JOIN users u ON m.seller_id = u.id
-    WHERE m.is_active = 1
-    ORDER BY m.created_at DESC
-");
-while ($item = $stmt->fetch()):
-?>
-<div class="product-card">
-  <h3><?= htmlspecialchars($item['title']) ?></h3>
-  <p><?= htmlspecialchars(substr($item['description'], 0, 100)) ?>...</p>
-  <p><strong>₦<?= number_format($item['price'], 2) ?></strong></p>
-  <p>Seller: <?= $item['seller_id'] == 0 ? 'NATCODEV' : htmlspecialchars($item['seller_name']) ?></p>
-  
-  <?php if ($item['seller_id'] == 0 || $userPlan === 'premium'): ?>
-    <button onclick="buyProduct(<?= $item['id'] ?>)">Buy Now</button>
-  <?php endif; ?>
-</div>
-<?php endwhile; ?>
+declare(strict_types=1);
 
-<!-- Upgrade Plan Button -->
-<?php if ($userPlan === 'basic'): ?>
-  <div class="upgrade-banner">
-    <h3>🚀 Upgrade to Premium!</h3>
-    <p>List your own products and services</p>
-    <button onclick="upgradePlan()">Upgrade Now - ₦5,000/year</button>
-  </div>
-<?php endif; ?>
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../lib/dashboard-layout.php';
+
+session_start();
+$pdo = db();
+app_ensure_farmer_engagement_schema($pdo);
+
+if (empty($_SESSION['user_id'])) {
+    redirect_to('login.php');
+}
+
+$items = [];
+if (app_table_exists($pdo, 'marketplace_items')) {
+    $items = $pdo->query("
+        SELECT m.*, u.name seller_name
+        FROM marketplace_items m
+        LEFT JOIN users u ON m.seller_id = u.id
+        WHERE m.is_active = 1
+        ORDER BY m.created_at DESC
+        LIMIT 100
+    ")->fetchAll();
+}
+?>
+<?php dashboard_page_start('Marketplace', ['active' => 'marketplace.php', 'description' => 'Browse inputs, services, and offers published for growers.', 'wide' => true]); ?>
+<h1>Marketplace</h1>
+    <div class="grid">
+      <?php foreach ($items as $item): ?>
+        <article class="card">
+          <h2><?= e($item['title']) ?></h2>
+          <p><?= e(substr((string) $item['description'], 0, 160)) ?></p>
+          <p class="price">NGN <?= e(number_format((float) $item['price'], 2)) ?></p>
+          <p>Seller: <?= (int) ($item['seller_id'] ?? 0) === 0 ? 'NATCODEV' : e($item['seller_name']) ?></p>
+          <a class="button" href="inbox.php?topic=marketplace">Ask About This</a>
+        </article>
+      <?php endforeach; ?>
+      <?php if (!$items): ?><div class="card">Marketplace items will appear here when published.</div><?php endif; ?>
+    </div>
+  <?php dashboard_page_end(); ?>

@@ -7,7 +7,7 @@
 // Configuration
 const char* ssid = "YOUR_WIFI_SSID";
 const char* password = "YOUR_WIFI_PASSWORD";
-const char* api_url = "https://cfc.natcodev.com.ng/api/iot/ingest.php";
+const char* api_url = "https://natcodev.com.ng/api/iot/ingest.php";
 const char* api_key = "YOUR_IOT_API_KEY";
 const char* device_id = "NAT-FARM-001-SM01"; // Unique per device
 

@@ -1,6 +1,24 @@
 <?php
-// api/validation-stats.php
-header('Content-Type: application/json');
+declare(strict_types=1);
+
+require_once __DIR__ . '/../config.php';
+
+session_start();
+$pdo = db();
+if (!admin_session_is_authenticated($pdo)) {
+    json_response(['success' => false, 'error' => 'Forbidden'], 403);
+}
+
+if (!app_table_exists($pdo, 'document_requirements')) {
+    json_response([
+        'success' => true,
+        'totals' => ['total' => 0, 'successful' => 0, 'failed' => 0, 'success_rate' => 0, 'avg_response_time' => 0],
+        'trends' => ['dates' => [], 'success' => [], 'failed' => []],
+        'by_document_type' => [],
+        'by_state' => [],
+        'recent_activity' => [],
+    ]);
+}
 
 // Totals
 $totsql = "
@@ -49,28 +67,29 @@ while ($row = $typestmt->fetch()) {
     $byDocumentType[$row['document_type']] = intval($row['count']);
 }
 
-// By state
-$statesql = "
-    SELECT 
-        s.state_name,
-        ROUND(
-            SUM(CASE WHEN dr.api_validation_status = 'valid' THEN 1 ELSE 0 END) * 100.0 / 
-            COUNT(*), 1
-        ) as success_rate
-    FROM document_requirements dr
-    JOIN users u ON dr.user_id = u.id
-    JOIN applications a ON u.application_id = a.id
-    JOIN nigeria_states s ON a.state_id = s.id
-    WHERE dr.api_validation_status IS NOT NULL
-    GROUP BY s.state_name
-    HAVING COUNT(*) >= 5
-    ORDER BY success_rate DESC
-    LIMIT 10
-";
-$statestmt = $pdo->query($statesql);
 $byState = [];
-while ($row = $statestmt->fetch()) {
-    $byState[$row['state_name']] = floatval($row['success_rate']);
+if (app_table_exists($pdo, 'nigeria_states') && app_column_exists($pdo, 'applications', 'state_id')) {
+    $statesql = "
+        SELECT
+            s.state_name,
+            ROUND(
+                SUM(CASE WHEN dr.api_validation_status = 'valid' THEN 1 ELSE 0 END) * 100.0 /
+                COUNT(*), 1
+            ) as success_rate
+        FROM document_requirements dr
+        JOIN users u ON dr.user_id = u.id
+        JOIN applications a ON u.application_id = a.id
+        JOIN nigeria_states s ON a.state_id = s.id
+        WHERE dr.api_validation_status IS NOT NULL
+        GROUP BY s.state_name
+        HAVING COUNT(*) >= 5
+        ORDER BY success_rate DESC
+        LIMIT 10
+    ";
+    $statestmt = $pdo->query($statesql);
+    while ($row = $statestmt->fetch()) {
+        $byState[$row['state_name']] = (float) $row['success_rate'];
+    }
 }
 
 // Recent activity
@@ -90,7 +109,8 @@ $activitysql = "
 $activitystmt = $pdo->query($activitysql);
 $recentActivity = $activitystmt->fetchAll();
 
-echo json_encode([
+json_response([
+    'success' => true,
     'totals' => [
         'total' => intval($totals['total']),
         'successful' => intval($totals['successful']),
@@ -103,4 +123,3 @@ echo json_encode([
     'by_state' => $byState,
     'recent_activity' => $recentActivity
 ]);
-?>

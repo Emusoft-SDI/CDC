@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title">
+  <title id="title">BOA Seal</title>
+  <circle cx="80" cy="80" r="74" fill="#fffdf5" stroke="#245f3d" stroke-width="7"/>
+  <circle cx="80" cy="80" r="55" fill="#eaf7ef" stroke="#c9a227" stroke-width="4"/>
+  <path d="M45 97h70v13H45zM51 86h58v8H51zM55 50h50l12 24H43zM62 74h10v12H62zm26 0h10v12H88z" fill="#245f3d"/>
+  <text x="80" y="128" text-anchor="middle" font-family="Arial" font-size="20" font-weight="700" fill="#245f3d">BOA</text>
+</svg>

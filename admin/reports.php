@@ -1,110 +1,99 @@
-<!-- admin/reports.php -->
 <?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../lib/admin-layout.php';
+
 session_start();
-if (!isset($_SESSION['admin']) || $_SESSION['admin'] !== true) {
-    header('Location: login.php');
-    exit;
+$pdo = db();
+admin_ensure_schema($pdo);
+admin_require($pdo);
+
+$agents = $pdo->query("
+    SELECT u.id, u.name, u.email, COALESCE(sp.staff_type, 'field_agent') staff_type
+    FROM users u
+    LEFT JOIN staff_profiles sp ON sp.user_id = u.id
+    WHERE u.role = 'field_agent'
+    ORDER BY sp.staff_type, u.name
+")->fetchAll();
+
+admin_page_start('Agent Reports', [
+    'active' => 'reports.php',
+    'description' => 'Export field-agent location and visit activity by reporting period.',
+]);
+?>
+<form class="panel" id="reportForm">
+  <label>Field Agent</label>
+  <select name="agent_id" required>
+    <option value="">Select Agent</option>
+    <?php foreach ($agents as $agent): ?>
+      <option value="<?= (int) $agent['id'] ?>"><?= e($agent['name']) ?> - <?= e(ucfirst(str_replace('_', ' ', (string) $agent['staff_type']))) ?></option>
+    <?php endforeach; ?>
+  </select>
+  <div class="grid">
+    <div>
+      <label>Start Date</label>
+      <input type="date" name="start_date" value="<?= e(date('Y-m-d', strtotime('-30 days'))) ?>" required>
+    </div>
+    <div>
+      <label>End Date</label>
+      <input type="date" name="end_date" value="<?= e(date('Y-m-d')) ?>" required>
+    </div>
+  </div>
+  <div class="actions">
+    <button type="button" onclick="viewReport()">View Online</button>
+    <button type="button" class="secondary" onclick="exportReport('csv')">Export CSV</button>
+    <button type="button" class="secondary" onclick="exportReport('pdf')">Export PDF</button>
+  </div>
+</form>
+
+<section class="panel" style="margin-top:18px;">
+  <h2>Activity Log</h2>
+  <div id="reportView" class="empty">Choose an agent and view a report.</div>
+</section>
+
+<script>
+function reportParams(format) {
+  const form = document.getElementById('reportForm');
+  const params = new URLSearchParams(new FormData(form));
+  if (format) params.set('format', format);
+  return params;
 }
 
-$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
-               "natcodevcom_data", "XC^#3)[;*xTcm&V9");
+function exportReport(format) {
+  const params = reportParams(format);
+  if (!params.get('agent_id')) {
+    alert('Select a field agent first.');
+    return;
+  }
+  window.open(`../api/agent-report.php?${params.toString()}`, '_blank');
+}
 
-$agents = $pdo->query("SELECT id, name FROM users WHERE role = 'field_agent'")->fetchAll();
-?>
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Agent Activity Reports - NATCODEV</title>
-  <style>
-    body { font-family: Arial; margin: 20px; }
-    .form-group { margin: 15px 0; }
-    label { display: block; margin-bottom: 5px; }
-    select, input { padding: 8px; width: 200px; }
-    .export-buttons { margin: 20px 0; }
-    button { background: #2d5016; color: white; padding: 10px 15px; border: none; margin-right: 10px; }
-  </style>
-</head>
-<body>
-  <h1>Agent Activity Reports</h1>
-  
-  <form id="reportForm">
-    <div class="form-group">
-      <label>Field Agent</label>
-      <select name="agent_id" required>
-        <option value="">Select Agent</option>
-        <?php foreach ($agents as $agent): ?>
-        <option value="<?= $agent['id'] ?>"><?= htmlspecialchars($agent['name']) ?></option>
-        <?php endforeach; ?>
-      </select>
-    </div>
-    
-    <div class="form-group">
-      <label>Start Date</label>
-      <input type="date" name="start_date" value="<?= date('Y-m-d', strtotime('-30 days')) ?>" required>
-    </div>
-    
-    <div class="form-group">
-      <label>End Date</label>
-      <input type="date" name="end_date" value="<?= date('Y-m-d') ?>" required>
-    </div>
-    
-    <div class="export-buttons">
-      <button type="button" onclick="exportReport('csv')">📥 Export CSV</button>
-      <button type="button" onclick="exportReport('pdf')">📄 Export PDF</button>
-      <button type="button" onclick="viewReport()">👁️ View Online</button>
-    </div>
-  </form>
+async function viewReport() {
+  const params = reportParams();
+  if (!params.get('agent_id')) {
+    alert('Select a field agent first.');
+    return;
+  }
+  const target = document.getElementById('reportView');
+  target.textContent = 'Loading report...';
+  const res = await fetch(`../api/agent-report.php?${params.toString()}`);
+  const payload = await res.json();
+  const rows = payload.items || [];
+  if (!rows.length) {
+    target.className = 'empty';
+    target.textContent = 'No activity found for this period.';
+    return;
+  }
+  target.className = '';
+  target.innerHTML = `<table><thead><tr><th>Timestamp</th><th>Location</th><th>Battery</th><th>Activity</th></tr></thead><tbody>${rows.map(row => {
+    const location = row.latitude ? `${row.latitude}, ${row.longitude}` : 'N/A';
+    const activity = [row.visit_notes ? `Visit: ${String(row.visit_notes).slice(0, 80)}` : '', row.geofence_event ? `Geofence: ${row.geofence_event} ${row.zone_name || ''}` : ''].filter(Boolean).join('; ') || 'Location ping';
+    return `<tr><td>${escapeHtml(row.timestamp)}</td><td>${escapeHtml(location)}</td><td>${escapeHtml(row.battery_level || '')}%</td><td>${escapeHtml(activity)}</td></tr>`;
+  }).join('')}</tbody></table>`;
+}
 
-  <div id="reportView" style="margin-top: 30px;"></div>
-
-  <script>
-    function exportReport(format) {
-      const form = document.getElementById('reportForm');
-      const data = new FormData(form);
-      data.append('format', format);
-      
-      // Build URL
-      const params = new URLSearchParams();
-      for (let [key, value] of data.entries()) {
-        params.append(key, value);
-      }
-      
-      window.open(`/api/agent-report.php?${params.toString()}`, '_blank');
-    }
-    
-    function viewReport() {
-      const form = document.getElementById('reportForm');
-      const data = new FormData(form);
-      const params = new URLSearchParams();
-      for (let [key, value] of data.entries()) {
-        params.append(key, value);
-      }
-      
-      fetch(`/api/agent-report.php?${params.toString()}`)
-        .then(res => res.json())
-        .then(data => {
-          let html = '<h2>Activity Log</h2><table border="1" style="width:100%; border-collapse:collapse;">';
-          html += '<tr><th>Timestamp</th><th>Location</th><th>Battery</th><th>Activity</th></tr>';
-          
-          data.forEach(row => {
-            const location = row.latitude ? `${row.latitude}, ${row.longitude}` : 'N/A';
-            let activity = [];
-            if (row.visit_notes) activity.push(`Visit: ${row.visit_notes.substring(0, 50)}...`);
-            if (row.geofence_event) activity.push(`Geofence: ${row.geofence_event} ${row.zone_name || ''}`);
-            const activityStr = activity.join('; ') || 'Location ping';
-            
-            html += `<tr>
-              <td>${row.timestamp}</td>
-              <td>${location}</td>
-              <td>${row.battery_level}%</td>
-              <td>${activityStr}</td>
-            </tr>`;
-          });
-          
-          html += '</table>';
-          document.getElementById('reportView').innerHTML = html;
-        });
-    }
-  </script>
-</body>
-</html>
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]));
+}
+</script>
+<?php admin_page_end(); ?>

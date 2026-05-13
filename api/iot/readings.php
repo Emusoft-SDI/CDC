@@ -1,32 +1,43 @@
 <?php
-// api/iot/readings.php - Get sensor readings for dashboard
+declare(strict_types=1);
+
+require_once __DIR__ . '/../../config.php';
+
 session_start();
-header('Content-Type: application/json');
+$pdo = db();
+$user = require_user_role($pdo, ['grower', 'field_agent', 'admin']);
 
-$farmId = intval($_GET['farm_id'] ?? 0);
+$farmId = filter_input(INPUT_GET, 'farm_id', FILTER_VALIDATE_INT);
 if (!$farmId) {
-    http_response_code(400);
-    exit(json_encode(['error' => 'Farm ID required']));
+    json_response(['success' => false, 'error' => 'Farm ID required'], 422);
 }
 
-// Verify ownership
-$stmt = $pdo->prepare("SELECT id FROM applications WHERE id = ? AND user_id = ?");
-$stmt->execute([$farmId, $_SESSION['user_id']]);
-if (!$stmt->fetch()) {
-    http_response_code(403);
-    exit(json_encode(['error' => 'Unauthorized']));
+try {
+    if (($user['role'] ?? '') === 'grower') {
+        $stmt = $pdo->prepare("
+            SELECT a.id
+            FROM applications a
+            JOIN users u ON u.application_id = a.id
+            WHERE a.id = ? AND u.id = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$farmId, (int) $user['id']]);
+        if (!$stmt->fetch()) {
+            json_response(['success' => false, 'error' => 'Unauthorized'], 403);
+        }
+    }
+
+    $stmt = $pdo->prepare("
+        SELECT sr.*, s.sensor_type, s.device_id
+        FROM sensor_readings sr
+        JOIN iot_sensors s ON sr.sensor_id = s.id
+        WHERE s.farm_id = ? AND sr.reading_timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        ORDER BY sr.reading_timestamp ASC
+    ");
+    $stmt->execute([$farmId]);
+
+    json_response(['success' => true, 'readings' => $stmt->fetchAll()]);
+} catch (Throwable $e) {
+    error_log('IoT readings API error: ' . $e->getMessage());
+    json_response(['success' => true, 'readings' => []]);
 }
-
-// Get last 24 hours of data
-$stmt = $pdo->prepare("
-    SELECT sr.*, s.sensor_type, s.device_id
-    FROM sensor_readings sr
-    JOIN iot_sensors s ON sr.sensor_id = s.id
-    WHERE s.farm_id = ? AND sr.reading_timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-    ORDER BY sr.reading_timestamp ASC
-");
-$stmt->execute([$farmId]);
-$readings = $stmt->fetchAll();
-
-echo json_encode(['success' => true, 'readings' => $readings]);
-?>

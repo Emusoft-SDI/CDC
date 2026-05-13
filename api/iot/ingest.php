@@ -1,74 +1,71 @@
 <?php
-// api/iot/ingest.php - Secure IoT data ingestion
-header('Content-Type: application/json');
+declare(strict_types=1);
 
-// Verify API key (store in settings table)
-$apiKey = $_SERVER['HTTP_X_API_KEY'] ?? '';
-$validKey = $pdo->query("SELECT value FROM settings WHERE key_name = 'iot_api_key'")->fetchColumn();
+require_once __DIR__ . '/../../config.php';
 
-if ($apiKey !== $validKey) {
-    http_response_code(401);
-    exit(json_encode(['error' => 'Unauthorized']));
+$pdo = db();
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    json_response(['success' => false, 'error' => 'POST method required'], 405);
 }
 
-$input = json_decode(file_get_contents('php://input'), true);
-$deviceId = $input['device_id'] ?? '';
-$value = $input['value'] ?? null;
-$unit = $input['unit'] ?? '';
-$timestamp = $input['timestamp'] ?? date('Y-m-d H:i:s');
+$apiKey = (string) ($_SERVER['HTTP_X_API_KEY'] ?? '');
+$validKey = '';
+if (app_table_exists($pdo, 'settings')) {
+    $validKey = (string) $pdo->query("SELECT value FROM settings WHERE key_name = 'iot_api_key'")->fetchColumn();
+}
 
-if (!$deviceId || !is_numeric($value)) {
-    http_response_code(400);
-    exit(json_encode(['error' => 'Invalid data']));
+if ($validKey === '' || !hash_equals($validKey, $apiKey)) {
+    json_response(['success' => false, 'error' => 'Unauthorized'], 401);
+}
+
+$input = json_decode(file_get_contents('php://input') ?: '{}', true);
+if (!is_array($input)) {
+    json_response(['success' => false, 'error' => 'Invalid JSON'], 400);
+}
+
+$deviceId = trim((string) ($input['device_id'] ?? ''));
+$value = $input['value'] ?? null;
+$unit = trim((string) ($input['unit'] ?? ''));
+$timestamp = date('Y-m-d H:i:s', strtotime((string) ($input['timestamp'] ?? 'now')) ?: time());
+
+if ($deviceId === '' || !is_numeric($value)) {
+    json_response(['success' => false, 'error' => 'Invalid data'], 422);
 }
 
 try {
-    // Find sensor
-    $stmt = $pdo->prepare("SELECT id, farm_id FROM iot_sensors WHERE device_id = ? AND status = 'active'");
+    $stmt = $pdo->prepare("SELECT id, farm_id FROM iot_sensors WHERE device_id = ? AND status = 'active' LIMIT 1");
     $stmt->execute([$deviceId]);
     $sensor = $stmt->fetch();
-    
+
     if (!$sensor) {
-        // Auto-register new sensors (optional)
-        if ($pdo->query("SELECT value FROM settings WHERE key_name = 'auto_register_sensors'")->fetchColumn()) {
-            // Register sensor (implementation depends on your hardware setup)
-            registerNewSensor($deviceId, $input['sensor_type'] ?? 'unknown');
+        $autoRegister = app_table_exists($pdo, 'settings')
+            && $pdo->query("SELECT value FROM settings WHERE key_name = 'auto_register_sensors'")->fetchColumn() === '1';
+        if ($autoRegister) {
+            error_log('New sensor detected: ' . $deviceId . ' (' . (string) ($input['sensor_type'] ?? 'unknown') . ')');
         }
-        http_response_code(404);
-        exit(json_encode(['error' => 'Sensor not found']));
+        json_response(['success' => false, 'error' => 'Sensor not found'], 404);
     }
-    
-    // Insert reading
+
     $pdo->prepare("
         INSERT INTO sensor_readings (sensor_id, reading_value, reading_unit, reading_timestamp, metadata)
         VALUES (?, ?, ?, ?, ?)
     ")->execute([
-        $sensor['id'],
-        $value,
+        (int) $sensor['id'],
+        (float) $value,
         $unit,
         $timestamp,
-        json_encode($input['metadata'] ?? [])
+        json_encode($input['metadata'] ?? [], JSON_UNESCAPED_SLASHES),
     ]);
-    
-    // Update last_reading
+
     $pdo->prepare("
-        UPDATE iot_sensors 
+        UPDATE iot_sensors
         SET last_reading = JSON_OBJECT('value', ?, 'unit', ?, 'timestamp', ?), last_updated = NOW()
         WHERE id = ?
-    ")->execute([$value, $unit, $timestamp, $sensor['id']]);
-    
-    echo json_encode(['success' => true, 'farm_id' => $sensor['farm_id']]);
-    
-} catch (Exception $e) {
-    error_log("IoT ingestion error: " . $e->getMessage());
-    http_response_code(500);
-    echo json_encode(['error' => 'Internal error']);
-}
+    ")->execute([(float) $value, $unit, $timestamp, (int) $sensor['id']]);
 
-function registerNewSensor($deviceId, $sensorType) {
-    global $pdo;
-    // Implementation depends on your hardware provisioning system
-    // For now, log for manual review
-    error_log("New sensor detected: $deviceId ($sensorType)");
+    json_response(['success' => true, 'farm_id' => (int) $sensor['farm_id']]);
+} catch (Throwable $e) {
+    error_log('IoT ingestion error: ' . $e->getMessage());
+    json_response(['success' => false, 'error' => 'Internal error'], 500);
 }
-?>

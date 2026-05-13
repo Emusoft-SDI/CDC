@@ -1,108 +1,88 @@
 <?php
-// cron/weekly-report.php - Run via cron job every Monday at 8 AM
-require_once '../config.php'; // Your DB config
+declare(strict_types=1);
 
-$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
-               "natcodevcom_data", "XC^#3)[;*xTcm&V9");
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../lib/weather.php';
 
-// Date ranges
+$pdo = db();
+app_ensure_core_schema($pdo);
+
 $endDate = date('Y-m-d');
 $startDate = date('Y-m-d', strtotime('-7 days'));
 $lastWeekStart = date('Y-m-d', strtotime('-14 days'));
 $lastWeekEnd = date('Y-m-d', strtotime('-8 days'));
 
-// Get metrics
+function cron_count_if_table(PDO $pdo, string $table, string $column, string $from): int
+{
+    if (!app_table_exists($pdo, $table) || !app_column_exists($pdo, $table, $column)) {
+        return 0;
+    }
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM `{$table}` WHERE `{$column}` >= ?");
+    $stmt->execute([$from]);
+    return (int) $stmt->fetchColumn();
+}
+
 $metrics = [
-    'agents' => $pdo->query("SELECT COUNT(DISTINCT agent_id) FROM agent_locations WHERE timestamp >= '$startDate'")->fetchColumn(),
-    'visits' => $pdo->query("SELECT COUNT(*) FROM field_visits WHERE visited_at >= '$startDate'")->fetchColumn(),
-    'new_growers' => $pdo->query("SELECT COUNT(*) FROM applications WHERE confirmed = 1 AND confirmed_at >= '$startDate'")->fetchColumn(),
-    'alerts' => $pdo->query("SELECT COUNT(*) FROM geofence_events WHERE triggered_at >= '$startDate'")->fetchColumn()
+    'agents' => app_table_exists($pdo, 'agent_locations')
+        ? (int) $pdo->query("SELECT COUNT(DISTINCT agent_id) FROM agent_locations WHERE timestamp >= " . $pdo->quote($startDate))->fetchColumn()
+        : 0,
+    'visits' => cron_count_if_table($pdo, 'field_visits', 'visited_at', $startDate),
+    'new_growers' => app_column_exists($pdo, 'applications', 'confirmed_at')
+        ? (int) $pdo->query("SELECT COUNT(*) FROM applications WHERE confirmed = 1 AND confirmed_at >= " . $pdo->quote($startDate))->fetchColumn()
+        : 0,
+    'alerts' => cron_count_if_table($pdo, 'geofence_events', 'triggered_at', $startDate),
 ];
 
-// Visit trends by agent
 $visitTrends = [];
-$stmt = $pdo->prepare("
-    SELECT 
-        u.id, u.name,
-        COUNT(CASE WHEN fv.visited_at >= ? THEN 1 END) as this_week,
-        COUNT(CASE WHEN fv.visited_at BETWEEN ? AND ? THEN 1 END) as last_week
-    FROM users u
-    LEFT JOIN field_visits fv ON u.id = fv.agent_id
-    WHERE u.role = 'field_agent'
-    GROUP BY u.id, u.name
-");
-$stmt->execute([$startDate, $lastWeekStart, $lastWeekEnd]);
-while ($row = $stmt->fetch()) {
-    $change = $row['this_week'] - $row['last_week'];
-    if ($change > 0) {
-        $trend = ['icon' => '↑', 'text' => '+' . $change, 'class' => 'trend-up'];
-    } elseif ($change < 0) {
-        $trend = ['icon' => '↓', 'text' => $change, 'class' => 'trend-down'];
-    } else {
-        $trend = ['icon' => '→', 'text' => '0', 'class' => ''];
+if (app_table_exists($pdo, 'field_visits')) {
+    $stmt = $pdo->prepare("
+        SELECT
+            u.id, u.name,
+            COUNT(CASE WHEN fv.visited_at >= ? THEN 1 END) as this_week,
+            COUNT(CASE WHEN fv.visited_at BETWEEN ? AND ? THEN 1 END) as last_week
+        FROM users u
+        LEFT JOIN field_visits fv ON u.id = fv.agent_id
+        WHERE u.role = 'field_agent'
+        GROUP BY u.id, u.name
+    ");
+    $stmt->execute([$startDate, $lastWeekStart, $lastWeekEnd]);
+    foreach ($stmt->fetchAll() as $row) {
+        $change = (int) $row['this_week'] - (int) $row['last_week'];
+        $visitTrends[] = [
+            'name' => $row['name'],
+            'this_week' => (int) $row['this_week'],
+            'last_week' => (int) $row['last_week'],
+            'trend_icon' => $change > 0 ? 'up' : ($change < 0 ? 'down' : 'flat'),
+            'trend_text' => (string) $change,
+            'trend_class' => $change > 0 ? 'trend-up' : ($change < 0 ? 'trend-down' : ''),
+        ];
     }
-    
-    $visitTrends[] = [
-        'name' => $row['name'],
-        'this_week' => $row['this_week'],
-        'last_week' => $row['last_week'],
-        'trend_icon' => $trend['icon'],
-        'trend_text' => $trend['text'],
-        'trend_class' => $trend['class']
-    ];
 }
 
-// Weather forecast (see Part 2)
-$weatherSummary = getWeatherForecastSummary();
-
-// Recent alerts
+$weatherSummary = function_exists('getWeatherForecastSummary') ? getWeatherForecastSummary() : 'Weather summary unavailable.';
 $recentAlerts = [];
-$alertStmt = $pdo->prepare("
-    SELECT 
-        CONCAT(u.name, ' ', ge.event_type, 'ed ', fz.name) as message,
-        DATE_FORMAT(ge.triggered_at, '%a %H:%i') as time
-    FROM geofence_events ge
-    JOIN users u ON ge.agent_id = u.id
-    JOIN farm_zones fz ON ge.zone_id = fz.id
-    WHERE ge.triggered_at >= ?
-    ORDER BY ge.triggered_at DESC
-    LIMIT 5
-");
-$alertStmt->execute([$startDate]);
-while ($row = $alertStmt->fetch()) {
-    $recentAlerts[] = $row;
+if (app_table_exists($pdo, 'geofence_events') && app_table_exists($pdo, 'farm_zones')) {
+    $alertStmt = $pdo->prepare("
+        SELECT CONCAT(u.name, ' ', ge.event_type, ' ', fz.name) as message,
+               DATE_FORMAT(ge.triggered_at, '%a %H:%i') as time
+        FROM geofence_events ge
+        JOIN users u ON ge.agent_id = u.id
+        JOIN farm_zones fz ON ge.zone_id = fz.id
+        WHERE ge.triggered_at >= ?
+        ORDER BY ge.triggered_at DESC
+        LIMIT 5
+    ");
+    $alertStmt->execute([$startDate]);
+    $recentAlerts = $alertStmt->fetchAll();
 }
 
-// Render template
 ob_start();
-include '../templates/weekly-report.html';
-$html = ob_get_clean();
+include __DIR__ . '/../templates/weekly-report.html';
+$html = (string) ob_get_clean();
 
-// Send to all admins
-$admins = $pdo->query("SELECT email FROM users WHERE role = 'admin'")->fetchAll();
+$admins = $pdo->query("SELECT email FROM users WHERE role = 'admin' AND email <> ''")->fetchAll();
 foreach ($admins as $admin) {
-    sendEmail($admin['email'], 'NATCODEV Weekly Intelligence Report', $html);
+    app_send_mail((string) $admin['email'], 'NATCODEV Weekly Intelligence Report', strip_tags($html), $html);
 }
 
-function sendEmail($to, $subject, $html) {
-    $headers = "From: noreply@coconutventurehub.ng\r\n";
-    $headers .= "MIME-Version: 1.0\r\n";
-    $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
-    mail($to, $subject, $html, $headers);
-}
-?>
-// Predict next week's visits based on trend
-function predictVisits($visitTrends) {
-    $totalThisWeek = array_sum(array_column($visitTrends, 'this_week'));
-    $totalLastWeek = array_sum(array_column($visitTrends, 'last_week'));
-    
-    if ($totalLastWeek == 0) return $totalThisWeek;
-    
-    $growthRate = ($totalThisWeek - $totalLastWeek) / $totalLastWeek;
-    $prediction = $totalThisWeek * (1 + $growthRate);
-    
-    return round($prediction);
-}
-
-$predictedVisits = predictVisits($visitTrends);
-// Add to template variables
+echo 'Weekly report sent to ' . count($admins) . ' admin(s).' . PHP_EOL;

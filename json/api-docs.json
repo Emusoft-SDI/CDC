@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "https://cfc.natcodev.com.ng/api/mobile"
+      "url": "https://natcodev.com.ng/api/mobile"
     }
   ],
   "paths": {

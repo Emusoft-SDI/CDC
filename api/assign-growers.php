@@ -1,170 +1,97 @@
-<!-- admin/assign-growers.php -->
 <?php
-// Get all field agents
-$agents = $pdo->query("SELECT id, name, email FROM users WHERE role = 'field_agent'")->fetchAll();
+declare(strict_types=1);
 
-// Get states for filtering
-$states = $pdo->query("SELECT state_name FROM nigeria_states ORDER BY state_name")->fetchAll();
-?>
-<h2>Intelligent Bulk Grower Assignment</h2>
+require_once __DIR__ . '/../lib/assignments.php';
 
-<form method="POST" id="assignmentForm">
-  <div class="form-group">
-    <label>Assignment Name</label>
-    <input type="text" name="batch_name" required placeholder="e.g., Lagos Epe Q1 2024">
-  </div>
-  
-  <div class="form-group">
-    <label>Field Agent</label>
-    <select name="agent_id" required>
-      <option value="">Select Field Agent</option>
-      <?php foreach ($agents as $agent): ?>
-        <option value="<?= $agent['id'] ?>"><?= htmlspecialchars($agent['name']) ?> (<?= htmlspecialchars($agent['email']) ?>)</option>
-      <?php endforeach; ?>
-    </select>
-  </div>
-  
-  <!-- Demographic Criteria -->
-  <div class="criteria-section">
-    <h3>Assignment Criteria</h3>
-    
-    <div class="form-group">
-      <label>State</label>
-      <select name="criteria[state]" onchange="loadLGAs(this.value)">
-        <option value="">All States</option>
-        <?php foreach ($states as $state): ?>
-          <option value="<?= htmlspecialchars($state['state_name']) ?>"><?= htmlspecialchars($state['state_name']) ?></option>
-        <?php endforeach; ?>
-      </select>
-    </div>
-    
-    <div class="form-group">
-      <label>LGA</label>
-      <select name="criteria[lga]" id="lgaSelect">
-        <option value="">All LGAs</option>
-      </select>
-    </div>
-    
-    <div class="form-group">
-      <label>Ward</label>
-      <input type="text" name="criteria[ward]" placeholder="e.g., Ijede, Odo Epe">
-    </div>
-    
-    <div class="form-group">
-      <label>Minimum Farm Size (ha)</label>
-      <input type="number" name="criteria[min_farm_size]" min="1" step="0.1" value="1">
-    </div>
-    
-    <div class="form-group">
-      <label>Experience Level</label>
-      <select name="criteria[experience]">
-        <option value="">All Levels</option>
-        <option value="beginner">Beginner (0-2 years)</option>
-        <option value="intermediate">Intermediate (3-5 years)</option>
-        <option value="advanced">Advanced (6-10 years)</option>
-        <option value="expert">Expert (10+ years)</option>
-      </select>
-    </div>
-    
-    <div class="form-group">
-      <label>Education Level</label>
-      <select name="criteria[education]">
-        <option value="">All Levels</option>
-        <option value="primary">Primary</option>
-        <option value="secondary">Secondary</option>
-        <option value="tertiary">Tertiary</option>
-        <option value="post_graduate">Post Graduate</option>
-      </select>
-    </div>
-  </div>
-  
-  <button type="submit">Preview Assignment</button>
-</form>
-
-<div id="previewSection" style="display:none; margin-top: 30px;">
-  <h3>Assignment Preview</h3>
-  <p id="previewCount"></p>
-  <div id="previewList"></div>
-  <button onclick="confirmAssignment()">Confirm Assignment</button>
-</div>
-
-<script>
-function loadLGAs(state) {
-  if (!state) {
-    document.getElementById('lgaSelect').innerHTML = '<option value="">All LGAs</option>';
-    return;
-  }
-  
-  fetch(`/api/get-lgas-by-state.php?state=${encodeURIComponent(state)}`)
-    .then(response => response.json())
-    .then(data => {
-      let options = '<option value="">All LGAs</option>';
-      data.forEach(lga => {
-        options += `<option value="${lga.lga_name}">${lga.lga_name}</option>`;
-      });
-      document.getElementById('lgaSelect').innerHTML = options;
-    });
+session_start();
+$pdo = db();
+if (!admin_session_is_authenticated($pdo)) {
+    json_response(['success' => false, 'error' => 'Forbidden'], 403);
 }
 
-document.getElementById('assignmentForm').addEventListener('submit', async function(e) {
-  e.preventDefault();
-  
-  const formData = new FormData(this);
-  const criteria = {};
-  for (let [key, value] of formData.entries()) {
-    if (key.startsWith('criteria[')) {
-      const field = key.match(/criteria\[(.*?)\]/)[1];
-      if (value) criteria[field] = value;
-    }
-  }
-  
-  const previewData = {
-    agent_id: formData.get('agent_id'),
-    criteria: criteria
-  };
-  
-  const response = await fetch('/api/preview-assignment.php', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(previewData)
-  });
-  
-  const result = await response.json();
-  if (result.success) {
-    document.getElementById('previewCount').textContent = `Found ${result.count} growers matching criteria`;
-    document.getElementById('previewList').innerHTML = result.growers.map(g => 
-      `<div>${g.name} - ${g.location} (${g.farm_size} ha)</div>`
-    ).join('');
-    document.getElementById('previewSection').style.display = 'block';
-  }
-});
-
-async function confirmAssignment() {
-  const formData = new FormData(document.getElementById('assignmentForm'));
-  const criteria = {};
-  for (let [key, value] of formData.entries()) {
-    if (key.startsWith('criteria[')) {
-      const field = key.match(/criteria\[(.*?)\]/)[1];
-      if (value) criteria[field] = value;
-    }
-  }
-  
-  const assignmentData = {
-    batch_name: formData.get('batch_name'),
-    agent_id: formData.get('agent_id'),
-    criteria: criteria
-  };
-  
-  const response = await fetch('/api/assign-growers.php', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(assignmentData)
-  });
-  
-  const result = await response.json();
-  if (result.success) {
-    alert(`Successfully assigned ${result.assigned} growers to field agent!`);
-    location.reload();
-  }
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    json_response(['success' => false, 'error' => 'POST method required'], 405);
 }
-</script>
+
+$input = json_decode(file_get_contents('php://input') ?: '{}', true);
+if (!is_array($input)) {
+    json_response(['success' => false, 'error' => 'Invalid JSON'], 400);
+}
+
+$agentId = (int) ($input['agent_id'] ?? 0);
+$batchName = trim((string) ($input['batch_name'] ?? ''));
+$criteria = is_array($input['criteria'] ?? null) ? $input['criteria'] : [];
+
+if ($agentId <= 0 || $batchName === '') {
+    json_response(['success' => false, 'error' => 'Assignment name and field agent are required'], 422);
+}
+
+try {
+    $agentStmt = $pdo->prepare("SELECT id FROM users WHERE id = ? AND role = 'field_agent' LIMIT 1");
+    $agentStmt->execute([$agentId]);
+    if (!$agentStmt->fetch()) {
+        json_response(['success' => false, 'error' => 'Field agent not found'], 404);
+    }
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS assignment_batches (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            admin_id INT NULL,
+            name VARCHAR(150) NOT NULL,
+            criteria JSON NULL,
+            total_assigned INT NOT NULL DEFAULT 0,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS agronomist_assignments (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            agronomist_id INT NOT NULL,
+            grower_id INT NOT NULL,
+            batch_id INT NULL,
+            assignment_criteria JSON NULL,
+            status VARCHAR(30) NOT NULL DEFAULT 'active',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_active_assignment (grower_id, status),
+            INDEX idx_agronomist_assignments_agent (agronomist_id, status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    [$sql, $params] = assignment_grower_query($pdo, $criteria, 0);
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $growerIds = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+
+    $pdo->beginTransaction();
+    $pdo->prepare("
+        INSERT INTO assignment_batches (admin_id, name, criteria)
+        VALUES (?, ?, ?)
+    ")->execute([
+        $_SESSION['user_id'] ?? null,
+        $batchName,
+        json_encode($criteria, JSON_UNESCAPED_SLASHES),
+    ]);
+    $batchId = (int) $pdo->lastInsertId();
+
+    $assigned = 0;
+    $insert = $pdo->prepare("
+        INSERT IGNORE INTO agronomist_assignments
+            (agronomist_id, grower_id, batch_id, assignment_criteria, status)
+        VALUES (?, ?, ?, ?, 'active')
+    ");
+    foreach ($growerIds as $growerId) {
+        $insert->execute([$agentId, $growerId, $batchId, json_encode($criteria, JSON_UNESCAPED_SLASHES)]);
+        $assigned += $insert->rowCount() > 0 ? 1 : 0;
+    }
+
+    $pdo->prepare("UPDATE assignment_batches SET total_assigned = ? WHERE id = ?")->execute([$assigned, $batchId]);
+    $pdo->commit();
+
+    json_response(['success' => true, 'assigned' => $assigned, 'batch_id' => $batchId]);
+} catch (Throwable $e) {
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    error_log('Assign growers API error: ' . $e->getMessage());
+    json_response(['success' => false, 'error' => 'Unable to assign growers'], 500);
+}

@@ -1,5 +1,27 @@
-<!-- dashboard/verify-phone.php -->
 <?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../lib/dashboard-layout.php';
+require_once __DIR__ . '/../lib/twilio.php';
+
+session_start();
+$pdo = db();
+$user = current_user($pdo);
+if (!$user) {
+    redirect_to('login.php');
+}
+$profilePhone = '';
+if (app_column_exists($pdo, 'users', 'phone')) {
+    $phoneStmt = $pdo->prepare("SELECT phone FROM users WHERE id = ? LIMIT 1");
+    $phoneStmt->execute([(int) $user['id']]);
+    $profilePhone = (string) $phoneStmt->fetchColumn();
+}
+
+app_add_column_if_missing($pdo, 'users', 'phone_verified', 'TINYINT(1) NOT NULL DEFAULT 0');
+app_add_column_if_missing($pdo, 'users', 'phone_verification_code', 'VARCHAR(10) NULL');
+app_add_column_if_missing($pdo, 'users', 'phone_verification_expires', 'DATETIME NULL');
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['send_code'])) {
         // Generate verification code
@@ -15,7 +37,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ")->execute([$code, $expires, $_SESSION['user_id']]);
         
         // Send SMS via Twilio
-        sendSMSMessage($user['phone'], "Your NATCODEV verification code is: {$code}. Valid for 5 minutes.");
+        if ($profilePhone !== '') {
+            sendSMSMessage($profilePhone, "Your NATCODEV verification code is: {$code}. Valid for 5 minutes.");
+        }
         
         $message = "Verification code sent to your phone.";
         
@@ -54,32 +78,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 ?>
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Verify Phone Number - NATCODEV</title>
-</head>
-<body>
-  <h2>Phone Number Verification</h2>
+<?php dashboard_page_start('Phone Verification', ['active' => 'verify-phone.php', 'description' => 'Verify your phone number for certificate and support workflows.', 'wide' => true]); ?>
+  <section class="card" style="max-width:680px;">
   
   <?php if (!empty($success)): ?>
-    <p style="color:green;"><?= $success ?></p>
+    <div class="notice success"><?= e($success) ?></div>
   <?php elseif (!empty($message)): ?>
-    <p><?= $message ?></p>
+    <div class="notice success"><?= e($message) ?></div>
     <form method="POST">
+      <label>Verification Code</label>
       <input type="text" name="verification_code" placeholder="Enter 6-digit code" maxlength="6" required>
       <button type="submit" name="verify_code">Verify Code</button>
     </form>
   <?php elseif (!empty($error)): ?>
-    <p style="color:red;"><?= $error ?></p>
+    <div class="notice error"><?= e($error) ?></div>
     <form method="POST">
       <button type="submit" name="send_code">Resend Code</button>
     </form>
   <?php else: ?>
-    <p>We need to verify your phone number before issuing your certificate.</p>
+    <p class="muted">We need to verify your phone number before issuing your certificate.</p>
+    <?php if ($profilePhone === ''): ?>
+      <div class="notice error">Add a phone number on your profile before requesting a code.</div>
+      <a class="button secondary" href="profile.php">Update Profile</a>
+    <?php else: ?>
     <form method="POST">
       <button type="submit" name="send_code">Send Verification Code</button>
     </form>
+    <?php endif; ?>
   <?php endif; ?>
-</body>
-</html>
+  </section>
+<?php dashboard_page_end(); ?>

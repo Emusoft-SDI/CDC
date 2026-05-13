@@ -1,104 +1,113 @@
-<!-- admin/resources.php -->
 <?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../lib/admin-layout.php';
+
 session_start();
-if (!isset($_SESSION['admin']) || $_SESSION['admin'] !== true) {
-    header('Location: login.php');
-    exit;
-}
+$pdo = db();
+admin_ensure_schema($pdo);
+admin_require($pdo);
 
-$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
-               "natcodevcom_data", "XC^#3)[;*xTcm&V9");
+$message = '';
+$error = '';
 
-// Handle upload
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_FILES['file']['name'])) {
-    $uploadDir = $_SERVER['DOCUMENT_ROOT'] . '/resources/';
-    if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
-    
-    $fileName = time() . '_' . basename($_FILES['file']['name']);
-    $filePath = $uploadDir . $fileName;
-    
-    // Allow only safe files
-    $allowed = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'png'];
-    $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
-    if (in_array($ext, $allowed) && move_uploaded_file($_FILES['file']['tmp_name'], $filePath)) {
-        $stmt = $pdo->prepare("
-            INSERT INTO resources (title, description, file_path, category) 
-            VALUES (?, ?, ?, ?)
-        ");
-        $stmt->execute([
-            $_POST['title'],
-            $_POST['description'],
-            $fileName,
-            $_POST['category']
-        ]);
-        
-        // Log audit
-        $log = $pdo->prepare("INSERT INTO audit_log (action, description, ip_address) VALUES (?, ?, ?)");
-        $log->execute(['Resource Uploaded', 'Title: ' . $_POST['title'], $_SERVER['REMOTE_ADDR']]);
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!verify_csrf($_POST['_csrf'] ?? null)) {
+        $error = 'Invalid security token.';
+    } else {
+        $title = trim((string) ($_POST['title'] ?? ''));
+        $description = trim((string) ($_POST['description'] ?? ''));
+        $category = trim((string) ($_POST['category'] ?? 'Guides'));
+        $offline = isset($_POST['offline_available']) ? 1 : 0;
+
+        if ($title === '' || empty($_FILES['file']['name'])) {
+            $error = 'Title and file are required.';
+        } else {
+            $allowed = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png'];
+            $original = (string) $_FILES['file']['name'];
+            $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
+
+            if (!in_array($ext, $allowed, true)) {
+                $error = 'Unsupported file type.';
+            } else {
+                $uploadDir = dirname(__DIR__) . '/resources';
+                if (!is_dir($uploadDir)) {
+                    mkdir($uploadDir, 0755, true);
+                }
+                $safeName = time() . '_' . preg_replace('/[^a-z0-9._-]/i', '_', basename($original));
+                $target = $uploadDir . '/' . $safeName;
+
+                if (move_uploaded_file((string) $_FILES['file']['tmp_name'], $target)) {
+                    $stmt = $pdo->prepare("
+                        INSERT INTO resources (title, description, file_path, category, offline_available)
+                        VALUES (?, ?, ?, ?, ?)
+                    ");
+                    $stmt->execute([$title, $description, $safeName, $category, $offline]);
+                    $pdo->prepare("INSERT INTO audit_log (action, description, ip_address) VALUES (?, ?, ?)")
+                        ->execute(['Resource Uploaded', 'Title: ' . $title, $_SERVER['REMOTE_ADDR'] ?? null]);
+                    $message = 'Resource uploaded.';
+                } else {
+                    $error = 'Upload failed. Check the resources folder permissions.';
+                }
+            }
+        }
     }
 }
 
-// Fetch resources
-$resources = $pdo->query("SELECT * FROM resources ORDER BY created_at DESC")->fetchAll();
+$page = admin_current_page();
+$perPage = admin_per_page(50);
+$offset = admin_pagination_offset($page, $perPage);
+$totalResources = (int) $pdo->query("SELECT COUNT(*) FROM resources")->fetchColumn();
+$resources = $pdo->query("SELECT * FROM resources ORDER BY created_at DESC LIMIT {$perPage} OFFSET {$offset}")->fetchAll();
+
+admin_page_start('Resources', [
+    'active' => 'resources.php',
+    'description' => 'Upload training files, guides, and offline resources for the field agent app.',
+    'wide' => true,
+]);
 ?>
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Resource Library - Admin</title>
-  <style>/* ... your admin CSS ... */</style>
-</head>
-<body>
-  <h1>Manage Resources</h1>
-  
-  <!-- Upload Form -->
-  <form method="POST" enctype="multipart/form-data" style="background:#f9f9f9; padding:20px; border-radius:8px; margin-bottom:30px;">
-    <div class="form-group">
-      <label>Title</label>
-      <input type="text" name="title" required>
-    </div>
-    <div class="form-group">
-      <label>Description</label>
-      <textarea name="description"></textarea>
-    </div>
-    <div class="form-group">
-      <label>Category</label>
-      <select name="category">
-        <option value="Training">Training</option>
-        <option value="Guides">Guides</option>
-        <option value="Market">Market Data</option>
-        <option value="Certificates">Certificates</option>
-      </select>
-    </div>
-<div class="form-group">
-  <label>
-    <input type="checkbox" name="offline_available" checked> 
-    Available Offline for Field Agents
-  </label>
-</div>
-    <div class="form-group">
-      <label>File (PDF, DOC, XLS, JPG, PNG)</label>
-      <input type="file" name="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" required>
-    </div>
-    <button type="submit">Upload Resource</button>
+<?php if ($message): ?><div class="notice ok"><?= e($message) ?></div><?php endif; ?>
+<?php if ($error): ?><div class="notice error"><?= e($error) ?></div><?php endif; ?>
+
+<section class="layout">
+  <form class="panel" method="post" enctype="multipart/form-data">
+    <h2>Upload Resource</h2>
+    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+    <label>Title</label>
+    <input type="text" name="title" required>
+    <label>Description</label>
+    <textarea name="description"></textarea>
+    <label>Category</label>
+    <select name="category">
+      <option value="Training">Training</option>
+      <option value="Guides">Guides</option>
+      <option value="Market">Market Data</option>
+      <option value="Certificates">Certificates</option>
+    </select>
+    <label><input type="checkbox" name="offline_available" checked> Available offline for field agents</label>
+    <label>File</label>
+    <input type="file" name="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" required>
+    <div class="actions"><button type="submit">Upload Resource</button></div>
   </form>
 
-  <!-- Resources List -->
-  <table>
-    <thead>
-      <tr><th>Title</th><th>Category</th><th>Actions</th></tr>
-    </thead>
-    <tbody>
-      <?php foreach ($resources as $res): ?>
-      <tr>
-        <td><?= htmlspecialchars($res['title']) ?></td>
-        <td><?= htmlspecialchars($res['category']) ?></td>
-        <td>
-          <a href="/resources/<?= urlencode($res['file_path']) ?>" target="_blank">📥 Download</a>
-          <!-- Add delete button if needed -->
-        </td>
-      </tr>
-      <?php endforeach; ?>
-    </tbody>
-  </table>
-</body>
-</html>
+  <section>
+    <?= admin_pagination_controls($totalResources, $page, $perPage) ?>
+    <table>
+      <thead><tr><th>Title</th><th>Category</th><th>Offline</th><th>Uploaded</th><th>File</th></tr></thead>
+      <tbody>
+        <?php foreach ($resources as $res): ?>
+          <tr>
+            <td><strong><?= e($res['title']) ?></strong><br><small><?= e($res['description']) ?></small></td>
+            <td><?= e($res['category']) ?></td>
+            <td><span class="badge <?= (int) $res['offline_available'] === 1 ? 'verified' : 'closed' ?>"><?= (int) $res['offline_available'] === 1 ? 'Yes' : 'No' ?></span></td>
+            <td><?= e(date('M j, Y', strtotime((string) $res['created_at']))) ?></td>
+            <td><a href="../resources/<?= rawurlencode((string) $res['file_path']) ?>" target="_blank">Open</a></td>
+          </tr>
+        <?php endforeach; ?>
+        <?php if (!$resources): ?><tr><td colspan="5">No resources uploaded yet.</td></tr><?php endif; ?>
+      </tbody>
+    </table>
+    <?= admin_pagination_controls($totalResources, $page, $perPage) ?>
+  </section>
+</section>
+<?php admin_page_end(); ?>

@@ -1,5 +1,7 @@
 <?php
 // newsletter.php - NATCODEV Newsletter Opt-in
+require_once __DIR__ . '/config.php';
+
 header('Content-Type: text/html; charset=utf-8');
 
 $email = filter_var($_GET['email'] ?? '', FILTER_VALIDATE_EMAIL);
@@ -12,9 +14,7 @@ if (!$email) {
 
 // Prevent abuse: require email to already exist in applications (optional but recommended)
 try {
-    $pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
-                   "natcodevcom_data", "XC^#3)[;*xTcm&V9");
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo = db();
 
     // Optional: Only allow opt-in if email is in applications (enhances legitimacy)
     $check = $pdo->prepare("SELECT 1 FROM applications WHERE email = ? LIMIT 1");
@@ -26,11 +26,10 @@ try {
 
     // Insert or ignore (handles duplicate gracefully)
     $stmt = $pdo->prepare("
-        INSERT IGNORE INTO subscribers (email, source, ip_address) 
+        INSERT IGNORE INTO subscribers (email, source, ip_address)
         VALUES (?, ?, ?)
     ");
     $stmt->execute([$email, $source, $_SERVER['REMOTE_ADDR'] ?? null]);
-
 } catch (Exception $e) {
     error_log("Newsletter DB Error: " . $e->getMessage());
     // Still show success to avoid exposing system errors
@@ -43,72 +42,80 @@ try {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Thank You – NATCODEV GoodNews</title>
+  <title>Thank You - NATCODEV GoodNews</title>
   <style>
+    :root { --primary:#1a5276; --green:#1f8a55; --green-dark:#166b41; --ink:#1f2937; --muted:#667085; --line:#d8e2dc; }
+    * { box-sizing:border-box; }
     body {
-      font-family: Arial, sans-serif;
-      background: #f0f7eb;
-      margin: 0;
-      padding: 0;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
+      font-family:"Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background:linear-gradient(135deg, rgba(26,82,118,.08), rgba(31,138,85,.10)), #f5f8f6;
+      margin:0;
+      padding:24px;
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      min-height:100vh;
+      color:var(--ink);
     }
     .container {
-      background: white;
-      padding: 40px;
-      border-radius: 15px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-      text-align: center;
-      max-width: 600px;
-      margin: 20px;
+      background:white;
+      padding:40px;
+      border-radius:8px;
+      border:1px solid rgba(16,24,40,.08);
+      box-shadow:0 18px 44px rgba(16,24,40,.12);
+      text-align:center;
+      max-width:600px;
+      margin:20px;
     }
     .logo {
-      font-size: 2.2rem;
-      color: #2d5016;
-      margin-bottom: 20px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:54px;
+      height:54px;
+      border-radius:50%;
+      background:#eaf8f0;
+      color:var(--green-dark);
+      font-size:1.8rem;
+      font-weight:800;
+      margin-bottom:20px;
     }
-    h1 {
-      color: #2d5016;
-      margin-bottom: 20px;
-    }
-    p {
-      line-height: 1.6;
-      color: #444;
-    }
+    h1 { color:var(--primary); margin:0 0 12px; line-height:1.2; }
+    p { line-height:1.6; color:var(--muted); }
+    ul { text-align:left; max-width:420px; margin:18px auto; line-height:1.7; color:var(--ink); }
     .highlight {
-      background: #f8f9fa;
-      padding: 15px;
-      border-radius: 8px;
-      margin: 20px 0;
-      font-style: italic;
-      color: #2d5016;
+      background:#f7f9f5;
+      border:1px solid var(--line);
+      padding:15px;
+      border-radius:8px;
+      margin:20px 0;
+      font-style:italic;
+      color:var(--green-dark);
     }
-    .footer {
-      margin-top: 30px;
-      color: #777;
-      font-size: 0.9em;
-    }
+    .home-link { display:inline-block; margin-top:10px; color:#fff; background:var(--green); text-decoration:none; font-weight:800; padding:11px 18px; border-radius:5px; }
+    .home-link:hover { background:var(--green-dark); }
+    .footer { margin-top:30px; color:#777; font-size:.9em; }
+    @media (max-width:520px) { body { padding:14px; } .container { padding:28px 18px; margin:0; } }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="logo">🌱</div>
+    <div class="logo">N</div>
     <h1>Thank You for Joining NATCODEV GoodNews!</h1>
-    <p>You’ll now receive exclusive updates on:</p>
-    <ul style="text-align: left; max-width: 400px; margin: 15px auto; line-height: 1.6;">
+    <p>You will now receive exclusive updates on:</p>
+    <ul>
       <li>Coconut farming innovations & best practices</li>
       <li>Success stories from Nigerian outgrowers</li>
       <li>Training sessions, grant opportunities, and market news</li>
     </ul>
     <div class="highlight">
-      “We do not just grow Coconuts. We grow legacies.”
+      "We do not just grow coconuts. We grow legacies."
     </div>
     <p>You can unsubscribe at any time.</p>
+    <a class="home-link" href="index.php">Return to NATCODEV</a>
     <div class="footer">
-      <p>NATCODEV – National Coconut Development & Propagation Initiative</p>
-      <p>📧 info@coconutventurehub.ng | 🌐 www.coconutventurehub.ng</p>
+      <p>NATCODEV - National Coconut Development & Propagation Initiative</p>
+      <p>info@natcodev.com.ng | www.natcodev.com.ng</p>
     </div>
   </div>
 </body>

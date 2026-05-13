@@ -1,24 +1,28 @@
 <?php
-// api/ussd-payment.php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../lib/ussd.php';
+
 session_start();
-header('Content-Type: application/json');
+$pdo = db();
+$user = require_user_role($pdo, ['grower', 'admin']);
 
-$amount = floatval($_POST['amount'] ?? 0);
-$phone = $_POST['phone'] ?? '';
-
-if ($amount < 100 || !$phone) {
-    echo json_encode(['error' => 'Invalid amount or phone']);
-    exit;
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    json_response(['success' => false, 'error' => 'POST method required'], 405);
 }
 
-require_once '../lib/ussd.php';
-$ussd = new USSDPayment($pdo);
+$amount = (float) ($_POST['amount'] ?? 0);
+$phone = preg_replace('/[^0-9]/', '', (string) ($_POST['phone'] ?? ''));
+if ($amount < 100 || $phone === '') {
+    json_response(['success' => false, 'error' => 'Invalid amount or phone'], 422);
+}
 
 try {
-    $reference = $ussd->initiatePayment($_SESSION['user_id'], $amount, $phone);
-    echo json_encode(['success' => true, 'reference' => $reference]);
-} catch (Exception $e) {
-    error_log("USSD error: " . $e->getMessage());
-    echo json_encode(['error' => 'Payment initiation failed']);
+    $ussd = new USSDPayment($pdo);
+    $reference = $ussd->initiatePayment((int) $user['id'], $amount, $phone);
+    json_response(['success' => true, 'reference' => $reference]);
+} catch (Throwable $e) {
+    error_log('USSD error: ' . $e->getMessage());
+    json_response(['success' => false, 'error' => 'Payment initiation failed'], 500);
 }
-?>

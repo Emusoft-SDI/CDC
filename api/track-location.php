@@ -1,123 +1,55 @@
 <?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../config.php';
+
 session_start();
-header('Content-Type: application/json');
+$pdo = db();
+$user = require_user_role($pdo, ['field_agent', 'admin']);
 
-// Verify field agent role
-$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
-               "natcodevcom_data", "XC^#3)[;*xTcm&V9");
-
-$input = json_decode(file_get_contents('php://input'), true);
-
-if (!$input || !isset($input['latitude']) || !isset($input['longitude'])) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Invalid data']);
-    exit;
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    json_response(['success' => false, 'error' => 'POST method required'], 405);
 }
 
-$stmt = $pdo->prepare("
-    INSERT INTO agent_locations (agent_id, latitude, longitude, accuracy, battery_level) 
-    VALUES (?, ?, ?, ?, ?)
-");
-$stmt->execute([
-    $_SESSION['user_id'],
-    $input['latitude'],
-    $input['longitude'],
-    $input['accuracy'] ?? null,
-    $input['battery_level'] ?? null
-]);
-
-echo json_encode(['success' => true]);
-?>
-<?php
-// ... existing location saving ...
-
-// Check geofencing AFTER saving location
-checkGeofencing($_SESSION['user_id'], $input['latitude'], $input['longitude']);
-
-function checkGeofencing($agentId, $lat, $lng) {
-    global $pdo;
-    
-    // Get all farm zones
-    $zones = $pdo->query("
-        SELECT id, center_lat, center_lng, radius_meters 
-        FROM farm_zones
-    ")->fetchAll();
-    
-    foreach ($zones as $zone) {
-        $distance = calculateDistance(
-            $zone['center_lat'], 
-            $zone['center_lng'],
-            $lat,
-            $lng
-        ) * 1000; // Convert km to meters
-        
-        $inZone = $distance <= $zone['radius_meters'];
-        
-        // Check last known state
-        $lastEvent = $pdo->prepare("
-            SELECT event_type FROM geofence_events 
-            WHERE agent_id = ? AND zone_id = ? 
-            ORDER BY triggered_at DESC LIMIT 1
-        ");
-        $lastEvent->execute([$agentId, $zone['id']]);
-        $lastState = $lastEvent->fetchColumn();
-        
-        $lastWasInZone = ($lastState === 'enter');
-        
-        // Trigger events
-        if ($inZone && !$lastWasInZone) {
-            // ENTER event
-            $pdo->prepare("
-                INSERT INTO geofence_events (agent_id, zone_id, event_type, agent_location)
-                VALUES (?, ?, 'enter', POINT(?, ?))
-            ")->execute([$agentId, $zone['id'], $lat, $lng]);
-            
-            // Send alert to admin
-            sendGeofenceAlert($agentId, $zone['id'], 'enter');
-            
-        } elseif (!$inZone && $lastWasInZone) {
-            // EXIT event
-            $pdo->prepare("
-                INSERT INTO geofence_events (agent_id, zone_id, event_type, agent_location)
-                VALUES (?, ?, 'exit', POINT(?, ?))
-            ")->execute([$agentId, $zone['id'], $lat, $lng]);
-            
-            sendGeofenceAlert($agentId, $zone['id'], 'exit');
-        }
-    }
+$input = json_decode(file_get_contents('php://input') ?: '{}', true);
+if (!is_array($input) || !isset($input['latitude'], $input['longitude'])) {
+    json_response(['success' => false, 'error' => 'Invalid data'], 400);
 }
 
-function calculateDistance($lat1, $lon1, $lat2, $lon2) {
-    $R = 6371;
-    $dLat = deg2rad($lat2 - $lat1);
-    $dLon = deg2rad($lon2 - $lon1);
-    $a = sin($dLat/2) * sin($dLat/2) +
-         cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * 
-         sin($dLon/2) * sin($dLon/2);
-    $c = 2 * atan2(sqrt($a), sqrt(1-$a));
-    return $R * $c;
+$lat = filter_var($input['latitude'], FILTER_VALIDATE_FLOAT);
+$lng = filter_var($input['longitude'], FILTER_VALIDATE_FLOAT);
+if ($lat === false || $lng === false || $lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) {
+    json_response(['success' => false, 'error' => 'Invalid coordinates'], 422);
 }
 
-function sendGeofenceAlert($agentId, $zoneId, $eventType) {
-    global $pdo;
-    
-    // Get agent and zone info
-    $agent = $pdo->prepare("SELECT name FROM users WHERE id = ?");
-    $agent->execute([$agentId]);
-    $agentName = $agent->fetchColumn();
-    
-    $zone = $pdo->prepare("SELECT name FROM farm_zones WHERE id = ?");
-    $zone->execute([$zoneId]);
-    $zoneName = $zone->fetchColumn();
-    
-    $message = "📍 {$eventType} Alert: {$agentName} has {$eventType}ed {$zoneName}";
-    
-    // Notify admins via WhatsApp/email
-    $admins = $pdo->query("SELECT email, phone FROM users WHERE role = 'admin'")->fetchAll();
-    foreach ($admins as $admin) {
-        // Use your existing Twilio functions
-        sendWhatsAppMessage($admin['phone'], $message);
-        mail($admin['email'], 'NATCODEV Geofence Alert', $message, "From: noreply@coconutventurehub.ng");
-    }
+try {
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS agent_locations (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            agent_id INT NOT NULL,
+            latitude DECIMAL(10,7) NOT NULL,
+            longitude DECIMAL(10,7) NOT NULL,
+            accuracy DECIMAL(10,2) NULL,
+            battery_level INT NULL,
+            timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_agent_locations_agent_time (agent_id, timestamp)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $stmt = $pdo->prepare("
+        INSERT INTO agent_locations (agent_id, latitude, longitude, accuracy, battery_level)
+        VALUES (?, ?, ?, ?, ?)
+    ");
+    $stmt->execute([
+        (int) $user['id'],
+        $lat,
+        $lng,
+        isset($input['accuracy']) ? (float) $input['accuracy'] : null,
+        isset($input['battery_level']) ? (int) $input['battery_level'] : null,
+    ]);
+
+    json_response(['success' => true]);
+} catch (Throwable $e) {
+    error_log('Track location error: ' . $e->getMessage());
+    json_response(['success' => false, 'error' => 'Unable to save location'], 500);
 }
-?>

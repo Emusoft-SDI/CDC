@@ -1,137 +1,81 @@
 <?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../lib/admin-layout.php';
+
 session_start();
-// Admin auth check...
+$pdo = db();
+admin_ensure_schema($pdo);
+admin_require($pdo);
+
+$checks = [];
+try {
+    $checks[] = ['name' => 'Database', 'status' => 'ok', 'detail' => 'Connected, ' . (int) $pdo->query("SELECT COUNT(*) FROM applications")->fetchColumn() . ' applications'];
+} catch (Throwable $e) {
+    $checks[] = ['name' => 'Database', 'status' => 'error', 'detail' => 'Connection failed'];
+}
+$checks[] = ['name' => 'Email Service', 'status' => function_exists('mail') ? 'ok' : 'warning', 'detail' => function_exists('mail') ? 'mail() available' : 'mail() unavailable'];
+$free = @disk_free_space(dirname(__DIR__));
+$total = @disk_total_space(dirname(__DIR__));
+$freePercent = $free && $total ? round(($free / $total) * 100) : 0;
+$checks[] = ['name' => 'Storage', 'status' => $freePercent > 15 ? 'ok' : 'warning', 'detail' => $freePercent . '% free'];
+$checks[] = ['name' => 'Payments', 'status' => admin_setting($pdo, 'paystack_secret_key') !== '' ? 'ok' : 'warning', 'detail' => admin_setting($pdo, 'paystack_secret_key') !== '' ? 'Configured' : 'No secret key configured'];
+
+$trend = $pdo->query("
+    SELECT HOUR(created_at) hour, COUNT(*) total
+    FROM applications
+    WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+    GROUP BY HOUR(created_at)
+    ORDER BY hour
+")->fetchAll();
+
+$logs = app_table_exists($pdo, 'audit_log')
+    ? $pdo->query("SELECT created_at, action, description FROM audit_log ORDER BY created_at DESC LIMIT 20")->fetchAll()
+    : [];
+
+admin_page_start('System Health', [
+    'active' => 'monitoring.php',
+    'description' => 'Check service status, recent application activity, and admin audit events.',
+    'wide' => true,
+]);
 ?>
-<!DOCTYPE html>
-<html>
-<head>
-  <title>System Health - NATCODEV</title>
-  <style>
-    body { font-family: Arial; margin: 20px; }
-    .metric { display: inline-block; background: #f0f7eb; padding: 15px; margin: 10px; border-radius: 8px; min-width: 150px; }
-    .status-ok { background: #e8f5e9; color: #2d5016; }
-    .status-warning { background: #fff8e1; color: #ff8f00; }
-    .status-error { background: #ffebee; color: #c62828; }
-    .chart-container { width: 100%; height: 300px; margin: 20px 0; }
-  </style>
-</head>
-<body>
-  <h1>🔍 System Health Monitoring</h1>
-  
-  <!-- System Metrics -->
-  <div class="metric status-<?= getSystemStatus('database') ?>">
-    <strong>Database</strong><br>
-    <?= getDatabaseStatus() ?>
-  </div>
-  
-  <div class="metric status-<?= getSystemStatus('email') ?>">
-    <strong>Email Service</strong><br>
-    <?= getEmailStatus() ?>
-  </div>
-  
-  <div class="metric status-<?= getSystemStatus('storage') ?>">
-    <strong>Storage</strong><br>
-    <?= getStorageStatus() ?>
-  </div>
-  
-  <div class="metric status-<?= getSystemStatus('payments') ?>">
-    <strong>Payment Gateways</strong><br>
-    <?= getPaymentStatus() ?>
-  </div>
-  
-  <!-- Real-time Charts -->
-  <div class="chart-container">
-    <canvas id="trafficChart"></canvas>
-  </div>
-  
-  <!-- Recent Activity Log -->
+<section class="stats">
+  <?php foreach ($checks as $check): ?>
+    <div class="stat">
+      <span><?= e($check['name']) ?></span>
+      <div><span class="badge <?= e($check['status']) ?>"><?= e(ucfirst($check['status'])) ?></span></div>
+      <p class="meta"><?= e($check['detail']) ?></p>
+    </div>
+  <?php endforeach; ?>
+</section>
+
+<section class="panel">
+  <h2>Applications: Last 24 Hours</h2>
+  <canvas id="trafficChart" height="100"></canvas>
+</section>
+
+<section class="panel" style="margin-top:18px;">
   <h2>Recent Activity</h2>
-  <table style="width:100%; border-collapse: collapse;">
-    <tr style="background: #f5f5f5;">
-      <th>Timestamp</th><th>Event</th><th>Status</th>
-    </tr>
-    <?php foreach (getRecentLogs() as $log): ?>
-    <tr>
-      <td><?= $log['timestamp'] ?></td>
-      <td><?= htmlspecialchars($log['event']) ?></td>
-      <td class="status-<?= $log['status'] ?>"><?= ucfirst($log['status']) ?></td>
-    </tr>
-    <?php endforeach; ?>
+  <table>
+    <thead><tr><th>Time</th><th>Event</th><th>Description</th></tr></thead>
+    <tbody>
+      <?php foreach ($logs as $log): ?>
+        <tr><td><?= e(date('M j, g:i A', strtotime((string) $log['created_at']))) ?></td><td><?= e($log['action']) ?></td><td><?= e($log['description']) ?></td></tr>
+      <?php endforeach; ?>
+      <?php if (!$logs): ?><tr><td colspan="3">No audit activity yet.</td></tr><?php endif; ?>
+    </tbody>
   </table>
+</section>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script>
-    // Traffic chart
-    const ctx = document.getElementById('trafficChart').getContext('2d');
-    new Chart(ctx, {
-      type: 'line',
-       {
-        labels: <?= json_encode(getLast24Hours()) ?>,
-        datasets: [{
-          label: 'Applications',
-           <?= json_encode(getApplicationCounts()) ?>,
-          borderColor: '#2d5016',
-          tension: 0.1
-        }]
-      }
-    });
-  </script>
-</body>
-</html>
-
-<?php
-function getDatabaseStatus() {
-    try {
-        $pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data", "natcodevcom_data", "XC^#3)[;*xTcm&V9");
-        $count = $pdo->query("SELECT COUNT(*) FROM applications")->fetchColumn();
-        return "Connected ($count records)";
-    } catch (Exception $e) {
-        return "Disconnected";
-    }
-}
-
-function getEmailStatus() {
-    // Check if mail() is working
-    return function_exists('mail') ? "Operational" : "Not Available";
-}
-
-function getStorageStatus() {
-    $free = disk_free_space('/var/www/html');
-    $total = disk_total_space('/var/www/html');
-    $percent = round(($free / $total) * 100);
-    return "$percent% free";
-}
-
-function getPaymentStatus() {
-    // Check if API keys exist
-    $pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data", "natcodevcom_data", "XC^#3)[;*xTcm&V9");
-    $keys = $pdo->query("SELECT COUNT(*) FROM settings WHERE key_name LIKE '%_key' AND value != ''")->fetchColumn();
-    return $keys > 0 ? "Configured" : "Not Configured";
-}
-
-function getSystemStatus($service) {
-    // Implement logic to return ok/warning/error
-    return 'ok';
-}
-
-function getRecentLogs() {
-    // Return recent system events
-    return [
-        ['timestamp' => date('Y-m-d H:i:s'), 'event' => 'Application submitted', 'status' => 'ok'],
-        ['timestamp' => date('Y-m-d H:i:s', strtotime('-1 hour')), 'event' => 'Email sent', 'status' => 'ok']
-    ];
-}
-
-function getLast24Hours() {
-    $hours = [];
-    for ($i = 23; $i >= 0; $i--) {
-        $hours[] = date('H:00', strtotime("-$i hours"));
-    }
-    return $hours;
-}
-
-function getApplicationCounts() {
-    // Return dummy data or real counts
-    return array_fill(0, 24, rand(5, 20));
-}
-?>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const trend = <?= json_encode($trend, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
+new Chart(document.getElementById('trafficChart'), {
+  type: 'line',
+  data: {
+    labels: trend.map(row => `${row.hour}:00`),
+    datasets: [{ label: 'Applications', data: trend.map(row => Number(row.total)), borderColor: '#1f8a55', backgroundColor: 'rgba(31,138,85,.12)', fill: true }]
+  }
+});
+</script>
+<?php admin_page_end(); ?>

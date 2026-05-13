@@ -1,81 +1,48 @@
-<!-- Paystack -->
-<button onclick="payWithPaystack(5000)">Fund Wallet with Paystack</button>
+<?php
+declare(strict_types=1);
 
-<!-- Flutterwave -->
-<button onclick="payWithFlutterwave(5000)">Fund Wallet with Flutterwave</button>
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../lib/dashboard-layout.php';
 
-<script src="https://js.paystack.co/v1/inline.js"></script>
-<script src="https://checkout.flutterwave.com/v3.js"></script>
+session_start();
+$pdo = db();
+app_ensure_farmer_engagement_schema($pdo);
 
-<script>
-// Paystack
-function payWithPaystack(amount) {
-    const handler = PaystackPop.setup({
-        key: 'pk_test_xxx', // Your public key
-        email: '<?= $userEmail ?>',
-        amount: amount * 100, // in kobo
-        metadata: { user_id: <?= $userId ?> },
-        callback: function(response) {
-            alert('Payment successful! Reference: ' + response.reference);
-            location.reload();
-        },
-        onClose: function() {
-            alert('Payment cancelled');
-        }
-    });
-    handler.openIframe();
+if (empty($_SESSION['user_id'])) {
+    redirect_to('login.php');
 }
 
-// Flutterwave
-function payWithFlutterwave(amount) {
-    FlutterwaveCheckout({
-        public_key: "FLWPUBK_TEST-xxx",
-        tx_ref: "NATCODEV-" + Date.now(),
-        amount: amount,
-        currency: "NGN",
-        payment_options: "card, banktransfer, ussd",
-        meta: { user_id: <?= $userId ?> },
-        customer: {
-            email: "<?= $userEmail ?>",
-            name: "<?= $userName ?>"
-        },
-        callback: function(data) {
-            alert('Payment successful! TX: ' + data.transaction_id);
-            location.reload();
-        },
-        onclose: function() {
-            alert('Payment cancelled');
-        }
-    });
-}
-</script>
+$userId = (int) $_SESSION['user_id'];
+$pdo->prepare("INSERT IGNORE INTO wallets (user_id) VALUES (?)")->execute([$userId]);
 
-<!-- USSD Payment Option -->
-<div class="payment-option">
-  <h3>📱 USSD Payment (Feature Phones)</h3>
-  <p>No smartphone? Pay via USSD!</p>
-  <form id="ussdForm">
-    <input type="number" name="amount" placeholder="Amount (NGN)" min="100" required>
-    <input type="tel" name="phone" placeholder="Phone Number" required>
-    <button type="submit">Initiate USSD Payment</button>
-  </form>
-</div>
+$stmt = $pdo->prepare("SELECT * FROM wallets WHERE user_id = ?");
+$stmt->execute([$userId]);
+$wallet = $stmt->fetch();
 
-<script>
-document.getElementById('ussdForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const formData = new FormData(e.target);
-  
-  const response = await fetch('/api/ussd-payment.php', {
-    method: 'POST',
-    body: formData
-  });
-  
-  const result = await response.json();
-  if (result.success) {
-    alert(`USSD initiated! Check your phone for prompt.\nReference: ${result.reference}`);
-  } else {
-    alert('Failed to initiate USSD payment.');
-  }
-});
-</script>
+$txStmt = $pdo->prepare("SELECT * FROM wallet_transactions WHERE wallet_id = ? ORDER BY created_at DESC LIMIT 20");
+$txStmt->execute([(int) $wallet['id']]);
+$transactions = $txStmt->fetchAll();
+?>
+<?php dashboard_page_start('Wallet', ['active' => 'wallet.php', 'description' => 'View your wallet balance and transaction history.', 'wide' => true]); ?>
+<section class="card">
+      <h1>Wallet</h1>
+      <div class="balance">NGN <?= e(number_format((float) $wallet['balance'], 2)) ?></div>
+      <p>Wallet funding through live gateways requires Paystack/Flutterwave public keys and webhook credentials in production.</p>
+    </section>
+    <section class="card">
+      <h2>Recent Transactions</h2>
+      <table>
+        <tr><th>Date</th><th>Description</th><th>Type</th><th>Amount</th><th>Status</th></tr>
+        <?php foreach ($transactions as $tx): ?>
+          <tr>
+            <td><?= e(date('M j, Y', strtotime((string) $tx['created_at']))) ?></td>
+            <td><?= e($tx['description']) ?></td>
+            <td><?= e($tx['type']) ?></td>
+            <td>NGN <?= e(number_format((float) $tx['amount'], 2)) ?></td>
+            <td><?= e($tx['status']) ?></td>
+          </tr>
+        <?php endforeach; ?>
+        <?php if (!$transactions): ?><tr><td colspan="5">No transactions yet.</td></tr><?php endif; ?>
+      </table>
+    </section>
+  <?php dashboard_page_end(); ?>

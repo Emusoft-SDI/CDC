@@ -1,37 +1,22 @@
 <?php
-// api/mobile/marketplace.php
-header('Content-Type: application/json');
-require_once '../../config.php';
-require_once 'auth.php';
+declare(strict_types=1);
 
-// Get token from header
-$headers = getallheaders();
-$token = str_replace('Bearer ', '', $headers['Authorization'] ?? '');
+require_once __DIR__ . '/../../config.php';
+require_once __DIR__ . '/../auth.php';
 
-if (!$token) {
-    http_response_code(401);
-    echo json_encode(['error' => 'Unauthorized']);
-    exit;
+require_api_user();
+
+try {
+    $pdo = db();
+    $stmt = $pdo->query("
+        SELECT id, title, description, price, category
+        FROM marketplace_items
+        WHERE is_active = 1
+        ORDER BY created_at DESC
+        LIMIT 100
+    ");
+    json_response(['success' => true, 'items' => $stmt->fetchAll()]);
+} catch (Throwable $e) {
+    error_log('Marketplace API error: ' . $e->getMessage());
+    json_response(['success' => true, 'items' => []]);
 }
-
-$auth = new Auth();
-$userData = $auth->validateToken($token);
-
-if (!$userData) {
-    http_response_code(401);
-    echo json_encode(['error' => 'Invalid token']);
-    exit;
-}
-
-// Fetch marketplace items
-$stmt = $pdo->prepare("
-    SELECT id, title, description, price, category 
-    FROM marketplace_items 
-    WHERE is_active = 1 
-    ORDER BY created_at DESC
-");
-$stmt->execute();
-$items = $stmt->fetchAll();
-
-echo json_encode(['success' => true, 'items' => $items]);
-?>

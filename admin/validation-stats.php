@@ -1,141 +1,89 @@
-<!-- admin/validation-stats.php -->
-<h2>Validation Statistics Dashboard</h2>
+<?php
+declare(strict_types=1);
 
-<!-- Key Metrics -->
-<div class="metrics-grid">
-  <div class="metric-card">
-    <h3>Total Validations</h3>
-    <div id="totalValidations">0</div>
-  </div>
-  <div class="metric-card">
-    <h3>Success Rate</h3>
-    <div id="successRate">0%</div>
-  </div>
-  <div class="metric-card">
-    <h3>Failed Validations</h3>
-    <div id="failedValidations">0</div>
-  </div>
-  <div class="metric-card">
-    <h3>Avg. Response Time</h3>
-    <div id="avgResponseTime">0s</div>
-  </div>
-</div>
+require_once __DIR__ . '/../lib/admin-layout.php';
 
-<!-- Charts -->
-<div class="charts-container">
-  <div class="chart">
-    <canvas id="validationTrendChart"></canvas>
-  </div>
-  <div class="chart">
-    <canvas id="documentTypeChart"></canvas>
-  </div>
-  <div class="chart">
-    <canvas id="statePerformanceChart"></canvas>
-  </div>
-</div>
+session_start();
+$pdo = db();
+admin_ensure_schema($pdo);
+admin_require($pdo);
 
-<!-- Recent Activity -->
-<h3>Recent Validation Activity</h3>
-<table id="recentActivity">
-  <thead>
-    <tr>
-      <th>Timestamp</th>
-      <th>User</th>
-      <th>Document</th>
-      <th>Status</th>
-      <th>Response Time</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
-</table>
+admin_page_start('Validation Stats', [
+    'active' => 'validation-stats.php',
+    'description' => 'Monitor API validation results for identity and farm documents.',
+    'wide' => true,
+]);
+?>
+<section class="stats">
+  <div class="stat"><span>Total Validations</span><div class="metric" id="totalValidations">0</div></div>
+  <div class="stat"><span>Success Rate</span><div class="metric" id="successRate">0%</div></div>
+  <div class="stat"><span>Failed</span><div class="metric" id="failedValidations">0</div></div>
+  <div class="stat"><span>Avg Response</span><div class="metric" id="avgResponseTime">0s</div></div>
+</section>
+
+<section class="grid">
+  <div class="panel"><h2>Validation Trend</h2><canvas id="validationTrendChart" height="130"></canvas></div>
+  <div class="panel"><h2>Document Types</h2><canvas id="documentTypeChart" height="130"></canvas></div>
+  <div class="panel"><h2>State Performance</h2><canvas id="statePerformanceChart" height="130"></canvas></div>
+</section>
+
+<section class="panel" style="margin-top:18px;">
+  <h2>Recent Activity</h2>
+  <table id="recentActivity">
+    <thead><tr><th>Timestamp</th><th>User</th><th>Document</th><th>Status</th><th>Response</th></tr></thead>
+    <tbody><tr><td colspan="5">Loading...</td></tr></tbody>
+  </table>
+</section>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+const charts = {};
+
 async function loadValidationStats() {
-  const response = await fetch('/api/validation-stats.php');
+  const response = await fetch('../api/validation-stats.php');
   const stats = await response.json();
-  
-  // Update metrics
-  document.getElementById('totalValidations').textContent = stats.totals.total;
-  document.getElementById('successRate').textContent = stats.totals.success_rate + '%';
-  document.getElementById('failedValidations').textContent = stats.totals.failed;
-  document.getElementById('avgResponseTime').textContent = stats.totals.avg_response_time + 's';
-  
-  // Update charts
-  updateCharts(stats);
-  
-  // Update recent activity
-  updateRecentActivity(stats.recent_activity);
+  const totals = stats.totals || {};
+  document.getElementById('totalValidations').textContent = totals.total || 0;
+  document.getElementById('successRate').textContent = `${totals.success_rate || 0}%`;
+  document.getElementById('failedValidations').textContent = totals.failed || 0;
+  document.getElementById('avgResponseTime').textContent = `${totals.avg_response_time || 0}s`;
+  renderCharts(stats);
+  renderRecent(stats.recent_activity || []);
 }
 
-function updateCharts(stats) {
-  // Validation trend chart
-  const trendCtx = document.getElementById('validationTrendChart').getContext('2d');
-  new Chart(trendCtx, {
+function makeChart(id, config) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), config);
+}
+
+function renderCharts(stats) {
+  const trends = stats.trends || {dates: [], success: [], failed: []};
+  makeChart('validationTrendChart', {
     type: 'line',
-     {
-      labels: stats.trends.dates,
-      datasets: [{
-        label: 'Successful Validations',
-         stats.trends.success,
-        borderColor: '#2d5016',
-        fill: false
-      }, {
-        label: 'Failed Validations',
-         stats.trends.failed,
-        borderColor: '#c62828',
-        fill: false
-      }]
-    }
+    data: { labels: trends.dates || [], datasets: [
+      { label: 'Successful', data: trends.success || [], borderColor: '#1f8a55' },
+      { label: 'Failed', data: trends.failed || [], borderColor: '#a32020' }
+    ]}
   });
-  
-  // Document type chart
-  const docCtx = document.getElementById('documentTypeChart').getContext('2d');
-  new Chart(docCtx, {
+  makeChart('documentTypeChart', {
     type: 'pie',
-     {
-      labels: Object.keys(stats.by_document_type),
-       [Object.values(stats.by_document_type)],
-      backgroundColor: ['#2d5016', '#8fc27d', '#c8e6c9']
-    }
+    data: { labels: Object.keys(stats.by_document_type || {}), datasets: [{ data: Object.values(stats.by_document_type || {}), backgroundColor: ['#1f8a55', '#1a5276', '#c9a227', '#8fc27d'] }] }
   });
-  
-  // State performance chart
-  const stateCtx = document.getElementById('statePerformanceChart').getContext('2d');
-  new Chart(stateCtx, {
+  makeChart('statePerformanceChart', {
     type: 'bar',
-     {
-      labels: Object.keys(stats.by_state),
-      datasets: [{
-        label: 'Success Rate by State',
-         Object.values(stats.by_state),
-        backgroundColor: '#2d5016'
-      }]
-    }
+    data: { labels: Object.keys(stats.by_state || {}), datasets: [{ label: 'Success Rate', data: Object.values(stats.by_state || {}), backgroundColor: '#1a5276' }] }
   });
 }
 
-function updateRecentActivity(activity) {
+function renderRecent(activity) {
   const tbody = document.querySelector('#recentActivity tbody');
-  tbody.innerHTML = activity.map(item => `
-    <tr>
-      <td>${item.timestamp}</td>
-      <td>${item.user_name}</td>
-      <td>${item.document_type}</td>
-      <td class="${item.status === 'valid' ? 'success' : 'error'}">${item.status}</td>
-      <td>${item.response_time}s</td>
-    </tr>
-  `).join('');
+  tbody.innerHTML = activity.length ? activity.map(item => `<tr><td>${escapeHtml(item.timestamp)}</td><td>${escapeHtml(item.user_name)}</td><td>${escapeHtml(item.document_type)}</td><td><span class="badge ${item.status === 'valid' ? 'verified' : 'rejected'}">${escapeHtml(item.status)}</span></td><td>${escapeHtml(item.response_time || 0)}s</td></tr>`).join('') : '<tr><td colspan="5">No validation activity yet.</td></tr>';
 }
 
-// Load stats on page load
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]));
+}
+
 document.addEventListener('DOMContentLoaded', loadValidationStats);
 </script>
-
-<style>
-.metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 20px 0; }
-.metric-card { background: #f9f9f9; padding: 20px; border-radius: 8px; text-align: center; }
-.charts-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin: 30px 0; }
-.success { color: green; }
-.error { color: red; }
-</style>
+<?php admin_page_end(); ?>

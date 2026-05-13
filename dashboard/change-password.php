@@ -1,87 +1,64 @@
-<!-- dashboard/change-password.php -->
 <?php
-session_start();
-if (!isset($_SESSION['user_id'])) {
-    header('Location: login.php');
-    exit;
-}
+declare(strict_types=1);
 
-$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
-               "natcodevcom_data", "XC^#3)[;*xTcm&V9");
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../lib/dashboard-layout.php';
+
+session_start();
+$pdo = db();
+app_ensure_core_schema($pdo);
+
+if (empty($_SESSION['user_id'])) {
+    redirect_to('login.php');
+}
 
 $message = '';
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $current = $_POST['current'] ?? '';
-    $new = $_POST['new'] ?? '';
-    $confirm = $_POST['confirm'] ?? '';
-
-    // Validate
-    if (!$current || !$new || !$confirm) {
-        $error = "All fields required.";
-    } elseif ($new !== $confirm) {
-        $error = "New passwords do not match.";
-    } elseif (strlen($new) < 6) {
-        $error = "Password must be at least 6 characters.";
+    if (!verify_csrf($_POST['_csrf'] ?? null)) {
+        $error = 'Please refresh and try again.';
     } else {
-        // Verify current password
-        $stmt = $pdo->prepare("SELECT password FROM users WHERE id = ?");
-        $stmt->execute([$_SESSION['user_id']]);
-        $user = $stmt->fetch();
+        $current = (string) ($_POST['current'] ?? '');
+        $new = (string) ($_POST['new'] ?? '');
+        $confirm = (string) ($_POST['confirm'] ?? '');
 
-        if ($user && password_verify($current, $user['password'])) {
-            // Update password
-            $hashed = password_hash($new, PASSWORD_DEFAULT);
-            $upd = $pdo->prepare("UPDATE users SET password = ? WHERE id = ?");
-            $upd->execute([$hashed, $_SESSION['user_id']]);
-            $message = "✅ Password updated successfully!";
+        if ($current === '' || $new === '' || $confirm === '') {
+            $error = 'All fields are required.';
+        } elseif ($new !== $confirm) {
+            $error = 'New passwords do not match.';
+        } elseif (strlen($new) < 8) {
+            $error = 'Password must be at least 8 characters.';
         } else {
-            $error = "Current password is incorrect.";
+            $stmt = $pdo->prepare("SELECT password FROM users WHERE id = ?");
+            $stmt->execute([(int) $_SESSION['user_id']]);
+            $user = $stmt->fetch();
+
+            if ($user && password_verify($current, (string) $user['password'])) {
+                $pdo->prepare("UPDATE users SET password = ? WHERE id = ?")->execute([
+                    password_hash($new, PASSWORD_DEFAULT),
+                    (int) $_SESSION['user_id'],
+                ]);
+                $message = 'Password updated successfully.';
+            } else {
+                $error = 'Current password is incorrect.';
+            }
         }
     }
 }
 ?>
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Change Password - NATCODEV</title>
-  <style>
-    body { font-family: Arial; max-width: 600px; margin: 30px auto; }
-    .form-group { margin: 15px 0; }
-    label { display: block; margin-bottom: 5px; font-weight: bold; }
-    input[type="password"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
-    button { background: #2d5016; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
-    .alert { padding: 10px; margin: 15px 0; border-radius: 4px; }
-    .success { background: #e8f5e9; color: #2d5016; }
-    .error { background: #ffebee; color: #c62828; }
-  </style>
-</head>
-<body>
-  <h2>Change Password</h2>
-
-  <?php if ($message): ?>
-    <div class="alert success"><?= htmlspecialchars($message) ?></div>
-  <?php endif; ?>
-  <?php if ($error): ?>
-    <div class="alert error"><?= htmlspecialchars($error) ?></div>
-  <?php endif; ?>
-
-  <form method="POST">
-    <div class="form-group">
+<?php dashboard_page_start('Change Password', ['active' => 'change-password.php', 'description' => 'Update your account password securely.', 'wide' => true]); ?>
+<h1>Change Password</h1>
+    <?php if ($message): ?><p class="success"><?= e($message) ?></p><?php endif; ?>
+    <?php if ($error): ?><p class="error"><?= e($error) ?></p><?php endif; ?>
+    <form method="post">
+      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
       <label>Current Password</label>
-      <input type="password" name="current" required>
-    </div>
-    <div class="form-group">
+      <input type="password" name="current" required autocomplete="current-password">
       <label>New Password</label>
-      <input type="password" name="new" minlength="6" required>
-    </div>
-    <div class="form-group">
+      <input type="password" name="new" minlength="8" required autocomplete="new-password">
       <label>Confirm New Password</label>
-      <input type="password" name="confirm" required>
-    </div>
-    <button type="submit">Update Password</button>
-    <a href="index.php" style="margin-left: 15px;">← Back to Dashboard</a>
-  </form>
-</body>
-</html>
+      <input type="password" name="confirm" minlength="8" required autocomplete="new-password">
+      <button type="submit">Update Password</button>
+    </form>
+  <?php dashboard_page_end(); ?>

@@ -1,50 +1,62 @@
-<!-- field-agent/biometric.php -->
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../config.php';
+
+session_start();
+$pdo = db();
+$user = require_user_role($pdo, ['field_agent', 'admin']);
+?>
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Biometric Enrollment - NATCODEV</title>
-  <script src="https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3.4.0/dist/fp.min.js"></script>
+  <style>
+    body { font-family: "Segoe UI", Arial, sans-serif; max-width:680px; margin:32px auto; padding:0 16px; color:#172211; }
+    .panel { background:#fff; border:1px solid #dfe8d8; border-radius:8px; padding:24px; box-shadow:0 14px 34px rgba(24,43,18,.08); }
+    button { background:#14733a; color:#fff; border:0; border-radius:6px; padding:12px 16px; font-weight:800; cursor:pointer; }
+    a { color:#14733a; font-weight:800; }
+  </style>
 </head>
 <body>
-  <h2>Biometric Enrollment</h2>
-  
-  <?php if ($user['biometric_enrolled']): ?>
-    <p>✅ Biometric authentication is already enabled.</p>
-    <button onclick="disableBiometric()">Disable Biometric Login</button>
-  <?php else: ?>
-    <p>Enroll your fingerprint for secure login.</p>
-    <button onclick="enrollBiometric()">Enroll Fingerprint</button>
-  <?php endif; ?>
+  <main class="panel">
+    <p><a href="index.php">Back to Field Agent</a></p>
+    <h1>Biometric Enrollment</h1>
 
-  <div id="fingerprintScanner" style="display:none;">
-    <p>Place your finger on the scanner...</p>
-    <canvas id="fingerprintCanvas" width="200" height="200"></canvas>
-  </div>
+    <?php if ((int) ($user['biometric_enrolled'] ?? 0) === 1): ?>
+      <p>Biometric authentication is already enabled for this account.</p>
+    <?php else: ?>
+      <p>Enroll this device biometric credential for stronger account protection.</p>
+      <button type="button" onclick="enrollBiometric()">Enroll Biometric</button>
+    <?php endif; ?>
+  </main>
 
   <script>
-    // WebAuthn API for biometric authentication
     async function enrollBiometric() {
+      if (!window.PublicKeyCredential || !navigator.credentials) {
+        alert('This browser does not support biometric enrollment.');
+        return;
+      }
+
       try {
         const credential = await navigator.credentials.create({
           publicKey: {
-            challenge: new Uint8Array(32),
-            rp: { name: "NATCODEV", id: "apply.coconutventurehub.ng" },
+            challenge: crypto.getRandomValues(new Uint8Array(32)),
+            rp: { name: 'NATCODEV' },
             user: {
-              id: new TextEncoder().encode("<?= $_SESSION['user_id'] ?>"),
-              name: "<?= $user['email'] ?>",
-              displayName: "<?= $user['name'] ?>"
+              id: new TextEncoder().encode('<?= (int) $user['id'] ?>'),
+              name: <?= json_encode((string) $user['email']) ?>,
+              displayName: <?= json_encode((string) $user['name']) ?>
             },
-            pubKeyCredParams: [{ type: "public-key", alg: -7 }],
-            authenticatorSelection: {
-              authenticatorAttachment: "platform", // Use built-in biometrics
-              userVerification: "required"
-            },
+            pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+            authenticatorSelection: { userVerification: 'required' },
             timeout: 60000
           }
         });
-        
-        // Send to server
-        const response = await fetch('/api/biometric/enroll.php', {
+
+        const response = await fetch('../api/biometric/enroll.php', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -52,46 +64,17 @@
             clientData: Array.from(new Uint8Array(credential.response.clientDataJSON))
           })
         });
-        
-        if (response.ok) {
-          alert('Biometric enrollment successful!');
+
+        const payload = await response.json();
+        if (response.ok && payload.success) {
+          alert('Biometric enrollment successful.');
           location.reload();
+          return;
         }
+        alert(payload.error || 'Biometric enrollment failed.');
       } catch (error) {
         console.error('Biometric enrollment failed:', error);
         alert('Biometric enrollment failed. Please try again.');
-      }
-    }
-    
-    async function verifyBiometric() {
-      try {
-        const assertion = await navigator.credentials.get({
-          publicKey: {
-            challenge: new Uint8Array(32),
-            timeout: 60000,
-            userVerification: "required"
-          }
-        });
-        
-        // Verify on server
-        const response = await fetch('/api/biometric/verify.php', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            credentialId: Array.from(new Uint8Array(assertion.rawId)),
-            authenticatorData: Array.from(new Uint8Array(assertion.response.authenticatorData)),
-            signature: Array.from(new Uint8Array(assertion.response.signature)),
-            clientData: Array.from(new Uint8Array(assertion.response.clientDataJSON))
-          })
-        });
-        
-        if (response.ok) {
-          // Login successful
-          window.location.href = '/field-agent/';
-        }
-      } catch (error) {
-        console.error('Biometric verification failed:', error);
-        alert('Biometric verification failed.');
       }
     }
   </script>

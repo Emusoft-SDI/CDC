@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title">
+  <title id="title">NAIC Seal</title>
+  <circle cx="80" cy="80" r="74" fill="#fffdf5" stroke="#1f5e84" stroke-width="7"/>
+  <circle cx="80" cy="80" r="55" fill="#eaf4f9" stroke="#c9a227" stroke-width="4"/>
+  <path d="M42 82c15-22 61-22 76 0-15 22-61 22-76 0Z" fill="#1f5e84"/>
+  <circle cx="80" cy="82" r="16" fill="#fff"/>
+  <text x="80" y="128" text-anchor="middle" font-family="Arial" font-size="20" font-weight="700" fill="#1f5e84">NAIC</text>
+</svg>

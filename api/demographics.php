@@ -1,6 +1,13 @@
 <?php
-// api/demographics.php
-header('Content-Type: application/json');
+declare(strict_types=1);
+
+require_once __DIR__ . '/../config.php';
+
+session_start();
+$pdo = db();
+if (!admin_session_is_authenticated($pdo)) {
+    json_response(['success' => false, 'error' => 'Forbidden'], 403);
+}
 
 $filters = [
     'state' => $_GET['state'] ?? null,
@@ -12,55 +19,64 @@ $filters = [
     'experience' => $_GET['experience'] ?? null
 ];
 
-// Build dynamic query
+$hasStates = app_table_exists($pdo, 'nigeria_states') && app_column_exists($pdo, 'users', 'state_id');
+$hasLgas = app_table_exists($pdo, 'nigeria_lgas') && app_column_exists($pdo, 'users', 'lga_id');
+$hasTerms = app_column_exists($pdo, 'users', 'terms_accepted');
+$hasDob = app_column_exists($pdo, 'users', 'dob');
+$hasEducation = app_column_exists($pdo, 'users', 'education_level');
+$hasExperience = app_column_exists($pdo, 'users', 'farming_experience_rating');
+$hasMarital = app_column_exists($pdo, 'users', 'marital_status');
+$hasGender = app_column_exists($pdo, 'users', 'gender');
+
 $sql = "
-    SELECT 
-        s.state_name,
-        l.lga_name,
+    SELECT
+        " . ($hasStates ? "s.state_name" : "NULL AS state_name") . ",
+        " . ($hasLgas ? "l.lga_name" : "NULL AS lga_name") . ",
         u.role,
-        CASE 
-            WHEN u.dob IS NOT NULL THEN FLOOR(DATEDIFF(NOW(), u.dob) / 365.25)
-            ELSE NULL 
-        END as age,
-        u.education_level,
-        u.farming_experience_rating,
-        u.marital_status,
+        " . ($hasDob ? "CASE WHEN u.dob IS NOT NULL THEN FLOOR(DATEDIFF(NOW(), u.dob) / 365.25) ELSE NULL END" : "NULL") . " AS age,
+        " . ($hasEducation ? "u.education_level" : "NULL AS education_level") . ",
+        " . ($hasExperience ? "u.farming_experience_rating" : "NULL AS farming_experience_rating") . ",
+        " . ($hasMarital ? "u.marital_status" : "NULL AS marital_status") . ",
+        " . ($hasGender ? "u.gender" : "NULL AS gender") . ",
         COUNT(*) as count
     FROM users u
-    LEFT JOIN nigeria_states s ON u.state_id = s.id
-    LEFT JOIN nigeria_lgas l ON u.lga_id = l.id
-    WHERE u.terms_accepted = 1
 ";
+if ($hasStates) {
+    $sql .= " LEFT JOIN nigeria_states s ON u.state_id = s.id";
+}
+if ($hasLgas) {
+    $sql .= " LEFT JOIN nigeria_lgas l ON u.lga_id = l.id";
+}
+$sql .= $hasTerms ? " WHERE u.terms_accepted = 1" : " WHERE 1=1";
 
 $params = [];
 $whereClauses = [];
 
-if ($filters['state']) {
+if ($filters['state'] && $hasStates) {
     $whereClauses[] = "s.state_name = ?";
     $params[] = $filters['state'];
 }
-if ($filters['lga']) {
+if ($filters['lga'] && $hasLgas) {
     $whereClauses[] = "l.lga_name = ?";
     $params[] = $filters['lga'];
 }
-if ($filters['gender']) {
-    // Assuming gender field exists
+if ($filters['gender'] && $hasGender) {
     $whereClauses[] = "u.gender = ?";
     $params[] = $filters['gender'];
 }
-if ($filters['min_age']) {
+if ($filters['min_age'] && $hasDob) {
     $whereClauses[] = "FLOOR(DATEDIFF(NOW(), u.dob) / 365.25) >= ?";
     $params[] = $filters['min_age'];
 }
-if ($filters['max_age']) {
+if ($filters['max_age'] && $hasDob) {
     $whereClauses[] = "FLOOR(DATEDIFF(NOW(), u.dob) / 365.25) <= ?";
     $params[] = $filters['max_age'];
 }
-if ($filters['education']) {
+if ($filters['education'] && $hasEducation) {
     $whereClauses[] = "u.education_level = ?";
     $params[] = $filters['education'];
 }
-if ($filters['experience']) {
+if ($filters['experience'] && $hasExperience) {
     $whereClauses[] = "u.farming_experience_rating = ?";
     $params[] = $filters['experience'];
 }
@@ -69,7 +85,7 @@ if (!empty($whereClauses)) {
     $sql .= " AND " . implode(" AND ", $whereClauses);
 }
 
-$sql .= " GROUP BY s.state_name, l.lga_name, u.role, age, u.education_level, u.farming_experience_rating, u.marital_status";
+$sql .= " GROUP BY state_name, lga_name, u.role, age, education_level, farming_experience_rating, marital_status, gender";
 
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
@@ -78,7 +94,8 @@ $data = $stmt->fetchAll();
 // Generate intelligent insights
 $insights = generateInsights($data);
 
-echo json_encode([
+json_response([
+    'success' => true,
     'data' => $data,
     'insights' => $insights,
     'filters' => $filters
@@ -126,4 +143,13 @@ function getTopStates($data) {
     arsort($states);
     return array_slice($states, 0, 5, true);
 }
-?>
+
+function getExperienceDistribution($data) {
+    $distribution = [];
+    foreach ($data as $row) {
+        $key = $row['farming_experience_rating'] ?: 'unknown';
+        $distribution[$key] = ($distribution[$key] ?? 0) + (int) ($row['count'] ?? 0);
+    }
+    arsort($distribution);
+    return $distribution;
+}

@@ -1,20 +1,31 @@
 <?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../config.php';
+
 session_start();
-header('Content-Type: application/json');
+$pdo = db();
+$user = require_user_role($pdo, ['field_agent', 'admin']);
 
-$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
-               "natcodevcom_data", "XC^#3)[;*xTcm&V9");
+try {
+    $where = '';
+    $params = [];
+    if ($user['role'] === 'field_agent') {
+        $where = 'WHERE fv.agent_id = ?';
+        $params[] = $user['id'];
+    }
 
-// Get all visits with grower info
-$stmt = $pdo->prepare("
-    SELECT 
-        fv.*,
-        a.name as grower_name,
-        a.location
-    FROM field_visits fv
-    JOIN applications a ON fv.grower_id = a.id
-    ORDER BY fv.visited_at DESC
-");
-$stmt->execute();
-echo json_encode($stmt->fetchAll());
-?>
+    $stmt = $pdo->prepare("
+        SELECT fv.*, a.name AS grower_name, a.location
+        FROM field_visits fv
+        JOIN applications a ON fv.grower_id = a.id
+        {$where}
+        ORDER BY fv.visited_at DESC
+        LIMIT 500
+    ");
+    $stmt->execute($params);
+    json_response(['success' => true, 'items' => $stmt->fetchAll()]);
+} catch (Throwable $e) {
+    error_log('Visits API error: ' . $e->getMessage());
+    json_response(['success' => true, 'items' => []]);
+}

@@ -1,17 +1,25 @@
 <?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../config.php';
+
 session_start();
-header('Content-Type: application/json');
+$pdo = db();
+require_user_role($pdo, ['field_agent', 'admin']);
 
-// Verify field agent role
-$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
-               "natcodevcom_data", "XC^#3)[;*xTcm&V9");
+try {
+    app_ensure_core_schema($pdo);
 
-$stmt = $pdo->prepare("
-    SELECT a.id, a.name, a.location, a.farm_size 
-    FROM applications a 
-    WHERE a.confirmed = 1
-    ORDER BY a.created_at DESC
-");
-$stmt->execute();
-echo json_encode($stmt->fetchAll());
-?>
+    $stmt = $pdo->prepare("
+        SELECT a.id, a.name, a.location, a.farm_size
+        FROM applications a
+        WHERE a.confirmed = 1
+        ORDER BY a.created_at DESC
+    ");
+    $stmt->execute();
+
+    json_response(['success' => true, 'items' => $stmt->fetchAll()]);
+} catch (Throwable $e) {
+    error_log('Growers API error: ' . $e->getMessage());
+    json_response(['success' => true, 'items' => []]);
+}

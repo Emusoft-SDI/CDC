@@ -1,34 +1,58 @@
 <?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../config.php';
+
 session_start();
-if (!isset($_SESSION['admin']) || $_SESSION['admin'] !== true) {
-    http_response_code(403);
-    exit;
+$pdo = db();
+if (!admin_session_is_authenticated($pdo)) {
+    json_response(['success' => false, 'error' => 'Forbidden'], 403);
 }
 
-$agentId = $_GET['agent_id'] ?? null;
+$agentId = filter_input(INPUT_GET, 'agent_id', FILTER_VALIDATE_INT);
+if (!$agentId) {
+    json_response(['success' => false, 'error' => 'Agent ID required'], 422);
+}
+
 $startDate = $_GET['start_date'] ?? date('Y-m-d', strtotime('-30 days'));
 $endDate = $_GET['end_date'] ?? date('Y-m-d');
 
-$pdo = new PDO("mysql:host=localhost;dbname=natcodevcom_data;charset=utf8mb4", 
-               "natcodevcom_data", "XC^#3)[;*xTcm&V9");
+if (!app_table_exists($pdo, 'agent_locations')) {
+    json_response(['success' => true, 'items' => []]);
+}
 
-// Build report data
+$select = [
+    'al.timestamp',
+    'al.latitude',
+    'al.longitude',
+    'al.battery_level',
+];
+$joins = [];
+if (app_table_exists($pdo, 'field_visits')) {
+    $select[] = 'fv.notes as visit_notes';
+    $joins[] = "LEFT JOIN field_visits fv ON al.agent_id = fv.agent_id AND DATE(al.timestamp) = DATE(fv.visited_at)";
+} else {
+    $select[] = "NULL as visit_notes";
+}
+if (app_table_exists($pdo, 'geofence_events')) {
+    $select[] = 'ge.event_type as geofence_event';
+    $joins[] = "LEFT JOIN geofence_events ge ON al.agent_id = ge.agent_id AND al.timestamp BETWEEN ge.triggered_at AND DATE_ADD(ge.triggered_at, INTERVAL 5 MINUTE)";
+    if (app_table_exists($pdo, 'farm_zones')) {
+        $select[] = 'fz.name as zone_name';
+        $joins[] = "LEFT JOIN farm_zones fz ON ge.zone_id = fz.id";
+    } else {
+        $select[] = "NULL as zone_name";
+    }
+} else {
+    $select[] = "NULL as geofence_event";
+    $select[] = "NULL as zone_name";
+}
+
 $stmt = $pdo->prepare("
-    SELECT 
-        al.timestamp,
-        al.latitude,
-        al.longitude,
-        al.battery_level,
-        fv.notes as visit_notes,
-        fz.name as zone_name,
-        ge.event_type as geofence_event
+    SELECT " . implode(",\n        ", $select) . "
     FROM agent_locations al
-    LEFT JOIN field_visits fv ON al.agent_id = fv.agent_id 
-        AND DATE(al.timestamp) = DATE(fv.visited_at)
-    LEFT JOIN geofence_events ge ON al.agent_id = ge.agent_id 
-        AND al.timestamp BETWEEN ge.triggered_at AND DATE_ADD(ge.triggered_at, INTERVAL 5 MINUTE)
-    LEFT JOIN farm_zones fz ON ge.zone_id = fz.id
-    WHERE al.agent_id = ? 
+    " . implode("\n    ", $joins) . "
+    WHERE al.agent_id = ?
     AND al.timestamp BETWEEN ? AND ?
     ORDER BY al.timestamp
 ");
@@ -58,7 +82,7 @@ if ($format === 'csv') {
     exit;
     
 } elseif ($format === 'pdf') {
-    require_once '../tcpdf/tcpdf.php';
+    require_once __DIR__ . '/../tcpdf/tcpdf.php';
     
     $pdf = new TCPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
     $pdf->SetCreator('NATCODEV');
@@ -72,8 +96,8 @@ if ($format === 'csv') {
     
     $html = "
     <h1>NATCODEV Agent Activity Report</h1>
-    <p><strong>Agent:</strong> {$agentName}</p>
-    <p><strong>Period:</strong> {$startDate} to {$endDate}</p>
+    <p><strong>Agent:</strong> " . e((string) $agentName) . "</p>
+    <p><strong>Period:</strong> " . e((string) $startDate) . " to " . e((string) $endDate) . "</p>
     <table border='1' cellpadding='4'>
         <tr>
             <th>Timestamp</th>
@@ -90,10 +114,10 @@ if ($format === 'csv') {
         $activityStr = implode('; ', $activity) ?: 'Location ping';
         
         $html .= "<tr>
-            <td>{$row['timestamp']}</td>
-            <td>{$location}</td>
-            <td>{$row['battery_level']}%</td>
-            <td>{$activityStr}</td>
+            <td>" . e((string) $row['timestamp']) . "</td>
+            <td>" . e($location) . "</td>
+            <td>" . e((string) $row['battery_level']) . "%</td>
+            <td>" . e($activityStr) . "</td>
         </tr>";
     }
     
@@ -104,5 +128,4 @@ if ($format === 'csv') {
 }
 
 // Default: JSON for dashboard
-echo json_encode($activities);
-?>
+json_response(['success' => true, 'items' => $activities]);

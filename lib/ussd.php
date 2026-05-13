@@ -1,5 +1,12 @@
 <?php
 // lib/ussd.php - Enhanced with SMS fallback
+require_once __DIR__ . '/../config.php';
+
+$autoload = __DIR__ . '/../vendor/autoload.php';
+if (is_file($autoload)) {
+    require_once $autoload;
+}
+
 class USSDPayment {
     private $pdo;
     private $termiiApiKey;
@@ -8,9 +15,11 @@ class USSDPayment {
     
     public function __construct($pdo) {
         $this->pdo = $pdo;
-        $this->termiiApiKey = $pdo->query("SELECT value FROM settings WHERE key_name = 'termii_api_key'")->fetchColumn();
-        $this->twilioSid = $pdo->query("SELECT value FROM settings WHERE key_name = 'twilio_sid'")->fetchColumn();
-        $this->twilioToken = $pdo->query("SELECT value FROM settings WHERE key_name = 'twilio_token'")->fetchColumn();
+        if (app_table_exists($pdo, 'settings')) {
+            $this->termiiApiKey = $pdo->query("SELECT value FROM settings WHERE key_name = 'termii_api_key'")->fetchColumn();
+            $this->twilioSid = $pdo->query("SELECT value FROM settings WHERE key_name = 'twilio_sid'")->fetchColumn();
+            $this->twilioToken = $pdo->query("SELECT value FROM settings WHERE key_name = 'twilio_token'")->fetchColumn();
+        }
     }
     
     // Initiate USSD payment with SMS fallback
@@ -36,6 +45,10 @@ class USSDPayment {
     }
     
     private function sendUSSDPush($phoneNumber, $amount, $reference) {
+        if (!$this->termiiApiKey || !function_exists('curl_init')) {
+            return false;
+        }
+
         try {
             $url = "https://api.ng.termii.com/api/ussd/send";
             $data = json_encode([
@@ -45,7 +58,7 @@ class USSDPayment {
                 'message_title' => 'NATCODEV Payment',
                 'message_body' => "Pay ₦" . number_format($amount, 2) . " for NATCODEV wallet funding?",
                 'options' => ['Yes', 'No'],
-                'callback_url' => 'https://cfc.natcodev.com.ng/ussd-callback.php'
+                'callback_url' => 'https://natcodev.com.ng/ussd-callback.php'
             ]);
             
             $ch = curl_init();
@@ -66,6 +79,10 @@ class USSDPayment {
     }
     
     private function sendSMSFallback($phoneNumber, $amount, $reference) {
+        if (!$this->twilioSid || !$this->twilioToken || !class_exists('Twilio\\Rest\\Client')) {
+            return false;
+        }
+
         $message = "NATCODEV Payment Alert\n\n" .
                   "We couldn't reach you via USSD.\n\n" .
                   "To fund your wallet with ₦" . number_format($amount, 2) . ":\n" .

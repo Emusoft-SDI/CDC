@@ -1,92 +1,50 @@
-
-<!-- dashboard/farm-health.php -->
 <?php
-// Check if user has IoT/satellite data
-$sensors = $pdo->prepare("SELECT * FROM iot_sensors WHERE farm_id = ?");
-$sensors->execute([$_SESSION['application_id']]);
-$hasSensors = $sensors->rowCount() > 0;
+declare(strict_types=1);
 
-$imagery = $pdo->prepare("SELECT * FROM farm_imagery WHERE farm_id = ? ORDER BY capture_date DESC LIMIT 5");
-$imagery->execute([$_SESSION['application_id']]);
-$recentImagery = $imagery->fetchAll();
-?>
-<div class="dashboard-section">
-  <h2>Farm Health Monitoring</h2>
-  
-  <?php if ($hasSensors): ?>
-    <div class="sensor-dashboard">
-      <h3>Real-Time Sensor Data</h3>
-      <div id="sensorChart" style="height: 300px;"></div>
-    </div>
-  <?php else: ?>
-    <div class="upgrade-notice">
-      <p>🚀 Upgrade to Premium to unlock IoT sensor monitoring!</p>
-      <button onclick="upgradeToPremium()">Upgrade Now</button>
-    </div>
-  <?php endif; ?>
-  
-  <?php if ($recentImagery): ?>
-    <div class="imagery-gallery">
-      <h3>Recent Satellite/Drone Imagery</h3>
-      <?php foreach ($recentImagery as $img): ?>
-        <div class="imagery-item">
-          <img src="<?= htmlspecialchars($img['thumbnail_url'] ?? $img['image_url']) ?>" 
-               onclick="openImageryModal('<?= htmlspecialchars($img['image_url']) ?>')">
-          <p><?= ucfirst($img['imagery_type']) ?> - <?= date('M j, Y', strtotime($img['capture_date'])) ?></p>
-        </div>
-      <?php endforeach; ?>
-    </div>
-  <?php endif; ?>
-</div>
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../lib/dashboard-layout.php';
+require_once __DIR__ . '/../lib/field-management.php';
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
-// Load sensor data via AJAX
-async function loadSensorData() {
-  const response = await fetch('/api/iot/readings.php?farm_id=<?= $_SESSION['application_id'] ?>');
-  const data = await response.json();
-  
-  // Render chart (implementation depends on your sensor types)
-  renderSensorChart(data);
+session_start();
+$pdo = db();
+if (empty($_SESSION['user_id'])) {
+    redirect_to('login.php');
 }
+fm_ensure_schema($pdo);
 
-// Only load if sensors exist
-<?php if ($hasSensors): ?>
-  loadSensorData();
-<?php endif; ?>
-</script>
-<!-- In dashboard/farm-health.php -->
-<?php
-// Check feature flags and user plan
-$iotEnabled = $pdo->query("SELECT value FROM settings WHERE key_name = 'iot_module_enabled'")->fetchColumn() === '1';
-$satelliteEnabled = $pdo->query("SELECT value FROM settings WHERE key_name = 'satellite_module_enabled'")->fetchColumn() === '1';
-$analyticsEnabled = $pdo->query("SELECT value FROM settings WHERE key_name = 'analytics_module_enabled'")->fetchColumn() === '1';
-$isPremium = $userPlan === 'premium';
+$stmt = $pdo->prepare("
+    SELECT a.id application_id, a.location, a.farm_size, a.latitude, a.longitude
+    FROM users u
+    LEFT JOIN applications a ON a.id = u.application_id
+    WHERE u.id = ?
+");
+$stmt->execute([(int) $_SESSION['user_id']]);
+$farm = $stmt->fetch();
+
+$imagery = [];
+if ($farm && app_table_exists($pdo, 'farm_imagery')) {
+    $imgStmt = $pdo->prepare("SELECT * FROM farm_imagery WHERE farm_id = ? ORDER BY capture_date DESC LIMIT 6");
+    $imgStmt->execute([(int) $farm['application_id']]);
+    $imagery = $imgStmt->fetchAll();
+}
 ?>
-
-<?php if ($iotEnabled && $isPremium): ?>
-  <div class="premium-feature">
-    <h3>IoT Sensor Dashboard</h3>
-    <!-- Sensor charts -->
-  </div>
-<?php elseif ($iotEnabled): ?>
-  <div class="upgrade-notice">
-    <p>🔒 IoT monitoring available for Premium users</p>
-    <button onclick="upgradeToPremium()">Upgrade Now</button>
-  </div>
-<?php endif; ?>
-
-<?php if ($satelliteEnabled && $isPremium): ?>
-  <div class="premium-feature">
-    <h3>Satellite Imagery</h3>
-    <!-- Imagery gallery -->
-  </div>
-<?php endif; ?>
-
-<?php if ($analyticsEnabled && $isPremium): ?>
-  <div class="premium-feature">
-    <h3>Advanced Analytics</h3>
-    <button onclick="generateYieldPrediction()">Predict Yield</button>
-    <button onclick="checkDiseaseRisk()">Check Disease Risk</button>
-  </div>
-<?php endif; ?>
+<?php dashboard_page_start('Farm Health', ['active' => 'farm-health.php', 'description' => 'Request agronomy support, field review, and imagery assessment.', 'wide' => true]); ?>
+<section class="card">
+      <h1>Farm Health</h1>
+      <p>Location: <?= e($farm['location'] ?? 'Not available') ?> · Size: <?= e((string) ($farm['farm_size'] ?? '')) ?> ha</p>
+      <?php if ($farm): ?>
+        <?php $weather = fm_weather_estimate($pdo, (int) $farm['application_id'], $farm['latitude'] !== null ? (float) $farm['latitude'] : null, $farm['longitude'] !== null ? (float) $farm['longitude'] : null); ?>
+        <p><strong><?= e((string) $weather['temperature_c']) ?>°C</strong> / Rain <?= e((string) $weather['rainfall_mm']) ?>mm / Humidity <?= e((string) $weather['humidity_percent']) ?>%</p>
+        <p class="muted"><?= e((string) $weather['summary']) ?></p>
+      <?php endif; ?>
+      <p>Request an agronomist review, farm visit, disease-risk check, or satellite/drone imagery assessment.</p>
+      <a class="button" href="inbox.php?topic=farm-health">Request Farm Review</a>
+    </section>
+    <section class="card">
+      <h2>Recent Imagery</h2>
+      <?php foreach ($imagery as $img): ?>
+        <p><a href="<?= e($img['image_url']) ?>" target="_blank"><?= e(ucfirst((string) $img['imagery_type'])) ?> - <?= e(date('M j, Y', strtotime((string) $img['capture_date']))) ?></a></p>
+      <?php endforeach; ?>
+      <?php if (!$imagery): ?><p>No imagery has been attached to this farm yet.</p><?php endif; ?>
+    </section>
+  <?php dashboard_page_end(); ?>
