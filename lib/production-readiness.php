@@ -64,8 +64,12 @@ function pr_run_checks(PDO $pdo): array
 
     $paystack = pr_setting($pdo, 'paystack_secret_key') ?: app_env('PAYSTACK_SECRET_KEY', '');
     $flutterwave = pr_setting($pdo, 'flutterwave_secret_key') ?: app_env('FLUTTERWAVE_SECRET_KEY', '');
+    $monnifyApiKey = app_env('MONNIFY_API_KEY', '');
+    $monnifySecret = app_env('MONNIFY_SECRET_KEY', '');
+    $monnifyContract = app_env('MONNIFY_CONTRACT_CODE', '');
     $checks['payment'][] = pr_status($paystack !== '' && !str_contains($paystack, 'YOUR_'), 'Paystack secret configured', pr_mask($paystack));
     $checks['payment'][] = pr_status($flutterwave !== '' && !str_contains($flutterwave, 'YOUR_'), 'Flutterwave secret configured', pr_mask($flutterwave));
+    $checks['payment'][] = pr_status($monnifyApiKey !== '' && $monnifySecret !== '' && $monnifyContract !== '', 'Monnify sandbox/live credentials configured', 'Contract ' . pr_mask($monnifyContract));
     $checks['payment'][] = pr_status(function_exists('curl_init'), 'cURL available for payment verification');
 
     $dr = dr_settings($pdo);

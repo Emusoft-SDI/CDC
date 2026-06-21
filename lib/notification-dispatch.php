@@ -41,7 +41,7 @@ function natcodev_notify_user(PDO $pdo, int $userId, string $templateName, strin
 
     $variables += [
         'name' => (string) ($user['name'] ?? ''),
-        'login_url' => app_base_url() . '/dashboard/login.php',
+        'login_url' => app_base_url() . '/login.php',
         'field_agent_url' => app_base_url() . '/field-agent/',
     ];
 

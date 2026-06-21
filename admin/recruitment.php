@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/_auth.php';
 require_once __DIR__ . '/../lib/admin-layout.php';
 require_once __DIR__ . '/../lib/notification-dispatch.php';
 
-session_start();
 $pdo = db();
 admin_ensure_schema($pdo);
 admin_require($pdo);
@@ -97,10 +97,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 natcodev_notify_user($pdo, $userId, 'recruitment_approved', 'NATCODEV Recruitment Approved', [
                     'role' => $roles[$app['role_applied']] ?? $app['role_applied'],
                     'app_ref' => $app['app_ref'],
-                    'login_url' => app_base_url() . '/dashboard/login.php',
+                    'login_url' => app_base_url() . '/login.php',
                     'field_agent_url' => app_base_url() . '/field-agent/',
                     'temporary_password' => $temporaryPassword,
-                ], "Your NATCODEV recruitment application {$app['app_ref']} has been approved. Login: " . app_base_url() . "/dashboard/login.php Temporary password: {$temporaryPassword}. Field agent console: " . app_base_url() . "/field-agent/");
+                ], "Your NATCODEV recruitment application {$app['app_ref']} has been approved. Login: " . app_base_url() . "/login.php Temporary password: {$temporaryPassword}. Field agent console: " . app_base_url() . "/field-agent/");
                 $message = 'Application approved and staff user created.';
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) {

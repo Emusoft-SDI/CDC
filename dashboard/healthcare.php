@@ -1,10 +1,9 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/_user_auth.php';
 require_once __DIR__ . '/../lib/dashboard-layout.php';
 
-session_start();
 $pdo = db();
 if (!current_user($pdo)) {
     redirect_to('login.php');

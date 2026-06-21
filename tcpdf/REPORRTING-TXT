@@ -1,0 +1,240 @@
+I checked the current reporting surfaces in code. The short truth: reporting exists, but it is scattered across dashboards, admin modules, and one formal export endpoint. A proper “all-encompassing intelligence” layer should unify these into role-specific report suites.
+
+**Current Reportables**
+The current system already reports these domains:
+
+1. **Applications / Registry**
+   Source: [admin.php](c:/Users/user/Downloads/UniServerZ/www/CDC/admin/admin.php)
+   Reportables:
+   - total applications
+   - confirmed applications
+   - pending applications
+   - archived/no-response applications
+   - grower name, email, phone, WhatsApp
+   - location
+   - farm size
+   - commitments
+   - application reference
+   - submission source
+   - IP address
+   - applied date
+   - CSV export exists
+
+2. **Grower Dashboard Intelligence**
+   Source: [dashboard/index.php](c:/Users/user/Downloads/UniServerZ/www/CDC/dashboard/index.php)
+   Reportables:
+   - onboarding progress percentage
+   - application submitted status
+   - email confirmation status
+   - document verification status
+   - certificate issuance status
+   - verified document count
+   - unread support replies
+   - wallet balance
+   - registered farms
+   - open field tasks
+   - active agronomy cases
+   - primary farm weather
+   - farm verification status
+   - confidence score
+   - training/resources visible to user
+
+3. **National Coordinator Intelligence**
+   Source: [national-dashboard.php](c:/Users/user/Downloads/UniServerZ/www/CDC/admin/national-dashboard.php)
+   Reportables:
+   - registered farmers
+   - farms
+   - cultivated hectares
+   - state coordinators
+   - verified/approved providers
+   - open agronomy cases
+   - farmers by state
+   - farms by state
+   - hectares by state
+   - accredited growers by state
+   - verified farms by state
+   - coconut variety/crop trends
+   - provider type/status distribution
+   - recent broadcasts
+   - governance policy status
+   - expansion planning signals
+
+4. **State Coordinator Intelligence**
+   Source: [state-dashboard.php](c:/Users/user/Downloads/UniServerZ/www/CDC/admin/state-dashboard.php)
+   Reportables:
+   - farmers in state
+   - accredited vs not accredited
+   - verified vs unverified farms
+   - hectares in state
+   - farm count
+   - field agents in state
+   - agronomists in state
+   - extensionists in state
+   - budgeted amount
+   - amount spent
+   - active agronomy case categories
+   - resource inventory
+   - recent farmers
+   - farmer account status
+   - farm verification status
+   - accreditation status/program
+
+5. **Field / Farm Verification**
+   Source: [fields-management.php](c:/Users/user/Downloads/UniServerZ/www/CDC/admin/fields-management.php)
+   Reportables:
+   - farm list
+   - grower identity/contact
+   - state/LGA
+   - GPS coordinates
+   - verification status
+   - system confidence score
+   - system notes
+   - rejection reason
+   - reviewed date
+   - open tasks per farm
+   - farm map markers
+   - weather snapshot: temperature, rainfall, humidity, summary
+   - task assignment status, priority, due date
+
+6. **Formal Agent Activity Reports**
+   Sources: [reports.php](c:/Users/user/Downloads/UniServerZ/www/CDC/admin/reports.php), [agent-report.php](c:/Users/user/Downloads/UniServerZ/www/CDC/api/agent-report.php)
+   Reportables:
+   - agent activity by date range
+   - timestamp
+   - latitude/longitude
+   - battery level
+   - visit notes
+   - geofence event
+   - zone name
+   - location pings
+   - online view
+   - CSV export
+   - PDF export
+
+7. **Agronomy Intelligence**
+   Source: [agronomy.php](c:/Users/user/Downloads/UniServerZ/www/CDC/admin/agronomy.php)
+   Reportables:
+   - open cases
+   - total recommendations
+   - field observations
+   - active advisory templates
+   - cases by status/category/priority
+   - grower/farm attached to case
+   - assigned agronomist
+   - symptoms
+   - crop stage
+   - problem observed
+   - likely cause
+   - recommended action
+   - inputs needed
+   - safety/environment note
+   - follow-up date
+   - soil pH
+   - nitrogen, phosphorus, potassium
+   - organic matter
+   - salinity
+   - moisture condition
+   - crop variety
+   - tree age
+   - production stage
+   - yield estimate
+
+8. **Support Desk Intelligence**
+   Source: [support.php](c:/Users/user/Downloads/UniServerZ/www/CDC/admin/support.php)
+   Reportables:
+   - open tickets
+   - in-progress tickets
+   - resolved tickets
+   - closed tickets
+   - active ticket count
+   - unread farmer messages
+   - ticket category
+   - ticket priority
+   - ticket status
+   - opened date
+   - last message date
+   - total messages per thread
+   - user name/email/role
+   - full conversation history
+
+9. **Validation / Document Intelligence**
+   Sources: [validation-stats.php](c:/Users/user/Downloads/UniServerZ/www/CDC/admin/validation-stats.php), [api/validation-stats.php](c:/Users/user/Downloads/UniServerZ/www/CDC/api/validation-stats.php)
+   Reportables:
+   - total validations
+   - success rate
+   - failed validations
+   - average response time
+   - validation trend
+   - document types
+   - state performance
+   - recent validation activity
+   - user
+   - document type
+   - validation status
+   - response time
+
+10. **Demographic Intelligence**
+   Source: [demographics.php](c:/Users/user/Downloads/UniServerZ/www/CDC/admin/demographics.php)
+   Reportables:
+   - total users
+   - roles tracked
+   - users by role
+   - education level distribution
+   - farming experience distribution
+   - marital status distribution
+
+11. **Resource Allocation Intelligence**
+   Source: [resource-allocation.php](c:/Users/user/Downloads/UniServerZ/www/CDC/admin/resource-allocation.php)
+   Reportables:
+   - state inventory
+   - resource name/category
+   - quantity available
+   - unit
+   - reorder level
+   - farmer allocations
+   - allocation quantity
+   - distribution status
+   - effectiveness note
+
+12. **System / Operational Health**
+   Source: [monitoring.php](c:/Users/user/Downloads/UniServerZ/www/CDC/admin/monitoring.php)
+   Reportables:
+   - database health
+   - application count
+   - email service availability
+   - storage free percentage
+   - payment configuration status
+   - applications in last 24 hours
+   - audit log events
+
+**Reportables By Role**
+Based on the access matrix in [admin-layout.php](c:/Users/user/Downloads/UniServerZ/www/CDC/lib/admin-layout.php), the role breakdown should be:
+
+- **Super Admin**
+  Everything: national, state, applications, users, documents, certificates, support, field network, agronomy, providers, resources, wallet, communications, templates, notifications, analytics, monitoring, production readiness, audit, settings, integrations.
+
+- **Admin / National Coordinator**
+  National command intelligence, application registry, state comparison, all support tickets, field network, agronomy cases, documents, certificates, providers, resource allocation, communications, analytics, imports, production readiness.
+
+- **State Coordinator**
+  State-scoped farmers, accreditation, farm verification, field agents, agronomists, extensionists, state resources, state budget, state support tickets, state agronomy issues, state reports and analytics.
+
+- **Field Agent**
+  Assigned growers, assigned field tasks, visits, GPS pings, battery/location history, farm verification tasks, checklists, field observations, geofence events, visit notes, training/resources, support tickets.
+
+- **Agronomist**
+  Agronomy cases, assigned growers/farms, symptoms, soil/crop records, recommendations, field observations, follow-ups, advisory templates, farm health trends.
+
+- **Agric Extensionist**
+  Grower education/support cases, training participation, adoption follow-up, support tickets, field observations, escalations to agronomists.
+
+- **Investor**
+  Marketplace, wallet, reports, analytics, notifications. Current investor-specific reporting is thin; it should include investment opportunities, provider coverage, production pipeline, verified hectares, risk indicators, wallet/payment history, and portfolio-style summaries.
+
+- **Grower**
+  Own profile/application, documents, certificates, support, farm health, field status, wallet, training, marketplace, agronomy cases, recommendations, weather, verification progress.
+
+**Big Gap**
+There is no single reporting engine yet. The system has reportable data, but not a unified “Reports Center” with saved filters, exports, scheduled reports, role-scoped dashboards, and cross-module intelligence.
+
+The strongest next build would be a centralized `reports` module with role-aware report templates, CSV/PDF export, date filters, state filters, user/farm filters, and intelligence categories: Registry, Field, Agronomy, Finance, Support, Resources, Compliance, Communications, and Impact.

@@ -1,83 +1,45 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/_auth.php';
 require_once __DIR__ . '/../lib/admin-layout.php';
 
-session_start();
+// If we reach here, user is already authenticated
+if (isset($_GET['logout'])) {
+    admin_logout();
+    redirect_to('admin.php');
+}
 
 $pdo = db();
 admin_ensure_schema($pdo);
 
-if (isset($_GET['logout'])) {
-    admin_logout();
-}
-
-$error = '';
-if (!admin_session_is_authenticated($pdo) && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (admin_password_is_valid((string) ($_POST['password'] ?? ''))) {
-        session_regenerate_id(true);
-        $_SESSION['admin_authenticated'] = true;
-        $_SESSION['admin'] = true;
-        redirect_to('admin.php');
-    }
-    $error = 'Invalid admin password.';
-}
-
-if (!admin_session_is_authenticated($pdo)) {
-    ?>
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>NATCODEV Admin Login</title>
-      <style>
-        :root { --primary:#1a5276; --green:#1f8a55; --green-dark:#166b41; --ink:#1f2937; --muted:#667085; --line:#d8e2dc; }
-        * { box-sizing:border-box; }
-        body { font-family:"Segoe UI", Tahoma, Geneva, Verdana, sans-serif; background:linear-gradient(135deg, rgba(26,82,118,.09), rgba(31,138,85,.12)), #f5f8f6; display:flex; min-height:100vh; align-items:center; justify-content:center; margin:0; padding:24px; color:var(--ink); }
-        .login-shell { width:100%; max-width:420px; }
-        .brand { color:var(--primary); font-weight:800; text-align:center; margin-bottom:18px; letter-spacing:.02em; }
-        form { width:100%; background:#fff; padding:34px; border-radius:8px; border:1px solid rgba(16,24,40,.08); box-shadow:0 18px 44px rgba(16,24,40,.12); }
-        h1 { margin:0 0 8px; color:var(--primary); font-size:28px; line-height:1.15; }
-        .lead { margin:0 0 22px; color:var(--muted); }
-        input, button { width:100%; box-sizing:border-box; padding:13px; margin-top:12px; border-radius:5px; border:1px solid var(--line); font-size:1rem; }
-        input:focus { border-color:var(--green); box-shadow:0 0 0 3px rgba(31,138,85,.14); outline:none; }
-        button { background:var(--green); color:#fff; border:0; font-weight:800; cursor:pointer; box-shadow:0 10px 24px rgba(31,138,85,.22); }
-        button:hover { background:var(--green-dark); }
-        .error { color:#a32020; background:#fff3f3; border:1px solid #ffd2d2; padding:10px 12px; border-radius:5px; }
-        .home-link { display:inline-block; margin-top:18px; color:var(--green-dark); text-decoration:none; font-weight:800; }
-        @media (max-width:520px) { form { padding:26px 18px; } }
-      </style>
-    </head>
-    <body>
-      <main class="login-shell">
-      <div class="brand">NATCODEV Registry</div>
-      <form method="post">
-        <h1>Admin Login</h1>
-        <p class="lead">Access application review, exports, reporting, and registry operations.</p>
-        <?php if ($error): ?><p class="error"><?= e($error) ?></p><?php endif; ?>
-        <input type="password" name="password" placeholder="Admin password" required autofocus>
-        <button type="submit">Login</button>
-        <a class="home-link" href="../index.php">Back to home</a>
-      </form>
-      </main>
-    </body>
-    </html>
-    <?php
-    exit;
-}
 
 admin_require_feature($pdo, 'applications');
 
-if (isset($_GET['export'])) {
-    header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="natcodev_applications.csv"');
-    $out = fopen('php://output', 'w');
-    fputcsv($out, ['ID', 'Reference', 'Name', 'Location', 'Farm Size', 'Phone', 'Email', 'Confirmed', 'Review Status', 'Applied', 'Confirmed At']);
+$adminRole = admin_current_platform_role($pdo) ?? 'admin';
+$isSuperAdmin = $adminRole === 'super_admin';
 
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS application_delete_requests (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        application_id INT NOT NULL,
+        requested_by INT NULL,
+        reason TEXT NULL,
+        status VARCHAR(30) NOT NULL DEFAULT 'pending',
+        reviewed_by INT NULL,
+        reviewed_at DATETIME NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_app_delete_request_status (status),
+        INDEX idx_app_delete_request_application (application_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+");
+app_ensure_primary_auto_increment($pdo, 'application_delete_requests');
+
+if (isset($_GET['export'])) {
     $stmt = $pdo->query("SELECT * FROM applications ORDER BY created_at DESC");
-    while ($row = $stmt->fetch()) {
-        fputcsv($out, [
+    $rows = (function () use ($stmt): Generator {
+        while ($row = $stmt->fetch()) {
+            yield [
             $row['id'],
             $row['app_ref'],
             $row['name'],
@@ -89,10 +51,10 @@ if (isset($_GET['export'])) {
             $row['review_status'] ?? 'active',
             $row['created_at'],
             $row['confirmed_at'],
-        ]);
-    }
-    fclose($out);
-    exit;
+            ];
+        }
+    })();
+    app_export_csv('natcodev_applications.csv', ['Application ID', 'Reference', 'Name', 'Location', 'Farm Size', 'Phone', 'Email', 'Confirmed', 'Review Status', 'Applied', 'Confirmed At'], $rows);
 }
 
 function admin_send_application_confirmation(array $app): bool
@@ -128,6 +90,31 @@ function admin_application_return_query(array $source): string
     ]);
 }
 
+function admin_application_payload(array $source): array
+{
+    $name = trim((string) ($source['name'] ?? ''));
+    $location = trim((string) ($source['location'] ?? ''));
+    $farmSize = filter_var($source['farm_size'] ?? null, FILTER_VALIDATE_FLOAT);
+    $phone = preg_replace('/[^0-9]/', '', (string) ($source['phone'] ?? ''));
+    $whatsapp = preg_replace('/[^0-9]/', '', (string) ($source['whatsapp'] ?? $phone));
+    $email = filter_var(trim((string) ($source['email'] ?? '')), FILTER_VALIDATE_EMAIL);
+    $commitments = trim((string) ($source['commitments'] ?? 'Admin registration'));
+
+    if ($name === '' || $location === '' || $farmSize === false || $farmSize <= 0 || $phone === '' || !$email) {
+        throw new RuntimeException('Name, location, farm size, phone, and a valid email are required.');
+    }
+
+    return [
+        'name' => $name,
+        'location' => $location,
+        'farm_size' => $farmSize,
+        'phone' => $phone,
+        'whatsapp' => $whatsapp !== '' ? $whatsapp : null,
+        'email' => (string) $email,
+        'commitments' => $commitments !== '' ? $commitments : 'Admin registration',
+    ];
+}
+
 function admin_confirm_application(PDO $pdo, array $app): bool
 {
     try {
@@ -149,7 +136,7 @@ function admin_confirm_application(PDO $pdo, array $app): bool
         ]);
         $pdo->commit();
 
-        $loginUrl = app_base_url() . '/dashboard/login.php';
+        $loginUrl = app_base_url() . '/login.php';
         app_send_mail(
             (string) $app['email'],
             'Your NATCODEV Dashboard Access',
@@ -190,9 +177,189 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'bulk_
         } elseif ($bulk === 'archive') {
             $stmt = $pdo->prepare("UPDATE applications SET review_status = 'archived_no_response' WHERE id IN ({$placeholders}) AND confirmed = 0");
             $stmt->execute($ids);
+        } elseif ($bulk === 'delete' && $isSuperAdmin) {
+            $stmt = $pdo->prepare("UPDATE users SET application_id = NULL WHERE application_id IN ({$placeholders})");
+            $stmt->execute($ids);
+            if (app_table_exists($pdo, 'certificates')) {
+                $stmt = $pdo->prepare("DELETE FROM certificates WHERE application_id IN ({$placeholders})");
+                $stmt->execute($ids);
+            }
+            $stmt = $pdo->prepare("DELETE FROM applications WHERE id IN ({$placeholders}) AND confirmed = 0");
+            $stmt->execute($ids);
+        } elseif ($bulk === 'request_delete' && !$isSuperAdmin) {
+            $currentUser = current_user($pdo);
+            $stmt = $pdo->prepare("
+                INSERT INTO application_delete_requests (application_id, requested_by, reason)
+                VALUES (?, ?, ?)
+            ");
+            foreach ($ids as $id) {
+                $stmt->execute([(int) $id, $currentUser['id'] ?? null, 'Bulk delete request from admin applications page.']);
+            }
         }
     }
 
+    redirect_to('admin.php?' . admin_application_return_query($_POST));
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'create_application') {
+    if (!verify_csrf($_POST['_csrf'] ?? null)) {
+        http_response_code(419);
+        exit('Invalid security token.');
+    }
+
+    try {
+        $data = admin_application_payload($_POST);
+        $token = bin2hex(random_bytes(32));
+        $pdo->prepare("
+            INSERT INTO applications
+                (app_ref, name, location, farm_size, phone, whatsapp, email, commitments, confirmation_token, submission_source, review_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Admin Console', 'active')
+        ")->execute([
+            generate_application_ref(),
+            $data['name'],
+            $data['location'],
+            $data['farm_size'],
+            $data['phone'],
+            $data['whatsapp'],
+            $data['email'],
+            $data['commitments'],
+            $token,
+        ]);
+    } catch (Throwable $e) {
+        redirect_to('admin.php?' . http_build_query(['error' => $e->getMessage()] + $_POST));
+    }
+
+    redirect_to('admin.php?' . admin_application_return_query($_POST));
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_application') {
+    if (!verify_csrf($_POST['_csrf'] ?? null)) {
+        http_response_code(419);
+        exit('Invalid security token.');
+    }
+
+    try {
+        $id = (int) ($_POST['id'] ?? 0);
+        if ($id <= 0) {
+            throw new RuntimeException('Application not found.');
+        }
+        $data = admin_application_payload($_POST);
+        $reviewStatus = in_array((string) ($_POST['review_status'] ?? 'active'), ['active', 'archived_no_response'], true)
+            ? (string) $_POST['review_status']
+            : 'active';
+        $pdo->prepare("
+            UPDATE applications
+            SET name = ?, location = ?, farm_size = ?, phone = ?, whatsapp = ?, email = ?, commitments = ?, review_status = ?
+            WHERE id = ?
+        ")->execute([
+            $data['name'],
+            $data['location'],
+            $data['farm_size'],
+            $data['phone'],
+            $data['whatsapp'],
+            $data['email'],
+            $data['commitments'],
+            $reviewStatus,
+            $id,
+        ]);
+    } catch (Throwable $e) {
+        redirect_to('admin.php?' . http_build_query(['error' => $e->getMessage()] + $_POST));
+    }
+
+    redirect_to('admin.php?' . admin_application_return_query($_POST));
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_application') {
+    if (!verify_csrf($_POST['_csrf'] ?? null)) {
+        http_response_code(419);
+        exit('Invalid security token.');
+    }
+    if (!$isSuperAdmin) {
+        http_response_code(403);
+        exit('Forbidden: only Super Admin can delete applications.');
+    }
+    if ((string) ($_POST['confirm_delete'] ?? '') !== 'DELETE') {
+        http_response_code(422);
+        exit('Type DELETE to permanently delete this application.');
+    }
+
+    $id = (int) ($_POST['id'] ?? 0);
+    if ($id > 0) {
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare("UPDATE users SET application_id = NULL WHERE application_id = ?")->execute([$id]);
+            if (app_table_exists($pdo, 'certificates')) {
+                $pdo->prepare("DELETE FROM certificates WHERE application_id = ?")->execute([$id]);
+            }
+            $pdo->prepare("DELETE FROM applications WHERE id = ?")->execute([$id]);
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    redirect_to('admin.php?' . admin_application_return_query($_POST));
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'request_delete_application') {
+    if (!verify_csrf($_POST['_csrf'] ?? null)) {
+        http_response_code(419);
+        exit('Invalid security token.');
+    }
+    $id = (int) ($_POST['id'] ?? 0);
+    if ($id > 0) {
+        $currentUser = current_user($pdo);
+        $reason = trim((string) ($_POST['delete_reason'] ?? ''));
+        $pdo->prepare("
+            INSERT INTO application_delete_requests (application_id, requested_by, reason)
+            VALUES (?, ?, ?)
+        ")->execute([$id, $currentUser['id'] ?? null, $reason !== '' ? $reason : 'Admin requested deletion.']);
+    }
+    redirect_to('admin.php?' . admin_application_return_query($_POST));
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'review_delete_request') {
+    if (!verify_csrf($_POST['_csrf'] ?? null)) {
+        http_response_code(419);
+        exit('Invalid security token.');
+    }
+    if (!$isSuperAdmin) {
+        http_response_code(403);
+        exit('Forbidden: only Super Admin can review delete requests.');
+    }
+
+    $requestId = (int) ($_POST['request_id'] ?? 0);
+    $decision = (string) ($_POST['decision'] ?? '');
+    $stmt = $pdo->prepare("SELECT * FROM application_delete_requests WHERE id = ? AND status = 'pending' LIMIT 1");
+    $stmt->execute([$requestId]);
+    $request = $stmt->fetch();
+    if ($request) {
+        if ($decision === 'approve') {
+            $appId = (int) $request['application_id'];
+            $pdo->beginTransaction();
+            try {
+                $pdo->prepare("UPDATE users SET application_id = NULL WHERE application_id = ?")->execute([$appId]);
+                if (app_table_exists($pdo, 'certificates')) {
+                    $pdo->prepare("DELETE FROM certificates WHERE application_id = ?")->execute([$appId]);
+                }
+                $pdo->prepare("DELETE FROM applications WHERE id = ?")->execute([$appId]);
+                $pdo->prepare("UPDATE application_delete_requests SET status = 'approved', reviewed_by = ?, reviewed_at = NOW() WHERE id = ?")
+                    ->execute([current_user($pdo)['id'] ?? null, $requestId]);
+                $pdo->commit();
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                throw $e;
+            }
+        } elseif ($decision === 'reject') {
+            $pdo->prepare("UPDATE application_delete_requests SET status = 'rejected', reviewed_by = ?, reviewed_at = NOW() WHERE id = ?")
+                ->execute([current_user($pdo)['id'] ?? null, $requestId]);
+        }
+    }
     redirect_to('admin.php?' . admin_application_return_query($_POST));
 }
 
@@ -232,6 +399,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'confi
 }
 
 $search = trim((string) ($_GET['search'] ?? ''));
+$pageError = trim((string) ($_GET['error'] ?? ''));
 $status = (string) ($_GET['status'] ?? 'all');
 $page = admin_current_page();
 $perPage = admin_per_page(50);
@@ -273,6 +441,18 @@ $counts = $pdo->query("
       SUM(CASE WHEN review_status = 'archived_no_response' THEN 1 ELSE 0 END) archived
     FROM applications
 ")->fetch() ?: ['total' => 0, 'confirmed' => 0, 'pending' => 0, 'archived' => 0];
+$deleteRequests = [];
+if ($isSuperAdmin) {
+    $deleteRequests = $pdo->query("
+        SELECT adr.*, a.app_ref, a.name, a.email, u.name requested_by_name
+        FROM application_delete_requests adr
+        LEFT JOIN applications a ON a.id = adr.application_id
+        LEFT JOIN users u ON u.id = adr.requested_by
+        WHERE adr.status = 'pending'
+        ORDER BY adr.created_at DESC
+        LIMIT 20
+    ")->fetchAll();
+}
 admin_page_start('Applications', [
     'active' => 'admin.php',
     'description' => 'Review incoming grower applications, confirm approved records, and export registry data.',
@@ -280,12 +460,33 @@ admin_page_start('Applications', [
     'action_html' => '<a class="button" href="?export=1">Export CSV</a>',
 ]);
 ?>
+    <?php if ($pageError !== ''): ?><div class="notice error"><?= e($pageError) ?></div><?php endif; ?>
     <section class="stats">
       <div class="stat"><span>Total</span><div class="metric"><?= (int) $counts['total'] ?></div></div>
       <div class="stat"><span>Confirmed</span><div class="metric"><?= (int) $counts['confirmed'] ?></div></div>
       <div class="stat"><span>Pending</span><div class="metric"><?= (int) $counts['pending'] ?></div></div>
       <div class="stat"><span>Archived</span><div class="metric"><?= (int) $counts['archived'] ?></div></div>
     </section>
+
+    <details class="panel">
+      <summary><strong>Create Application</strong></summary>
+      <form method="post" class="grid" style="margin-top:14px;">
+        <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+        <input type="hidden" name="action" value="create_application">
+        <input type="hidden" name="search" value="<?= e($search) ?>">
+        <input type="hidden" name="status" value="<?= e($status) ?>">
+        <input type="hidden" name="page" value="<?= (int) $page ?>">
+        <input type="hidden" name="per_page" value="<?= (int) $perPage ?>">
+        <label>Name<input name="name" required></label>
+        <label>Email<input type="email" name="email" required></label>
+        <label>Phone<input name="phone" required></label>
+        <label>WhatsApp<input name="whatsapp"></label>
+        <label>Location<input name="location" required></label>
+        <label>Farm Size (ha)<input name="farm_size" inputmode="decimal" required></label>
+        <label>Commitments<textarea name="commitments">Admin registration</textarea></label>
+        <div><button type="submit">Create Application</button></div>
+      </form>
+    </details>
 
     <form class="toolbar panel" method="get">
       <input type="search" name="search" placeholder="Search ref, name, email, phone" value="<?= e($search) ?>">
@@ -314,10 +515,37 @@ admin_page_start('Applications', [
           <option value="resend">Resend selected confirmations</option>
           <option value="confirm">Admin confirm selected</option>
           <option value="archive">Archive selected pending</option>
+          <?php if ($isSuperAdmin): ?><option value="delete">Delete selected pending</option><?php else: ?><option value="request_delete">Request delete selected</option><?php endif; ?>
         </select>
-        <button type="submit" onclick="return this.form.bulk.value !== 'confirm' || confirm('Admin confirm selected applications? Use only after verification.')">Apply to Selected</button>
+        <button type="submit" onclick="if (this.form.bulk.value === 'confirm') return confirm('Admin confirm selected applications? Use only after verification.'); if (this.form.bulk.value === 'delete') return confirm('Super Admin delete selected pending applications permanently?'); return true;">Apply to Selected</button>
       </div>
     </form>
+    <?php if ($isSuperAdmin && $deleteRequests): ?>
+      <section class="panel">
+        <h2>Delete Requests</h2>
+        <table>
+          <thead><tr><th>Application</th><th>Requested By</th><th>Reason</th><th>Action</th></tr></thead>
+          <tbody>
+            <?php foreach ($deleteRequests as $request): ?>
+              <tr>
+                <td><strong><?= e($request['app_ref'] ?? 'Missing application') ?></strong><br><span class="muted"><?= e($request['name'] ?? '') ?> <?= e($request['email'] ?? '') ?></span></td>
+                <td><?= e($request['requested_by_name'] ?? 'Admin') ?><br><span class="muted"><?= e(date('Y-m-d H:i', strtotime((string) $request['created_at']))) ?></span></td>
+                <td><?= nl2br(e((string) $request['reason'])) ?></td>
+                <td>
+                  <form method="post" class="toolbar">
+                    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+                    <input type="hidden" name="action" value="review_delete_request">
+                    <input type="hidden" name="request_id" value="<?= (int) $request['id'] ?>">
+                    <button class="danger" name="decision" value="approve" onclick="return confirm('Approve delete request and permanently delete this application?')">Approve Delete</button>
+                    <button class="secondary" name="decision" value="reject">Reject</button>
+                  </form>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      </section>
+    <?php endif; ?>
     <table>
       <thead>
         <tr>
@@ -352,6 +580,36 @@ admin_page_start('Applications', [
             </td>
             <td><?= e(date('Y-m-d H:i', strtotime((string) $row['created_at']))) ?></td>
             <td>
+              <details class="row-review">
+                <summary>View / Edit</summary>
+                <div class="row-actions">
+                  <p><strong>Commitments</strong><br><?= nl2br(e((string) $row['commitments'])) ?></p>
+                  <p><strong>Submission</strong><br><?= e((string) ($row['submission_source'] ?? 'Website Form')) ?> / <?= e((string) ($row['ip_address'] ?? 'No IP')) ?></p>
+                  <form method="post" class="inline-edit">
+                    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+                    <input type="hidden" name="action" value="update_application">
+                    <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
+                    <input type="hidden" name="search" value="<?= e($search) ?>">
+                    <input type="hidden" name="status" value="<?= e($status) ?>">
+                    <input type="hidden" name="page" value="<?= (int) $page ?>">
+                    <input type="hidden" name="per_page" value="<?= (int) $perPage ?>">
+                    <label>Name<input name="name" value="<?= e($row['name']) ?>" required></label>
+                    <label>Email<input type="email" name="email" value="<?= e($row['email']) ?>" required></label>
+                    <label>Phone<input name="phone" value="<?= e($row['phone']) ?>" required></label>
+                    <label>WhatsApp<input name="whatsapp" value="<?= e($row['whatsapp'] ?? '') ?>"></label>
+                    <label>Location<input name="location" value="<?= e($row['location']) ?>" required></label>
+                    <label>Farm Size<input name="farm_size" inputmode="decimal" value="<?= e((string) $row['farm_size']) ?>" required></label>
+                    <label>Review Status
+                      <select name="review_status">
+                        <option value="active" <?= (string) ($row['review_status'] ?? 'active') !== 'archived_no_response' ? 'selected' : '' ?>>Active</option>
+                        <option value="archived_no_response" <?= (string) ($row['review_status'] ?? '') === 'archived_no_response' ? 'selected' : '' ?>>Archived</option>
+                      </select>
+                    </label>
+                    <label>Commitments<textarea name="commitments"><?= e($row['commitments']) ?></textarea></label>
+                    <button type="submit">Save Changes</button>
+                  </form>
+                </div>
+              </details>
               <?php if ((int) $row['confirmed'] !== 1): ?>
                 <form method="post">
                   <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
@@ -375,6 +633,37 @@ admin_page_start('Applications', [
                 </form>
               <?php else: ?>
                 <span class="muted">No action</span>
+              <?php endif; ?>
+              <?php if ($isSuperAdmin): ?>
+                <details class="row-review" style="margin-top:8px;">
+                  <summary class="danger-text">Delete</summary>
+                  <form method="post" class="mini-form" onsubmit="return confirm('Permanently delete this application record? This cannot be undone.');">
+                    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+                    <input type="hidden" name="action" value="delete_application">
+                    <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
+                    <input type="hidden" name="search" value="<?= e($search) ?>">
+                    <input type="hidden" name="status" value="<?= e($status) ?>">
+                    <input type="hidden" name="page" value="<?= (int) $page ?>">
+                    <input type="hidden" name="per_page" value="<?= (int) $perPage ?>">
+                    <label>Type DELETE<input name="confirm_delete" required></label>
+                    <button class="danger" type="submit">Delete Permanently</button>
+                  </form>
+                </details>
+              <?php else: ?>
+                <details class="row-review" style="margin-top:8px;">
+                  <summary>Request Delete</summary>
+                  <form method="post" class="mini-form">
+                    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+                    <input type="hidden" name="action" value="request_delete_application">
+                    <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
+                    <input type="hidden" name="search" value="<?= e($search) ?>">
+                    <input type="hidden" name="status" value="<?= e($status) ?>">
+                    <input type="hidden" name="page" value="<?= (int) $page ?>">
+                    <input type="hidden" name="per_page" value="<?= (int) $perPage ?>">
+                    <label>Reason<textarea name="delete_reason" required></textarea></label>
+                    <button class="secondary" type="submit">Send Delete Request</button>
+                  </form>
+                </details>
               <?php endif; ?>
             </td>
           </tr>

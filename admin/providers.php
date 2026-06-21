@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/_auth.php';
 require_once __DIR__ . '/../lib/platform-governance.php';
 
-session_start();
 $pdo = db();
 admin_ensure_schema($pdo);
 admin_require($pdo);
@@ -69,10 +69,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $providers = $pdo->query("
-    SELECT pr.*, COUNT(po.id) offerings
+    SELECT pr.*, COALESCE(offering_counts.offerings, 0) offerings
     FROM provider_registry pr
-    LEFT JOIN provider_offerings po ON po.provider_id = pr.id
-    GROUP BY pr.id
+    LEFT JOIN (
+        SELECT provider_id, COUNT(*) offerings
+        FROM provider_offerings
+        GROUP BY provider_id
+    ) offering_counts ON offering_counts.provider_id = pr.id
     ORDER BY FIELD(pr.status,'pending_review','approved','verified','suspended','rejected'), pr.created_at DESC
     LIMIT 80
 ")->fetchAll();
@@ -102,6 +105,7 @@ admin_page_start('Service & Input Providers', [
 <section class="panel provider-hero">
   <h2>Provider Registry</h2>
   <p class="muted">Covers input suppliers, agronomy consultants, soil labs, irrigation vendors, training providers, finance, agri-tech, logistics, and other agricultural services.</p>
+  <p><a class="button secondary" href="../provider/dashboard.php">Open Provider Dashboard</a> <a class="button secondary" href="../provider/index.php">Official Provider Registration</a></p>
 </section>
 
 <section class="layout provider-grid">

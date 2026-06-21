@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/_user_auth.php';
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../lib/dashboard-layout.php';
 require_once __DIR__ . '/../lib/admin-layout.php';
@@ -8,16 +9,17 @@ require_once __DIR__ . '/../lib/field-management.php';
 require_once __DIR__ . '/../lib/twilio.php';
 require_once __DIR__ . '/../lib/nigeria-locations.php';
 
-session_start();
 $pdo = db();
 admin_ensure_schema($pdo);
 fm_ensure_schema($pdo);
 
-if (empty($_SESSION['user_id'])) {
+$userId = (int) $_SESSION['user_id'];
+$profileCurrentUser = current_user($pdo);
+if (!$profileCurrentUser) {
+    session_destroy();
     redirect_to('login.php');
 }
-
-$userId = (int) $_SESSION['user_id'];
+dashboard_redirect_learner_only($pdo, $profileCurrentUser);
 $message = '';
 $error = '';
 $otpRequired = false;
@@ -221,6 +223,32 @@ foreach ([
 ] as $column => $definition) {
     app_add_column_if_missing($pdo, 'grower_farms', $column, $definition);
 }
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS farm_hands (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        grower_id INT NOT NULL,
+        farm_id INT NULL,
+        full_name VARCHAR(160) NOT NULL,
+        phone VARCHAR(40) NULL,
+        email VARCHAR(190) NULL,
+        gender VARCHAR(30) NULL,
+        engagement_type VARCHAR(40) NOT NULL DEFAULT 'part_time',
+        activity_category VARCHAR(80) NOT NULL DEFAULT 'general_farm_work',
+        activity_notes TEXT NULL,
+        skill_level VARCHAR(40) NULL,
+        start_date DATE NULL,
+        end_date DATE NULL,
+        status VARCHAR(30) NOT NULL DEFAULT 'active',
+        emergency_contact VARCHAR(120) NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_farm_hands_grower (grower_id),
+        INDEX idx_farm_hands_farm (farm_id),
+        INDEX idx_farm_hands_activity (activity_category),
+        INDEX idx_farm_hands_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+");
+app_ensure_primary_auto_increment($pdo, 'farm_hands');
 
 $stmt = $pdo->prepare("
     SELECT u.*,
@@ -298,6 +326,58 @@ $farmStmt = $pdo->prepare("
 ");
 $farmStmt->execute([$userId]);
 $growerFarms = $farmStmt->fetchAll();
+
+$farmHandActivities = [
+    'nursery_seedling' => 'Nursery & Seedling Raising',
+    'land_preparation' => 'Land Clearing & Preparation',
+    'planting_transplanting' => 'Planting & Transplanting',
+    'weeding_mulching' => 'Weeding & Mulching',
+    'irrigation_water' => 'Irrigation & Water Management',
+    'fertilizer_soil' => 'Fertilizer, Compost & Soil Care',
+    'pest_disease' => 'Pest, Disease & Sanitation',
+    'harvesting' => 'Harvesting',
+    'processing_value_addition' => 'Processing & Value Addition',
+    'storage_packaging' => 'Storage, Sorting & Packaging',
+    'intercropping' => 'Intercropping Operations',
+    'livestock_integration' => 'Livestock Integration',
+    'machinery_equipment' => 'Machinery & Equipment Operation',
+    'security_watch' => 'Farm Security / Watch',
+    'transport_logistics' => 'Transport & Logistics',
+    'recordkeeping_supervision' => 'Recordkeeping & Supervision',
+    'consulting_extension' => 'Consulting / Extension Support',
+    'general_farm_work' => 'General Farm Work',
+];
+$farmHandEngagements = [
+    'full_time' => 'Full Time',
+    'part_time' => 'Part Time',
+    'seasonal' => 'Seasonal',
+    'casual_daily' => 'Casual / Daily Labour',
+    'consultant' => 'Consultant',
+    'contractor' => 'Contractor',
+    'family_worker' => 'Family Worker',
+];
+$farmHandStatuses = [
+    'active' => 'Active',
+    'paused' => 'Paused',
+    'completed' => 'Completed',
+    'inactive' => 'Inactive',
+];
+$farmHandSkills = [
+    'trainee' => 'Trainee',
+    'basic' => 'Basic',
+    'skilled' => 'Skilled',
+    'supervisor' => 'Supervisor',
+    'specialist' => 'Specialist',
+];
+$farmHandsStmt = $pdo->prepare("
+    SELECT fh.*, gf.farm_name
+    FROM farm_hands fh
+    LEFT JOIN grower_farms gf ON gf.id = fh.farm_id AND gf.user_id = fh.grower_id
+    WHERE fh.grower_id = ?
+    ORDER BY FIELD(fh.status, 'active', 'paused', 'completed', 'inactive'), fh.full_name
+");
+$farmHandsStmt->execute([$userId]);
+$farmHands = $farmHandsStmt->fetchAll();
 
 function profile_ensure_otp_schema(PDO $pdo): void
 {
@@ -671,6 +751,102 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             goto profile_post_done;
         }
 
+        if ($action === 'save_farm_hand' && ($user['role'] ?? 'grower') === 'grower') {
+            $farmHandId = (int) ($_POST['farm_hand_id'] ?? 0);
+            $farmId = (int) ($_POST['farm_id'] ?? 0) ?: null;
+            $fullName = trim((string) ($_POST['full_name'] ?? ''));
+            $phone = trim((string) ($_POST['phone'] ?? ''));
+            $email = trim((string) ($_POST['email'] ?? ''));
+            $gender = trim((string) ($_POST['gender'] ?? ''));
+            $engagementType = array_key_exists((string) ($_POST['engagement_type'] ?? ''), $farmHandEngagements)
+                ? (string) $_POST['engagement_type']
+                : 'part_time';
+            $activityCategory = array_key_exists((string) ($_POST['activity_category'] ?? ''), $farmHandActivities)
+                ? (string) $_POST['activity_category']
+                : 'general_farm_work';
+            $skillLevel = array_key_exists((string) ($_POST['skill_level'] ?? ''), $farmHandSkills)
+                ? (string) $_POST['skill_level']
+                : null;
+            $status = array_key_exists((string) ($_POST['status'] ?? ''), $farmHandStatuses)
+                ? (string) $_POST['status']
+                : 'active';
+            $startDate = trim((string) ($_POST['start_date'] ?? '')) ?: null;
+            $endDate = trim((string) ($_POST['end_date'] ?? '')) ?: null;
+
+            if ($fullName === '') {
+                $error = 'Farm hand name is required.';
+            } elseif ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $error = 'Enter a valid farm hand email or leave it blank.';
+            } elseif ($farmId !== null && !in_array($farmId, array_map(static fn (array $farm): int => (int) $farm['id'], $growerFarms), true)) {
+                $error = 'Select one of your registered farms for this farm hand.';
+            } elseif ($farmHandId > 0) {
+                $ownership = $pdo->prepare("SELECT id FROM farm_hands WHERE id = ? AND grower_id = ? LIMIT 1");
+                $ownership->execute([$farmHandId, $userId]);
+                if (!$ownership->fetchColumn()) {
+                    $error = 'Farm hand record not found.';
+                } else {
+                    $pdo->prepare("
+                        UPDATE farm_hands
+                        SET farm_id = ?, full_name = ?, phone = ?, email = ?, gender = ?, engagement_type = ?,
+                            activity_category = ?, activity_notes = ?, skill_level = ?, start_date = ?, end_date = ?,
+                            status = ?, emergency_contact = ?
+                        WHERE id = ? AND grower_id = ?
+                    ")->execute([
+                        $farmId,
+                        $fullName,
+                        $phone,
+                        $email ?: null,
+                        $gender,
+                        $engagementType,
+                        $activityCategory,
+                        trim((string) ($_POST['activity_notes'] ?? '')),
+                        $skillLevel,
+                        $startDate,
+                        $endDate,
+                        $status,
+                        trim((string) ($_POST['emergency_contact'] ?? '')),
+                        $farmHandId,
+                        $userId,
+                    ]);
+                    $message = 'Farm hand updated successfully.';
+                }
+            } else {
+                $pdo->prepare("
+                    INSERT INTO farm_hands
+                        (grower_id, farm_id, full_name, phone, email, gender, engagement_type, activity_category,
+                         activity_notes, skill_level, start_date, end_date, status, emergency_contact)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ")->execute([
+                    $userId,
+                    $farmId,
+                    $fullName,
+                    $phone,
+                    $email ?: null,
+                    $gender,
+                    $engagementType,
+                    $activityCategory,
+                    trim((string) ($_POST['activity_notes'] ?? '')),
+                    $skillLevel,
+                    $startDate,
+                    $endDate,
+                    $status,
+                    trim((string) ($_POST['emergency_contact'] ?? '')),
+                ]);
+                $message = 'Farm hand registered successfully.';
+            }
+
+            $farmHandsStmt = $pdo->prepare("
+                SELECT fh.*, gf.farm_name
+                FROM farm_hands fh
+                LEFT JOIN grower_farms gf ON gf.id = fh.farm_id AND gf.user_id = fh.grower_id
+                WHERE fh.grower_id = ?
+                ORDER BY FIELD(fh.status, 'active', 'paused', 'completed', 'inactive'), fh.full_name
+            ");
+            $farmHandsStmt->execute([$userId]);
+            $farmHands = $farmHandsStmt->fetchAll();
+            goto profile_post_done;
+        }
+
         if (($action === 'add_farm' || $action === 'update_farm') && ($user['role'] ?? 'grower') === 'grower') {
             $farmId = (int) ($_POST['farm_id'] ?? 0);
             $stateId = profile_valid_state_id($pdo, filter_input(INPUT_POST, 'farm_state_id', FILTER_VALIDATE_INT) ?: null);
@@ -866,24 +1042,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (!$otpRequired && $error === '' && !empty($_FILES['profile_picture']['name'])) {
-            $allowed = ['jpg', 'jpeg', 'png', 'webp'];
-            $original = (string) $_FILES['profile_picture']['name'];
-            $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
-            if (!in_array($ext, $allowed, true)) {
-                $error = 'Profile picture must be JPG, PNG, or WebP.';
-            } elseif ((int) ($_FILES['profile_picture']['size'] ?? 0) > 2 * 1024 * 1024) {
-                $error = 'Profile picture must be 2MB or smaller.';
-            } else {
+            try {
+                $upload = app_uploaded_file_info((array) ($_FILES['profile_picture'] ?? []), ['jpg', 'jpeg', 'png', 'webp'], 2 * 1024 * 1024, 'Profile picture');
                 $uploadDir = dirname(__DIR__) . '/uploads/profile-pictures';
                 if (!is_dir($uploadDir)) {
                     mkdir($uploadDir, 0755, true);
                 }
-                $fileName = 'user_' . $userId . '_' . time() . '.' . $ext;
-                if (move_uploaded_file((string) $_FILES['profile_picture']['tmp_name'], $uploadDir . '/' . $fileName)) {
+                $fileName = app_safe_upload_name('user_' . $userId, $upload['name'], $upload['extension']);
+                if (move_uploaded_file($upload['tmp_name'], $uploadDir . '/' . $fileName)) {
                     $profilePicture = 'uploads/profile-pictures/' . $fileName;
                 } else {
                     $error = 'Unable to upload profile picture.';
                 }
+            } catch (Throwable $e) {
+                $error = $e->getMessage();
             }
         }
 
@@ -1018,10 +1190,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 profile_post_done:
 ?>
-<?php dashboard_page_start('Profile', ['active' => 'profile.php', 'description' => 'Keep your contact details, next of kin, and notification preferences current.', 'wide' => true]); ?>
-<?php $profileForm = $otpRequired && isset($profileData) ? array_merge($user, $profileData, $applicationData ?? []) : $user; ?>
-<h1>Profile</h1>
+<?php
+$profilePageMode = defined('DASHBOARD_PROFILE_MODE') ? (string) DASHBOARD_PROFILE_MODE : 'profile';
+$profilePageMode = in_array($profilePageMode, ['profile', 'account', 'farm'], true) ? $profilePageMode : 'profile';
+$profileAllowedTabs = match ($profilePageMode) {
+    'account' => ['security', 'password', 'notifications'],
+    'farm' => ['farm', 'activity', 'locations', 'hands'],
+    default => ['personal'],
+};
+$profileDefaultTab = $profileAllowedTabs[0] ?? 'personal';
+$profilePageTitle = match ($profilePageMode) {
+    'account' => 'Account Settings',
+    'farm' => 'Farm Profile',
+    default => 'Edit Profile',
+};
+$profilePageDescription = match ($profilePageMode) {
+    'account' => 'Manage account security, password, and notification preferences.',
+    'farm' => 'Manage primary farm, farm activity, farm locations, and farm hands.',
+    default => 'Update the profile details used for verification, support, and field engagement.',
+};
+$profileActivePage = match ($profilePageMode) {
+    'farm' => 'farm-profile.php',
+    'account' => 'account-settings.php',
+    default => 'profile.php',
+};
+dashboard_page_start($profilePageTitle, ['active' => $profileActivePage, 'description' => $profilePageDescription, 'wide' => true]);
+$profileForm = $otpRequired && isset($profileData) ? array_merge($user, $profileData, $applicationData ?? []) : $user;
+$primaryGrowerFarm = $growerFarms[0] ?? [];
+$profilePicture = ltrim((string) ($profileForm['profile_picture'] ?? ''), '/');
+$profilePictureUrl = $profilePicture !== '' ? '../' . $profilePicture : '';
+$growerName = (string) ($profileForm['name'] ?? 'Grower');
+$memberId = (string) ($profileForm['app_ref'] ?? 'Not linked');
+$farmSize = (string) ($primaryGrowerFarm['farm_size'] ?? $profileForm['farm_size'] ?? '');
+$coconutType = (string) ($primaryGrowerFarm['coconut_variety'] ?? $profileForm['coconut_variety'] ?? '');
+$cooperative = (string) ($profileForm['cooperative_name'] ?? $profileForm['organization'] ?? '');
+$farmState = (string) ($primaryGrowerFarm['state_name'] ?? 'State pending');
+$farmLga = (string) ($primaryGrowerFarm['lga_name'] ?? 'LGA pending');
+$farmCommunity = (string) ($primaryGrowerFarm['street_address'] ?? $profileForm['location'] ?? 'Community pending');
+$farmGps = trim((string) ($primaryGrowerFarm['latitude'] ?? '') . ', ' . (string) ($primaryGrowerFarm['longitude'] ?? ''), ' ,');
+$treeCount = (int) ($primaryGrowerFarm['estimated_tree_count'] ?? $profileForm['estimated_tree_count'] ?? 0);
+$intercrops = (string) ($primaryGrowerFarm['intercrops'] ?? $profileForm['intercrops'] ?? '');
+$livestock = (string) ($primaryGrowerFarm['livestock_integration'] ?? $profileForm['livestock_integration'] ?? '');
+$activeFarmHands = count(array_filter($farmHands, static fn(array $hand): bool => (string) ($hand['status'] ?? '') === 'active'));
+$verificationStatus = (string) ($primaryGrowerFarm['verification_status'] ?? 'pending');
+?>
 <style>
+  .profile-summary-board { display:grid; gap:16px; margin-bottom:16px; }
+  .profile-summary-row { display:grid; grid-template-columns:minmax(320px,1.35fr) repeat(3,minmax(180px,.55fr)); gap:14px; }
+  .profile-identity-card, .profile-mini-card, .farm-location-card, .farm-overview-card {
+    background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); padding:16px;
+  }
+  .profile-identity-card { display:flex; gap:16px; align-items:center; min-height:136px; }
+  .profile-identity-card img, .profile-avatar-fallback { width:76px; height:76px; border-radius:50%; object-fit:cover; border:2px solid #dfe8d8; background:#edf6e8; flex:0 0 auto; }
+  .profile-avatar-fallback { display:grid; place-items:center; color:var(--green); font-weight:900; font-size:1.6rem; }
+  .profile-identity-card h2, .profile-mini-card h3, .farm-location-card h2, .farm-overview-card h2 { margin:0 0 8px; color:var(--green); }
+  .profile-identity-card p, .profile-mini-card p, .farm-location-card p, .farm-overview-card p { margin:0; color:var(--muted); line-height:1.45; }
+  .profile-mini-card strong { display:block; color:var(--ink); font-size:1.35rem; line-height:1.15; margin:6px 0 12px; }
+  .profile-summary-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .profile-summary-actions button, .profile-summary-actions a { min-height:36px; padding:8px 11px; }
+  .farm-location-grid, .farm-overview-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+  .farm-location-item, .farm-overview-item { border:1px solid var(--line); background:#fbfdfb; border-radius:8px; padding:12px; min-height:92px; }
+  .farm-location-item small, .farm-overview-item small { display:block; color:var(--muted); font-weight:800; margin-bottom:6px; }
+  .farm-location-item strong, .farm-overview-item strong { color:var(--ink); overflow-wrap:anywhere; }
+  .farm-overview-item p { margin-top:10px; }
+  .farm-overview-item button { box-shadow:none !important; }
+  .profile-outcome-note { border:1px solid #efd285; background:#fff8e5; color:#5f4500; border-radius:8px; padding:12px; }
   .profile-section { margin-top:18px; padding:18px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); }
   .profile-section h2 { margin:0 0 6px; color:var(--green); font-size:1.15rem; }
   .profile-section .hint { margin:0 0 14px; color:var(--muted); line-height:1.45; }
@@ -1030,34 +1263,118 @@ profile_post_done:
   .profile-tabs { position:sticky; top:86px; z-index:12; display:flex; flex-wrap:wrap; gap:8px; margin:16px 0 12px; padding:10px; background:rgba(245,248,243,.95); border:1px solid var(--line); border-radius:8px; backdrop-filter:blur(8px); }
   .profile-tab { border:1px solid transparent; background:#fff; color:var(--green); box-shadow:none; min-height:42px; }
   .profile-tab[aria-selected="true"] { background:var(--green); color:#fff; border-color:var(--green); }
-  .profile-tab-panel[hidden] { display:none; }
+    .profile-tab-panel[hidden] { display:none; }
+  .profile-route-links { display:flex; flex-wrap:wrap; gap:10px; margin:0 0 14px; }
+  .profile-route-link { display:inline-flex; align-items:center; gap:8px; min-height:40px; padding:9px 12px; border:1px solid var(--line); border-radius:9px; background:#fff; color:var(--green); font-weight:900; }
+  .profile-route-link.active { background:var(--green); color:#fff; border-color:var(--green); }
   .profile-actions { position:sticky; bottom:0; z-index:12; display:flex; justify-content:flex-end; margin-top:16px; padding:12px 0; background:linear-gradient(180deg, rgba(245,248,243,0), var(--bg) 28%); }
   .profile-section h3 { margin:0 0 12px; color:var(--green); }
-  @media(max-width:700px){.profile-tabs{position:static}.profile-tab{flex:1 1 calc(50% - 8px)}}
+  .farm-hand-list { display:grid; gap:12px; margin-bottom:18px; }
+  .farm-hand-card { border:1px solid var(--line); border-radius:8px; padding:14px; background:#fff; }
+  .farm-hand-card summary { cursor:pointer; color:var(--green); font-weight:900; }
+  .farm-hand-meta { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0; }
+  @media(max-width:1100px){.profile-summary-row{grid-template-columns:1fr 1fr}.farm-location-grid,.farm-overview-grid{grid-template-columns:1fr 1fr}}
+  @media(max-width:700px){.profile-tabs{position:static}.profile-tab{flex:1 1 calc(50% - 8px)}.profile-summary-row,.farm-location-grid,.farm-overview-grid{grid-template-columns:1fr}.profile-identity-card{align-items:flex-start}}
 </style>
     <?php if ($message): ?><p class="success"><?= e($message) ?></p><?php endif; ?>
     <?php if ($error): ?><p class="error"><?= e($error) ?></p><?php endif; ?>
     <?php if (profile_otp_production_warning() !== ''): ?><p class="error"><?= e(profile_otp_production_warning()) ?></p><?php endif; ?>
     <?php if ($otpRequired): ?><p class="notice pending">Enter the OTP sent to your current phone/email, then submit again. Re-select profile picture only after OTP is accepted.</p><?php endif; ?>
-    <?php if (!empty($profileForm['profile_picture'])): ?>
-      <p><img src="../<?= e($profileForm['profile_picture']) ?>" alt="Profile picture" style="width:120px;height:120px;object-fit:cover;border-radius:50%;border:1px solid #d8e2dc;"></p>
+    <?php if (($user['role'] ?? 'grower') === 'grower'): ?>
+      <section class="profile-summary-board" aria-label="Grower profile and farm profile summary">
+        <div class="profile-summary-row">
+          <article class="profile-identity-card">
+            <?php if ($profilePictureUrl !== ''): ?>
+              <img src="<?= e($profilePictureUrl) ?>" alt="<?= e($growerName) ?> profile picture">
+            <?php else: ?>
+              <span class="profile-avatar-fallback"><?= e(strtoupper(substr($growerName, 0, 1))) ?></span>
+            <?php endif; ?>
+            <div>
+              <h2><?= e($growerName) ?></h2>
+              <p>Member ID: <?= e($memberId) ?></p>
+              <p>Member since: <?= !empty($profileForm['created_at']) ? e(date('M j, Y', strtotime((string) $profileForm['created_at']))) : 'Not available' ?></p>
+              <p><?= ntv_badge($verificationStatus, ntv_status_label($verificationStatus)) ?></p>
+              <div class="profile-summary-actions">
+                <button type="button" class="button secondary" data-profile-jump="personal">View / Edit Profile</button>
+              </div>
+            </div>
+          </article>
+          <article class="profile-mini-card">
+            <h3>Farm Size</h3>
+            <strong><?= $farmSize !== '' ? e($farmSize) . ' Acres' : 'Not set' ?></strong>
+            <p>Total declared production area.</p>
+            <div class="profile-summary-actions"><button type="button" class="button secondary" data-profile-jump="locations">View details</button></div>
+          </article>
+          <article class="profile-mini-card">
+            <h3>Coconut Type</h3>
+            <strong><?= $coconutType !== '' ? e($coconutType) : 'Not set' ?></strong>
+            <p>Preferred coconut variety for field planning.</p>
+            <div class="profile-summary-actions"><button type="button" class="button secondary" data-profile-jump="activity">View details</button></div>
+          </article>
+          <article class="profile-mini-card">
+            <h3>Cooperative</h3>
+            <strong><?= $cooperative !== '' ? e($cooperative) : 'Not linked' ?></strong>
+            <p>Grower group or cooperative membership.</p>
+            <div class="profile-summary-actions"><button type="button" class="button secondary" data-profile-jump="personal">View details</button></div>
+          </article>
+        </div>
+
+        <article class="farm-location-card">
+          <div class="ntv-section-head">
+            <div>
+              <h2>Farm Location</h2>
+              <p>State, LGA, community, and GPS coordinates used for verification, field work, weather, and reporting.</p>
+            </div>
+            <a class="button secondary" href="https://www.google.com/maps/search/?api=1&query=<?= urlencode($farmGps !== '' ? $farmGps : $farmCommunity . ', ' . $farmLga . ', ' . $farmState . ', Nigeria') ?>" target="_blank" rel="noopener">View on Map</a>
+          </div>
+          <div class="farm-location-grid">
+            <div class="farm-location-item"><small>State</small><strong><?= e($farmState) ?></strong></div>
+            <div class="farm-location-item"><small>LGA</small><strong><?= e($farmLga) ?></strong></div>
+            <div class="farm-location-item"><small>Community</small><strong><?= e($farmCommunity) ?></strong></div>
+            <div class="farm-location-item"><small>GPS Coordinate</small><strong><?= $farmGps !== '' ? e($farmGps) : 'Not captured' ?></strong></div>
+          </div>
+        </article>
+
+        <article class="farm-overview-card">
+          <div class="ntv-section-head">
+            <div>
+              <h2>Farm Overview</h2>
+              <p>Dwarf coconut establishment, intercrops, livestock, and farm hands summarized before deep editing.</p>
+            </div>
+            <button type="button" class="button secondary" data-profile-jump="farm">Edit Farm Profile</button>
+          </div>
+          <div class="farm-overview-grid">
+            <div class="farm-overview-item"><small>Coconut Trees</small><strong><?= $treeCount > 0 ? e((string) $treeCount) : 'Not set' ?></strong><p><a href="fields.php">View details</a></p></div>
+            <div class="farm-overview-item"><small>Intercrops</small><strong><?= $intercrops !== '' ? e($intercrops) : 'Not set' ?></strong><p><button type="button" class="button secondary" data-profile-jump="activity">View details</button></p></div>
+            <div class="farm-overview-item"><small>Livestock</small><strong><?= $livestock !== '' ? e($livestock) : 'Not set' ?></strong><p><button type="button" class="button secondary" data-profile-jump="activity">View details</button></p></div>
+            <div class="farm-overview-item"><small>Farm Hands</small><strong><?= (int) $activeFarmHands ?> active</strong><p><button type="button" class="button secondary" data-profile-jump="hands">View details</button></p></div>
+          </div>
+        </article>
+        <div class="profile-outcome-note">Screen outcome: updating profile, farm location, farm activity, or farm hands saves a record that supports verification, reporting, farm operations, Academy eligibility, and certificate readiness.</div>
+      </section>
     <?php endif; ?>
+    <nav class="profile-route-links" aria-label="Profile workspaces">
+      <a class="profile-route-link <?= $profilePageMode === 'profile' ? 'active' : '' ?>" href="profile.php">Edit Profile</a>
+      <a class="profile-route-link <?= $profilePageMode === 'account' ? 'active' : '' ?>" href="account-settings.php">Account Settings</a>
+      <?php if (($user['role'] ?? 'grower') === 'grower'): ?><a class="profile-route-link <?= $profilePageMode === 'farm' ? 'active' : '' ?>" href="farm-profile.php">Farm Profile</a><?php endif; ?>
+    </nav>
     <nav class="profile-tabs" aria-label="Profile sections">
-      <button type="button" class="profile-tab" data-profile-tab="personal" aria-selected="true">Account Settings</button>
-      <button type="button" class="profile-tab" data-profile-tab="security">Security</button>
-      <button type="button" class="profile-tab" data-profile-tab="password">Password</button>
+      <?php if (in_array('personal', $profileAllowedTabs, true)): ?><button type="button" class="profile-tab" data-profile-tab="personal" aria-selected="true">Profile Edit</button><?php endif; ?>
+      <?php if (in_array('security', $profileAllowedTabs, true)): ?><button type="button" class="profile-tab" data-profile-tab="security">Security</button><?php endif; ?>
+      <?php if (in_array('password', $profileAllowedTabs, true)): ?><button type="button" class="profile-tab" data-profile-tab="password">Password</button><?php endif; ?>
       <?php if (($user['role'] ?? 'grower') === 'grower'): ?>
-        <button type="button" class="profile-tab" data-profile-tab="farm">Primary Farm</button>
-        <button type="button" class="profile-tab" data-profile-tab="activity">Farm Activity</button>
-        <button type="button" class="profile-tab" data-profile-tab="locations">Farm Locations</button>
+        <?php if (in_array('farm', $profileAllowedTabs, true)): ?><button type="button" class="profile-tab" data-profile-tab="farm">Primary Farm</button><?php endif; ?>
+        <?php if (in_array('activity', $profileAllowedTabs, true)): ?><button type="button" class="profile-tab" data-profile-tab="activity">Farm Activity</button><?php endif; ?>
+        <?php if (in_array('locations', $profileAllowedTabs, true)): ?><button type="button" class="profile-tab" data-profile-tab="locations">Farm Locations</button><?php endif; ?>
+        <?php if (in_array('hands', $profileAllowedTabs, true)): ?><button type="button" class="profile-tab" data-profile-tab="hands">Farm Hands</button><?php endif; ?>
       <?php endif; ?>
-      <button type="button" class="profile-tab" data-profile-tab="notifications">Notification Preferences</button>
+      <?php if (in_array('notifications', $profileAllowedTabs, true)): ?><button type="button" class="profile-tab" data-profile-tab="notifications">Notification Preferences</button><?php endif; ?>
     </nav>
     <form method="post" enctype="multipart/form-data">
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
       <input type="hidden" name="action" value="save_profile">
       <section class="profile-section profile-tab-panel" data-profile-panel="personal">
-        <h2>Account Settings</h2>
+        <h2>Edit Profile</h2>
         <p class="hint">Update the profile details used for verification, support, and field engagement.</p>
         <div class="grid">
         <div><label>Profile Picture</label><input type="file" name="profile_picture" accept=".jpg,.jpeg,.png,.webp"></div>
@@ -1280,9 +1597,9 @@ profile_post_done:
         <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
         <input type="hidden" name="action" value="update_password">
         <div class="grid">
-          <div><label>Current Password</label><input type="password" name="current_password" required autocomplete="current-password"></div>
-          <div><label>New Password</label><input type="password" name="new_password" minlength="8" required autocomplete="new-password"></div>
-          <div><label>Confirm New Password</label><input type="password" name="confirm_password" minlength="8" required autocomplete="new-password"></div>
+          <div><label>Current Password</label><span class="password-field"><input id="profile_current_password" type="password" name="current_password" required autocomplete="current-password"><button class="password-toggle" type="button" data-target="profile_current_password" aria-pressed="false">Show</button></span></div>
+          <div><label>New Password</label><span class="password-field"><input id="profile_new_password" type="password" name="new_password" minlength="8" required autocomplete="new-password"><button class="password-toggle" type="button" data-target="profile_new_password" aria-pressed="false">Show</button></span></div>
+          <div><label>Confirm New Password</label><span class="password-field"><input id="profile_confirm_password" type="password" name="confirm_password" minlength="8" required autocomplete="new-password"><button class="password-toggle" type="button" data-target="profile_confirm_password" aria-pressed="false">Show</button></span></div>
         </div>
         <button type="submit">Update Password</button>
       </form>
@@ -1358,20 +1675,151 @@ profile_post_done:
           </form>
         </div>
       </section>
+      <section class="profile-section profile-tab-panel" data-profile-panel="hands" hidden>
+        <h2>Farm Hands</h2>
+        <p class="hint">Register practical workers on your farm, classify the work they do, and assign them to a specific farm or to your grower profile generally.</p>
+
+        <div class="farm-hand-list">
+          <?php foreach ($farmHands as $hand): ?>
+            <details class="farm-hand-card">
+              <summary><?= e((string) $hand['full_name']) ?></summary>
+              <div class="farm-hand-meta">
+                <span class="badge <?= e((string) $hand['status']) ?>"><?= e($farmHandStatuses[(string) $hand['status']] ?? status_label((string) $hand['status'])) ?></span>
+                <span class="badge pending"><?= e($farmHandEngagements[(string) $hand['engagement_type']] ?? status_label((string) $hand['engagement_type'])) ?></span>
+                <span class="badge verified"><?= e($farmHandActivities[(string) $hand['activity_category']] ?? status_label((string) $hand['activity_category'])) ?></span>
+              </div>
+              <p class="muted">
+                <?= e((string) ($hand['farm_name'] ?: 'Assigned to grower profile')) ?>
+                <?= $hand['phone'] ? ' / ' . e((string) $hand['phone']) : '' ?>
+                <?= $hand['skill_level'] ? ' / ' . e($farmHandSkills[(string) $hand['skill_level']] ?? status_label((string) $hand['skill_level'])) : '' ?>
+              </p>
+              <?php if (!empty($hand['activity_notes'])): ?><p><?= nl2br(e((string) $hand['activity_notes'])) ?></p><?php endif; ?>
+              <form method="post" class="grid">
+                <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+                <input type="hidden" name="action" value="save_farm_hand">
+                <input type="hidden" name="farm_hand_id" value="<?= (int) $hand['id'] ?>">
+                <div><label>Name</label><input name="full_name" value="<?= e((string) $hand['full_name']) ?>" required></div>
+                <div><label>Phone</label><input name="phone" value="<?= e((string) $hand['phone']) ?>"></div>
+                <div><label>Email</label><input type="email" name="email" value="<?= e((string) $hand['email']) ?>"></div>
+                <div>
+                  <label>Farm Assignment</label>
+                  <select name="farm_id">
+                    <option value="">Grower profile / all farms</option>
+                    <?php foreach ($growerFarms as $farm): ?>
+                      <option value="<?= (int) $farm['id'] ?>" <?= (int) ($hand['farm_id'] ?? 0) === (int) $farm['id'] ? 'selected' : '' ?>><?= e($farm['farm_name']) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                </div>
+                <div>
+                  <label>Engagement</label>
+                  <select name="engagement_type">
+                    <?php foreach ($farmHandEngagements as $value => $label): ?>
+                      <option value="<?= e($value) ?>" <?= (string) $hand['engagement_type'] === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                </div>
+                <div>
+                  <label>Farm Activity</label>
+                  <select name="activity_category">
+                    <?php foreach ($farmHandActivities as $value => $label): ?>
+                      <option value="<?= e($value) ?>" <?= (string) $hand['activity_category'] === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                </div>
+                <div>
+                  <label>Skill Level</label>
+                  <select name="skill_level">
+                    <option value="">Not specified</option>
+                    <?php foreach ($farmHandSkills as $value => $label): ?>
+                      <option value="<?= e($value) ?>" <?= (string) ($hand['skill_level'] ?? '') === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                </div>
+                <div>
+                  <label>Status</label>
+                  <select name="status">
+                    <?php foreach ($farmHandStatuses as $value => $label): ?>
+                      <option value="<?= e($value) ?>" <?= (string) $hand['status'] === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                </div>
+                <div><label>Gender</label><input name="gender" value="<?= e((string) $hand['gender']) ?>"></div>
+                <div><label>Start Date</label><input type="date" name="start_date" value="<?= e((string) $hand['start_date']) ?>"></div>
+                <div><label>End Date</label><input type="date" name="end_date" value="<?= e((string) $hand['end_date']) ?>"></div>
+                <div><label>Emergency Contact</label><input name="emergency_contact" value="<?= e((string) $hand['emergency_contact']) ?>"></div>
+                <div style="grid-column:1/-1;"><label>Activity Notes</label><textarea name="activity_notes" placeholder="Tasks handled, work days, specialty, tools used, or notes for field teams."><?= e((string) $hand['activity_notes']) ?></textarea></div>
+                <div><button type="submit">Save Farm Hand</button></div>
+              </form>
+            </details>
+          <?php endforeach; ?>
+          <?php if (!$farmHands): ?><p class="empty">No farm hands registered yet.</p><?php endif; ?>
+        </div>
+
+        <form method="post" class="panel">
+          <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+          <input type="hidden" name="action" value="save_farm_hand">
+          <h3>Add Farm Hand</h3>
+          <div class="grid">
+            <div><label>Name</label><input name="full_name" required placeholder="Worker full name"></div>
+            <div><label>Phone</label><input name="phone" placeholder="Phone / WhatsApp"></div>
+            <div><label>Email</label><input type="email" name="email"></div>
+            <div>
+              <label>Farm Assignment</label>
+              <select name="farm_id">
+                <option value="">Grower profile / all farms</option>
+                <?php foreach ($growerFarms as $farm): ?><option value="<?= (int) $farm['id'] ?>"><?= e($farm['farm_name']) ?></option><?php endforeach; ?>
+              </select>
+            </div>
+            <div>
+              <label>Engagement</label>
+              <select name="engagement_type">
+                <?php foreach ($farmHandEngagements as $value => $label): ?><option value="<?= e($value) ?>"><?= e($label) ?></option><?php endforeach; ?>
+              </select>
+            </div>
+            <div>
+              <label>Farm Activity</label>
+              <select name="activity_category">
+                <?php foreach ($farmHandActivities as $value => $label): ?><option value="<?= e($value) ?>"><?= e($label) ?></option><?php endforeach; ?>
+              </select>
+            </div>
+            <div>
+              <label>Skill Level</label>
+              <select name="skill_level">
+                <option value="">Not specified</option>
+                <?php foreach ($farmHandSkills as $value => $label): ?><option value="<?= e($value) ?>"><?= e($label) ?></option><?php endforeach; ?>
+              </select>
+            </div>
+            <div>
+              <label>Status</label>
+              <select name="status">
+                <?php foreach ($farmHandStatuses as $value => $label): ?><option value="<?= e($value) ?>"><?= e($label) ?></option><?php endforeach; ?>
+              </select>
+            </div>
+            <div><label>Gender</label><input name="gender"></div>
+            <div><label>Start Date</label><input type="date" name="start_date"></div>
+            <div><label>End Date</label><input type="date" name="end_date"></div>
+            <div><label>Emergency Contact</label><input name="emergency_contact"></div>
+            <div style="grid-column:1/-1;"><label>Activity Notes</label><textarea name="activity_notes" placeholder="Examples: weeding crew lead, nursery specialist, harvest labour, processing consultant, tractor operator."></textarea></div>
+          </div>
+          <button type="submit">Register Farm Hand</button>
+        </form>
+      </section>
     <?php endif; ?>
     <script>
     (function () {
+      const allowedTabs = <?= json_encode(array_values($profileAllowedTabs), JSON_UNESCAPED_SLASHES) ?>;
+      const defaultTab = <?= json_encode($profileDefaultTab, JSON_UNESCAPED_SLASHES) ?>;
       const tabs = Array.from(document.querySelectorAll('[data-profile-tab]'));
       const panels = Array.from(document.querySelectorAll('[data-profile-panel]'));
 
       function activateProfileTab(key) {
-        const targetKey = panels.some((panel) => panel.dataset.profilePanel === key) ? key : 'personal';
+        const targetKey = allowedTabs.includes(key) && panels.some((panel) => panel.dataset.profilePanel === key) ? key : defaultTab;
         tabs.forEach((tab) => tab.setAttribute('aria-selected', tab.dataset.profileTab === targetKey ? 'true' : 'false'));
         panels.forEach((panel) => {
           panel.hidden = panel.dataset.profilePanel !== targetKey;
         });
         document.querySelectorAll('[data-profile-save-actions]').forEach((actions) => {
-          actions.hidden = ['password', 'locations'].includes(targetKey);
+          actions.hidden = ['password', 'locations', 'hands'].includes(targetKey);
         });
         try { localStorage.setItem('natcodev_profile_tab', targetKey); } catch (error) {}
       }
@@ -1379,10 +1827,22 @@ profile_post_done:
       tabs.forEach((tab) => {
         tab.addEventListener('click', () => activateProfileTab(tab.dataset.profileTab || 'personal'));
       });
-      let initialTab = 'personal';
+      document.querySelectorAll('[data-profile-jump]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const target = button.dataset.profileJump || 'personal';
+          activateProfileTab(target);
+          const tabsNav = document.querySelector('.profile-tabs');
+          if (tabsNav) tabsNav.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          try { history.replaceState(null, '', '#' + target); } catch (error) {}
+        });
+      });
+      let initialTab = defaultTab;
       try { initialTab = localStorage.getItem('natcodev_profile_tab') || initialTab; } catch (error) {}
       if (window.location.hash) {
         initialTab = window.location.hash.replace('#', '');
+      }
+      if (!allowedTabs.includes(initialTab)) {
+        initialTab = defaultTab;
       }
       activateProfileTab(initialTab);
 
@@ -1478,7 +1938,7 @@ profile_post_done:
       });
     })();
     </script>
-    <?php if (!empty($user['staff_type'])): ?>
+    <?php if (in_array((string) ($user['role'] ?? ''), ['field_agent', 'admin'], true) && !empty($user['staff_type'])): ?>
       <section class="panel" style="margin-top:18px;">
         <h2>Staff Profile</h2>
         <div class="grid">

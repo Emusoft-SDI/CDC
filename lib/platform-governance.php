@@ -8,6 +8,37 @@ require_once __DIR__ . '/agronomy.php';
 
 function pg_ensure_schema(PDO $pdo): void
 {
+    static $done = false;
+    if ($done || app_schema_flag_is_set($pdo, 'platform_governance_schema_ready', '20260606-fast')) {
+        $done = true;
+        return;
+    }
+
+    try {
+        $existing = $pdo->query("
+            SELECT COUNT(*)
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME IN (
+                'state_resource_inventory',
+                'state_resource_allocations',
+                'platform_broadcasts',
+                'provider_registry',
+                'provider_offerings',
+                'platform_governance_policies',
+                'state_budget_records',
+                'stakeholder_partnerships'
+              )
+        ")->fetchColumn();
+        if ((int) $existing === 8) {
+            app_schema_flag_set($pdo, 'platform_governance_schema_ready', '20260606-fast');
+            $done = true;
+            return;
+        }
+    } catch (Throwable $e) {
+        // Fall through to the full schema path.
+    }
+
     admin_ensure_schema($pdo);
     fm_ensure_schema($pdo);
     agronomy_ensure_schema($pdo);
@@ -112,6 +143,24 @@ function pg_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     app_ensure_primary_auto_increment($pdo, 'provider_registry');
+    foreach ([
+        'business_registration_number' => "VARCHAR(120) NULL",
+        'tax_id' => "VARCHAR(120) NULL",
+        'primary_category' => "VARCHAR(160) NULL",
+        'service_categories' => "TEXT NULL",
+        'input_categories' => "TEXT NULL",
+        'supply_capacity' => "VARCHAR(180) NULL",
+        'delivery_options' => "TEXT NULL",
+        'quality_assurance' => "TEXT NULL",
+        'bank_name' => "VARCHAR(180) NULL",
+        'account_name' => "VARCHAR(180) NULL",
+        'account_number' => "VARCHAR(80) NULL",
+        'dashboard_token' => "VARCHAR(80) NULL",
+        'state_ids' => "TEXT NULL",
+        'lga_ids' => "TEXT NULL",
+    ] as $column => $definition) {
+        app_add_column_if_missing($pdo, 'provider_registry', $column, $definition);
+    }
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS provider_offerings (
@@ -131,6 +180,18 @@ function pg_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     app_ensure_primary_auto_increment($pdo, 'provider_offerings');
+    foreach ([
+        'unit' => "VARCHAR(80) NULL",
+        'minimum_order' => "VARCHAR(120) NULL",
+        'lead_time' => "VARCHAR(120) NULL",
+        'coverage_area' => "TEXT NULL",
+        'stock_status' => "VARCHAR(40) NOT NULL DEFAULT 'available'",
+        'requires_quote' => "TINYINT(1) NOT NULL DEFAULT 1",
+        'state_ids' => "TEXT NULL",
+        'lga_ids' => "TEXT NULL",
+    ] as $column => $definition) {
+        app_add_column_if_missing($pdo, 'provider_offerings', $column, $definition);
+    }
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS platform_governance_policies (
@@ -188,6 +249,8 @@ function pg_ensure_schema(PDO $pdo): void
     app_ensure_primary_auto_increment($pdo, 'stakeholder_partnerships');
 
     pg_seed_policies($pdo);
+    app_schema_flag_set($pdo, 'platform_governance_schema_ready', '20260606-fast');
+    $done = true;
 }
 
 function pg_seed_policies(PDO $pdo): void

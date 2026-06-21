@@ -1,0 +1,1 @@
+<?php require 'tools/seed_curriculum.php'; 

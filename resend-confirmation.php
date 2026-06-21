@@ -8,6 +8,10 @@ if (!$email) {
     json_response(['success' => false, 'message' => 'A valid email is required'], 422);
 }
 
+if (!app_check_rate_limit('resend_confirmation', 3, 3600)) {
+    json_response(['success' => false, 'message' => 'Too many requests. Please try again in an hour.'], 429);
+}
+
 try {
     $pdo = db();
     app_ensure_core_schema($pdo);

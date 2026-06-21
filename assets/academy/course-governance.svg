@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" role="img" aria-labelledby="title desc">
+  <title id="title">Governance course image</title>
+  <desc id="desc">An illustrated coordination dashboard with regional nodes, reports, and governance controls.</desc>
+  <rect width="900" height="520" fill="#f5fbf7"/>
+  <rect x="88" y="82" width="724" height="356" rx="24" fill="#fff" stroke="#dfe8d8" stroke-width="5"/>
+  <rect x="88" y="82" width="724" height="74" rx="24" fill="#0b4f2a"/>
+  <circle cx="142" cy="120" r="14" fill="#c99b22"/>
+  <circle cx="184" cy="120" r="14" fill="#8cbf95"/>
+  <rect x="238" y="110" width="214" height="20" rx="10" fill="#fff"/>
+  <rect x="142" y="204" width="188" height="162" rx="16" fill="#e8f2ff"/>
+  <rect x="382" y="204" width="154" height="162" rx="16" fill="#fff5d6"/>
+  <rect x="590" y="204" width="154" height="162" rx="16" fill="#eef8ef"/>
+  <path d="M235 310h225l210-52" fill="none" stroke="#0b4f2a" stroke-width="14" stroke-linecap="round"/>
+  <circle cx="235" cy="310" r="24" fill="#0b4f2a"/>
+  <circle cx="460" cy="310" r="24" fill="#c99b22"/>
+  <circle cx="670" cy="258" r="24" fill="#13834b"/>
+</svg>

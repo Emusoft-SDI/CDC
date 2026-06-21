@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/_auth.php';
 require_once __DIR__ . '/../lib/admin-layout.php';
 require_once __DIR__ . '/../lib/agronomy.php';
 
-session_start();
 $pdo = db();
 admin_ensure_schema($pdo);
 agronomy_ensure_schema($pdo);

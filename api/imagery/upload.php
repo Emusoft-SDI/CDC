@@ -7,11 +7,6 @@ session_start();
 $pdo = db();
 $user = require_user_role($pdo, ['grower', 'field_agent', 'admin']);
 
-// Validate file
-if (!isset($_FILES['image']) || $_FILES['image']['error'] !== UPLOAD_ERR_OK) {
-    json_response(['success' => false, 'error' => 'No image uploaded'], 400);
-}
-
 $farmId = filter_var($_POST['farm_id'] ?? null, FILTER_VALIDATE_INT);
 $imageryType = $_POST['imagery_type'] ?? 'satellite';
 $captureDate = $_POST['capture_date'] ?? date('Y-m-d');
@@ -19,7 +14,13 @@ if (!$farmId) {
     json_response(['success' => false, 'error' => 'Farm ID required'], 422);
 }
 
-$mime = mime_content_type($_FILES['image']['tmp_name']);
+try {
+    $upload = app_uploaded_file_info((array) ($_FILES['image'] ?? []), ['jpg', 'jpeg', 'png', 'webp'], 12 * 1024 * 1024, 'Imagery file');
+} catch (Throwable $e) {
+    json_response(['success' => false, 'error' => $e->getMessage()], 400);
+}
+
+$mime = mime_content_type($upload['tmp_name']);
 if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
     json_response(['success' => false, 'error' => 'Only JPEG, PNG, or WebP imagery is supported'], 422);
 }
@@ -72,7 +73,7 @@ $extension = match ($mime) {
 $fileName = 'farm_' . $farmId . '_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $extension;
 $filePath = $uploadDir . $fileName;
 
-if (move_uploaded_file($_FILES['image']['tmp_name'], $filePath)) {
+if (move_uploaded_file($upload['tmp_name'], $filePath)) {
     $thumbnailPath = generateThumbnail($filePath, $uploadDir . 'thumb_' . $fileName);
 
     $pdo->prepare("

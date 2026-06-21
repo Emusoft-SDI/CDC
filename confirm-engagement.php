@@ -70,7 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ")->execute([$email, $appId, $userId ?: null, $record['id']]);
             $pdo->commit();
 
-            $loginUrl = app_base_url() . '/dashboard/login.php';
+            $loginUrl = app_base_url() . '/login.php';
             app_send_mail($email, 'Welcome to NATCODEV', "Dear {$record['name']},\n\nYour NATCODEV engagement has been confirmed.\n\nDashboard: {$loginUrl}\nTemporary password: {$temporaryPassword}\n\nPlease change this password after logging in.");
             if (!empty($record['phone_e164'])) {
                 sendSMSMessage((string) $record['phone_e164'], "NATCODEV: Your engagement is confirmed. Login: {$loginUrl}. Temporary password: {$temporaryPassword}");
@@ -110,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <h1>Confirm NATCODEV Engagement</h1>
     <?php if ($message): ?>
       <div class="notice ok"><?= e($message) ?></div>
-      <a class="button" href="dashboard/login.php">Go to Dashboard</a>
+      <a class="button" href="login.php">Go to Dashboard</a>
     <?php else: ?>
       <?php if ($error): ?><div class="notice error"><?= e($error) ?></div><?php endif; ?>
       <p>Hello <strong><?= e($record['name'] ?? 'Grower') ?></strong>, confirm your NATCODEV grower engagement and activate your dashboard account.</p>

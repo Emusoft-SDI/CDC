@@ -1,0 +1,230 @@
+Cocopay is a fintech/banking-style web app with user wallet, deposits, withdrawals, transfers, billing, admin controls, and support tools.
+
+**User Features**
+- User registration and login
+- Email/SMS OTP verification
+- Password reset
+- User dashboard
+- Wallet balance tracking
+- Deposit money through gateways
+- Manual deposit support
+- Paystack deposit support
+- Monnify deposit support
+- Withdraw from wallet
+- Manual withdrawal
+- Automatic withdrawal support
+- Bank list lookup
+- Nigerian bank account name resolution
+- Transfer between users
+- Other-bank transfer/beneficiary flow
+- Transaction history
+- Deposit history
+- Withdrawal history
+- KYC submission
+- Profile management
+- Support ticket creation/replies
+- Referral commission support
+
+**Money Movement**
+- Wallet debit/credit ledger
+- Deposit confirmation
+- Withdrawal OTP confirmation
+- Admin approval/rejection for manual withdrawals
+- Automatic payout mode toggle
+- Paystack payout groundwork
+- Monnify deposit/withdrawal groundwork
+- Payout status tracking
+- Safer pending/processing states for automatic withdrawals
+
+**Billing Services**
+- Airtime purchase
+- Mobile data bundles
+- Electricity billing support
+- Cable/TV billing support
+- Internet/service billing support depending on provider availability
+- Provider API configuration from admin
+- Supported billing providers integrated/planned in code:
+  - VTU.ng
+  - AirtimePay
+  - Beem Africa
+- Server-side billing price verification before wallet debit
+- Billing transaction logs
+
+**Admin Features**
+- Admin dashboard
+- User management
+- User balance/transaction visibility
+- Deposit management
+- Withdrawal management
+- Manual/automatic withdrawal mode control
+- Payment gateway configuration
+- Paystack/Monnify credential setup
+- Billing provider credential setup
+- Notification settings
+- SMS gateway settings
+- Email gateway settings
+- KYC management
+- Loan/DPS/FDR style banking modules
+- Branch management
+- Staff/role permissions
+- Support ticket management
+- Cron configuration
+- Backup configuration
+- System settings
+- Frontend/content management
+- Template/theme management
+
+**Security/Production Work Added**
+- `APP_DEBUG=false`
+- Debugbar disabled
+- Sensitive files protected with `.htaccess`
+- Stored XSS hardening in modal outputs
+- Raw admin HTML sanitized with HTMLPurifier
+- Card form `old()` sensitive-field removal
+- Public/user high-cost endpoints throttled
+- OTP resend throttling
+- Billing purchase/verify throttling
+- Cron route throttling/secret support
+- PHP extension fixes: `fileinfo`, `zip`, etc.
+- Laravel config/route/view cache compatibility verified
+Money Safety
+Double-entry ledger for every wallet movement
+Immutable balance journal
+Daily wallet reconciliation
+Paystack/Monnify settlement reconciliation
+Admin cash movement audit trail
+Withdrawal risk scoring
+Withdrawal velocity limits
+Per-user/per-bank payout limits
+Failed payout reversal automation
+Payout idempotency keys
+Webhook signature verification for all providers
+Separate available balance vs pending balance
+Locked balance for pending withdrawals/bills
+Admin maker-checker approval for large withdrawals
+Manual override logging with reason and approver
+Identity & Compliance
+Tiered KYC levels
+BVN/NIN verification
+Address verification
+Document verification
+Liveness/selfie verification
+Sanctions/PEP screening
+Duplicate identity detection
+Bank account ownership verification
+Device fingerprinting
+Suspicious login alerts
+User risk profile
+Compliance reports
+Transaction monitoring rules
+Security
+Force 2FA for admin accounts
+Optional 2FA for users
+Login attempt throttling and lockout
+CAPTCHA on public forms
+IP reputation/rate limiting
+Admin IP allowlist option
+Session/device management
+Password history and strength policy
+Secure webhook replay protection
+Full CSRF review
+File upload malware/type validation
+Content Security Policy headers
+Security headers: HSTS, X-Frame-Options, Referrer-Policy
+Secrets rotation workflow
+Encrypted provider credentials
+Separate test/live API environments
+Admin Controls
+Role-based permissions review
+Maker-checker approval flow
+Admin action audit log
+Admin login history
+Staff activity timeline
+Withdrawal auto/manual toggle per provider
+Provider health dashboard
+Maintenance mode controls
+Feature flags for billing/withdrawals/deposits
+Emergency pause button for withdrawals
+Emergency pause button for deposits/billing
+Config change history
+Billing Robustness
+Provider failover
+Provider availability checks
+Bill purchase status polling
+Automatic refund on failed bill purchase
+Cached service/product catalog
+Server-side product validation
+Provider transaction reconciliation
+Customer receipt generation
+Electricity meter/account validation
+Cable smartcard validation
+Internet account validation
+Reliability
+Queue workers for slow API calls
+Background jobs for webhooks/reconciliation
+Retry policies with backoff
+Idempotent deposit/withdrawal/billing processing
+Database transaction wrapping for wallet debits/credits
+Job failure dashboard
+Health check endpoint
+Uptime monitoring
+Error tracking
+Slow query monitoring
+Reporting
+Daily transaction report
+Revenue report
+Commission report
+Failed transaction report
+Reversal/refund report
+Provider settlement report
+Admin action report
+User wallet statement export
+CSV/PDF exports
+Tax/accounting summaries
+Production Infrastructure
+Move from localhost to real domain/HTTPS
+Use production .env
+Real Paystack/Monnify live keys
+Queue worker supervisor
+Scheduled cron configured securely
+Automated database backups
+Offsite file backups
+Restore test procedure
+Log rotation
+Centralized logs
+Staging environment
+Deployment checklist
+Rollback plan
+User Experience
+Clear withdrawal status timeline
+Deposit status page
+Billing receipt page
+Failed transaction explanation
+Better bank dropdown/search
+Saved beneficiaries
+Push/email/SMS transaction alerts
+Downloadable wallet statement
+Dispute/report transaction button
+In-app notifications
+Most important next 10:
+Double-entry wallet ledger
+Webhook signature verification
+Paystack/Monnify reconciliation
+Idempotency for all money operations
+Pending/available/locked balance separation
+Admin maker-checker for withdrawals
+BVN/NIN/KYC verification
+Emergency pause controls
+Queue/retry system for provider calls
+
+Wallet
+Deposits
+Withdrawals
+Transactions
+Growth
+
+Support
+
+Support
+knowledge base
+new tickets

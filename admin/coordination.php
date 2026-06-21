@@ -1,251 +1,183 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/_auth.php';
 require_once __DIR__ . '/../lib/admin-layout.php';
+require_once __DIR__ . '/../lib/platform-governance.php';
+require_once __DIR__ . '/../lib/marketplace.php';
+require_once __DIR__ . '/../lib/monnify.php';
+require_once __DIR__ . '/../lib/academy.php';
+require_once __DIR__ . '/../lib/support.php';
 require_once __DIR__ . '/../lib/field-management.php';
-require_once __DIR__ . '/../lib/agronomy.php';
 
-session_start();
 $pdo = db();
 admin_ensure_schema($pdo);
+pg_ensure_schema($pdo);
+marketplace_ensure_schema($pdo);
+wallet_ensure_schema($pdo);
+academy_ensure_schema($pdo);
+support_ensure_schema($pdo);
 fm_ensure_schema($pdo);
-agronomy_ensure_schema($pdo);
 admin_require($pdo);
 
-$user = current_user($pdo) ?: [];
-$platformRole = admin_current_platform_role($pdo) ?: 'admin';
-$roleLabels = [
-    'super_admin' => 'Super Administrator',
-    'national_coordinator' => 'National Coordinator',
-    'state_coordinator' => 'State Coordinator',
-    'investor' => 'Investor',
-    'admin' => 'Administrator',
-    'field_agent' => 'Field Agent',
-    'agronomist' => 'Agronomist',
-    'agric_extensionist' => 'Agric Extensionist',
-    'grower' => 'Grower',
-];
+$admin = current_user($pdo) ?: [];
 
-$staffStmt = $pdo->prepare("SELECT * FROM staff_profiles WHERE user_id = ? LIMIT 1");
-$staffStmt->execute([(int) ($user['id'] ?? 0)]);
-$staffProfile = $staffStmt->fetch() ?: [];
-$scopeState = trim((string) ($staffProfile['state'] ?? $user['location'] ?? ''));
-$isStateScope = $platformRole === 'state_coordinator';
-$scopeLabel = $isStateScope ? ($scopeState !== '' ? $scopeState : 'State not assigned') : 'National';
-$scopeWarning = $isStateScope && $scopeState === '';
-
-$stateSql = '';
-$stateParams = [];
-if ($isStateScope && $scopeState !== '') {
-    $stateSql = " AND (
-        ns.state_name = ?
-        OR a.location LIKE ?
-        OR u.location LIKE ?
-        OR sp.state = ?
-    )";
-    $stateParams = [$scopeState, '%' . $scopeState . '%', '%' . $scopeState . '%', $scopeState];
+function ao_scalar(PDO $pdo, string $sql, array $params = []): float
+{
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return (float) ($stmt->fetchColumn() ?: 0);
+    } catch (Throwable $e) {
+        error_log('Admin outlook scalar failed: ' . $e->getMessage());
+        return 0.0;
+    }
 }
 
-$countScoped = static function (PDO $pdo, string $where, array $params = []) use ($stateSql, $stateParams): int {
-    $stmt = $pdo->prepare("
-        SELECT COUNT(DISTINCT u.id)
-        FROM users u
-        LEFT JOIN applications a ON a.id = u.application_id
-        LEFT JOIN grower_farms gf ON gf.user_id = u.id
-        LEFT JOIN nigeria_states ns ON ns.id = gf.state_id OR ns.id = a.state_id
-        LEFT JOIN staff_profiles sp ON sp.user_id = u.id
-        WHERE {$where}{$stateSql}
-    ");
-    $stmt->execute(array_merge($params, $stateParams));
-    return (int) $stmt->fetchColumn();
-};
+function ao_rows(PDO $pdo, string $sql, array $params = []): array
+{
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll();
+    } catch (Throwable $e) {
+        error_log('Admin outlook rows failed: ' . $e->getMessage());
+        return [];
+    }
+}
 
-$stats = [
-    'growers' => $countScoped($pdo, "u.role = 'grower'"),
-    'field_agents' => $countScoped($pdo, "u.role = 'field_agent' AND COALESCE(sp.staff_type, 'field_agent') = 'field_agent'"),
-    'agronomists' => $countScoped($pdo, "(u.platform_role = 'agronomist' OR u.is_agronomist = 1 OR sp.staff_type = 'agronomist')"),
-    'extensionists' => $countScoped($pdo, "(u.platform_role = 'agric_extensionist' OR u.is_extensionist = 1 OR sp.staff_type IN ('extensionist','agric_extensionist'))"),
-];
+function ao_money(float $amount): string
+{
+    return 'N' . number_format($amount, 2);
+}
 
-$farmWhere = $isStateScope && $scopeState !== '' ? 'WHERE ns.state_name = ?' : '';
-$farmStmt = $pdo->prepare("
-    SELECT COUNT(DISTINCT gf.id)
-    FROM grower_farms gf
-    LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
-    {$farmWhere}
+function ao_badge(string $status): string
+{
+    return match ($status) {
+        'active', 'verified', 'confirmed', 'issued', 'resolved', 'completed', 'approved', 'paid', 'successful' => 'ok',
+        'pending', 'pending_review', 'open', 'in_progress', 'under_review', 'processing' => 'warn',
+        'rejected', 'failed', 'escalated', 'revoked' => 'bad',
+        default => 'info',
+    };
+}
+
+$verifiedGrowers = (int) ao_scalar($pdo, "SELECT COUNT(DISTINCT gf.user_id) FROM grower_farms gf JOIN farm_verifications fv ON fv.farm_id = gf.id WHERE fv.status = 'verified'");
+$activeProviders = (int) ao_scalar($pdo, "SELECT COUNT(*) FROM provider_registry WHERE status IN ('verified','active','approved')");
+$marketplaceOrders = (int) ao_scalar($pdo, "SELECT COUNT(*) FROM marketplace_orders WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)");
+$walletBalance = ao_scalar($pdo, "SELECT COALESCE(SUM(balance), 0) FROM wallets");
+$trainingCompletion = ao_scalar($pdo, "SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND((SUM(completion_status = 'completed') / COUNT(*)) * 100, 1) END FROM webinar_registrations");
+$openTickets = (int) ao_scalar($pdo, "SELECT COUNT(*) FROM support_tickets WHERE status IN ('open','in_progress','waiting_on_user','escalated')");
+$pendingApplications = (int) ao_scalar($pdo, "SELECT COUNT(*) FROM applications WHERE confirmed = 0 OR review_status IN ('pending','pending_review','under_review')");
+$unreadMessages = (int) ao_scalar($pdo, "SELECT COUNT(*) FROM support_ticket_messages WHERE visibility = 'public' AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)");
+
+$recentApplications = ao_rows($pdo, "
+    SELECT a.app_ref, a.name, a.created_at, a.review_status, COALESCE(ns.state_name, a.location) state_name, COALESCE(nl.lga_name, '') lga_name
+    FROM applications a
+    LEFT JOIN nigeria_states ns ON ns.id = a.state_id
+    LEFT JOIN nigeria_lgas nl ON nl.id = a.lga_id
+    ORDER BY a.created_at DESC
+    LIMIT 6
 ");
-$farmStmt->execute($farmWhere ? [$scopeState] : []);
-$stats['farms'] = (int) $farmStmt->fetchColumn();
-
-$caseWhere = $isStateScope && $scopeState !== '' ? "AND (ns.state_name = ? OR u.location LIKE ?)" : '';
-$caseStmt = $pdo->prepare("
-    SELECT COUNT(DISTINCT ac.id)
-    FROM agronomy_cases ac
-    JOIN users u ON u.id = ac.grower_id
-    LEFT JOIN grower_farms gf ON gf.id = ac.farm_id
-    LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
-    WHERE ac.status NOT IN ('resolved','closed') {$caseWhere}
+$activityRows = ao_rows($pdo, "
+    SELECT 'Application submitted' title, name actor, created_at, location detail FROM applications ORDER BY created_at DESC LIMIT 3
 ");
-$caseStmt->execute($caseWhere ? [$scopeState, '%' . $scopeState . '%'] : []);
-$stats['agronomy_cases'] = (int) $caseStmt->fetchColumn();
-
-$peopleStmt = $pdo->prepare("
-    SELECT u.id, u.name, u.email, u.role, u.platform_role, u.location, COALESCE(sp.staff_type, u.platform_role, u.role) staff_type,
-           sp.state, sp.lga
-    FROM users u
-    LEFT JOIN applications a ON a.id = u.application_id
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
-    LEFT JOIN nigeria_states ns ON ns.id = gf.state_id OR ns.id = a.state_id
-    LEFT JOIN staff_profiles sp ON sp.user_id = u.id
-    WHERE u.role IN ('grower','field_agent','admin') {$stateSql}
-    GROUP BY u.id
-    ORDER BY FIELD(u.role, 'admin','field_agent','grower'), u.name
-    LIMIT 12
+$ticketRows = ao_rows($pdo, "
+    SELECT ticket_ref, subject, requester_name, priority, status, created_at
+    FROM support_tickets
+    ORDER BY last_activity_at DESC, id DESC
+    LIMIT 5
 ");
-$peopleStmt->execute($stateParams);
-$people = $peopleStmt->fetchAll();
 
-$entryCatalog = [
-    'super_admin' => [
-        ['label' => 'Access & Module Setup', 'href' => '../super-admin/index.php?view=controls', 'body' => 'Define role boundaries, feature flags, module owners, and operating modes.'],
-        ['label' => 'User Management', 'href' => 'users.php', 'body' => 'Create, edit, import, activate, or suspend system users.'],
-        ['label' => 'System Health', 'href' => 'monitoring.php', 'body' => 'Review operational status and production-readiness signals.'],
-    ],
-    'national_coordinator' => [
-        ['label' => 'National Dashboard', 'href' => 'national-dashboard.php', 'body' => 'Compare states, supervise national metrics, and drive strategic project oversight.'],
-        ['label' => 'National Applications', 'href' => 'admin.php', 'body' => 'Review applications and registry activity across all states.'],
-        ['label' => 'Field Network', 'href' => 'fields-management.php', 'body' => 'Coordinate farm verification and field activity nationally.'],
-        ['label' => 'Reports & Analytics', 'href' => 'analytics.php', 'body' => 'Monitor adoption, verification, support, and performance indicators.'],
-    ],
-    'state_coordinator' => [
-        ['label' => 'State Operations Dashboard', 'href' => 'state-dashboard.php', 'body' => 'Manage farmers, accreditation, resources, communication, and field performance inside your state.'],
-        ['label' => 'State Farmers', 'href' => 'users.php?role=grower', 'body' => 'Manage growers attached to your state.'],
-        ['label' => 'State Field Network', 'href' => 'assign-growers.php', 'body' => 'Coordinate field agents, agronomists, and extension support in your state.'],
-        ['label' => 'State Farm Cases', 'href' => 'fields-management.php', 'body' => 'Track farms, verification, visits, and GPS confidence for your territory.'],
-        ['label' => 'Agronomy Advisory', 'href' => 'agronomy.php', 'body' => 'Review agronomy cases raised by growers or field observations.'],
-    ],
-    'admin' => [
-        ['label' => 'Applications', 'href' => 'admin.php', 'body' => 'Operate application review and grower onboarding.'],
-        ['label' => 'Documents', 'href' => 'document-verification.php', 'body' => 'Verify submitted identity and farm records.'],
-        ['label' => 'Support Desk', 'href' => 'support.php', 'body' => 'Respond to user requests and operational issues.'],
-    ],
-    'field_agent' => [
-        ['label' => 'Field Agent Console', 'href' => '../field-agent/index.php', 'body' => 'Complete assigned visits, capture GPS, submit farm observations.'],
-        ['label' => 'Assignments', 'href' => 'assign-growers.php', 'body' => 'Review assigned growers and field workload.'],
-    ],
-    'agronomist' => [
-        ['label' => 'Agronomy Cases', 'href' => 'agronomy.php', 'body' => 'Review crop, soil, pest, disease, and water-related cases.'],
-        ['label' => 'Field Observations', 'href' => 'fields-management.php', 'body' => 'Use farm visit evidence before issuing recommendations.'],
-    ],
-    'agric_extensionist' => [
-        ['label' => 'Grower Support', 'href' => 'support.php', 'body' => 'Handle grower education and advisory follow-up.'],
-        ['label' => 'Field Network', 'href' => 'fields-management.php', 'body' => 'Support farm verification and extension visit workflows.'],
-    ],
-    'investor' => [
-        ['label' => 'Analytics', 'href' => 'analytics.php', 'body' => 'Review aggregate performance and program signals.'],
-        ['label' => 'Marketplace', 'href' => 'marketplace.php', 'body' => 'View marketplace activities and opportunities.'],
-    ],
-    'grower' => [
-        ['label' => 'Grower Dashboard', 'href' => '../dashboard/index.php', 'body' => 'Track farm health, verification, agronomy support, wallet, and services.'],
-        ['label' => 'Farm Health', 'href' => '../dashboard/farm-health.php', 'body' => 'Request farm review and agronomy support.'],
-    ],
-];
-
-$roleEntries = $entryCatalog[$platformRole] ?? $entryCatalog['admin'];
-$roleCoverage = [
-    ['role' => 'Super Administrator', 'entry' => '../super-admin/index.php', 'dashboard' => 'Super Admin control plane', 'scope' => 'Whole platform', 'manages' => 'Modules, access controls, users, audit, settings, integrations.'],
-    ['role' => 'National Coordinator', 'entry' => 'national-dashboard.php', 'dashboard' => 'National coordinator dashboard', 'scope' => 'All states', 'manages' => 'State coordinators, farmers, field network, reports, national operations.'],
-    ['role' => 'State Coordinator', 'entry' => 'state-dashboard.php', 'dashboard' => 'State coordinator dashboard', 'scope' => 'Assigned state', 'manages' => 'Farmers, field agents, agronomists, extensionists, farms, resources, communication, cases in their state.'],
-    ['role' => 'Administrator', 'entry' => 'coordination.php', 'dashboard' => 'Operations dashboard', 'scope' => 'Operational modules granted by Super Admin', 'manages' => 'Applications, documents, support, field workflows, content.'],
-    ['role' => 'Field Agent', 'entry' => '../field-agent/index.php', 'dashboard' => 'Field agent console', 'scope' => 'Assigned visits and growers', 'manages' => 'Farm visits, GPS capture, checklists, field observations.'],
-    ['role' => 'Agronomist', 'entry' => 'agronomy.php', 'dashboard' => 'Agronomy advisory workbench', 'scope' => 'Assigned or visible agronomy cases', 'manages' => 'Crop/soil recommendations, advisory templates, follow-up notes.'],
-    ['role' => 'Agric Extensionist', 'entry' => 'support.php', 'dashboard' => 'Extension support workbench', 'scope' => 'Assigned growers or territory', 'manages' => 'Grower education, support follow-up, field adoption guidance.'],
-    ['role' => 'Investor', 'entry' => '../dashboard/index.php', 'dashboard' => 'Investor-facing dashboard', 'scope' => 'Investment/reporting view', 'manages' => 'Marketplace, wallet, reports, analytics access.'],
-    ['role' => 'Grower', 'entry' => '../dashboard/index.php', 'dashboard' => 'Grower dashboard', 'scope' => 'Own profile and farms', 'manages' => 'Farm profile, farm health, agronomy requests, wallet, services.'],
-];
-
-admin_page_start($roleLabels[$platformRole] ?? 'Role Dashboard', [
+admin_page_start('Admin Operations Outlook', [
     'active' => 'coordination.php',
-    'description' => 'Role-specific command center with the right entry points, operational scope, and people view.',
+    'description' => 'Overview of registry operations, marketplace, learning, and support activities.',
     'wide' => true,
     'css' => '
-      .scope-band { display:flex; justify-content:space-between; gap:16px; align-items:center; }
-      .role-entry-grid { grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); }
-      .people-table td:first-child { width:28%; }
-      @media (max-width:760px) { .scope-band { display:block; } }
-    ',
+    .ao-workspace{display:grid;grid-template-columns:230px minmax(0,1fr);gap:18px;align-items:start}.ao-rail{position:sticky;top:92px;min-height:calc(100vh - 140px);border-radius:8px;background:linear-gradient(180deg,#063f24,#005b32);color:#fff;padding:16px;box-shadow:0 18px 42px rgba(6,63,36,.22)}.ao-brand{display:flex;gap:10px;align-items:center;border-bottom:1px solid rgba(255,255,255,.14);padding-bottom:14px;margin-bottom:14px}.ao-brand img{width:46px;height:46px;border-radius:50%;background:#fff;padding:4px}.ao-brand strong{display:block}.ao-brand small{display:block;color:#dff5e8;font-size:.72rem}.ao-label{font-size:.72rem;text-transform:uppercase;color:#aee4c4;font-weight:900;margin:14px 4px 8px}.ao-nav{display:grid;gap:5px}.ao-nav a{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#fff;text-decoration:none;padding:10px 11px;border-radius:8px;font-weight:850}.ao-nav a:hover,.ao-nav a.active{background:rgba(46,204,113,.24)}.ao-content{min-width:0}.ao-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}.ao-search{flex:1;min-width:280px;border:1px solid var(--line);border-radius:8px;background:#fff;display:flex;align-items:center;gap:10px;padding:9px 12px;color:var(--muted)}.ao-search input{border:0;box-shadow:none;padding:0}.ao-head{display:flex;justify-content:space-between;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:14px}.ao-head h2{font-size:1.65rem;margin:0;color:#0b1f16}.ao-head p{margin:4px 0 0;color:var(--muted)}.ao-tool{border:1px solid var(--line);border-radius:8px;background:#fff;padding:9px 11px;font-weight:850;color:#102033}.ao-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.ao-kpi{border:1px solid var(--line);border-radius:8px;background:#fff;box-shadow:var(--shadow);padding:14px;display:flex;justify-content:space-between;gap:10px;min-height:112px}.ao-kpi small{display:block;text-transform:uppercase;font-size:.72rem;font-weight:900;color:#536171}.ao-kpi strong{display:block;font-size:1.45rem;color:#101828;margin-top:7px}.ao-kpi span{display:block;color:#079455;font-size:.78rem;font-weight:850;margin-top:5px}.ao-icon{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:#e8f5ed;color:#087443}.ao-icon.blue{background:#e8f1ff;color:#175cd3}.ao-icon.orange{background:#fff1df;color:#c05600}.ao-icon.purple{background:#f1e9ff;color:#6941c6}.ao-icon.red{background:#fee4e2;color:#d92d20}.ao-grid{display:grid;grid-template-columns:1.35fr .9fr;gap:14px;margin-top:14px}.ao-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.ao-panel{border:1px solid var(--line);border-radius:8px;background:#fff;box-shadow:var(--shadow);padding:14px}.ao-panel-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}.ao-panel-head h3{margin:0;color:#102033;font-size:1rem}.ao-panel-head a{color:#0f6b3c;text-decoration:none;font-weight:900;font-size:.82rem}.ao-chart{height:230px;display:flex;align-items:end;gap:16px;border-bottom:1px solid #d8dee6;padding:12px 8px 0}.ao-bar{flex:1;border-radius:8px 8px 0 0;background:linear-gradient(180deg,#0f6b3c,#9bd6ae);min-height:34px}.ao-map{height:230px;border-radius:8px;background:linear-gradient(135deg,#eef8f0,#c9e8d1);display:grid;place-items:center;position:relative;overflow:hidden;color:#0f6b3c;font-weight:950}.ao-map:before{content:"";position:absolute;inset:28px 48px;background:rgba(15,107,60,.16);clip-path:polygon(8% 47%,24% 20%,50% 12%,78% 22%,94% 46%,82% 72%,54% 88%,28% 82%);border:2px solid rgba(15,107,60,.2)}.ao-map span{position:relative}.ao-table{width:100%;border-collapse:collapse}.ao-table th,.ao-table td{padding:9px 8px;border-bottom:1px solid #edf1f4;text-align:left;font-size:.8rem}.ao-table th{font-size:.72rem;text-transform:uppercase;color:#667085}.ao-badge{display:inline-flex;border-radius:999px;padding:3px 7px;font-size:.7rem;font-weight:900}.ao-badge.ok{background:#dcfae6;color:#067647}.ao-badge.info{background:#dbeafe;color:#175cd3}.ao-badge.warn{background:#fef0c7;color:#b54708}.ao-badge.bad{background:#fee4e2;color:#b42318}.ao-list{display:grid;gap:9px}.ao-list-row{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid #eef2f4;padding-bottom:9px;font-size:.83rem}.ao-list-row small{display:block;color:var(--muted);margin-top:2px}.ao-actions{display:grid;gap:10px}.ao-action{border:1px solid var(--line);border-radius:8px;background:#fff;padding:13px;display:flex;gap:12px;align-items:center;color:inherit;text-decoration:none}.ao-action i{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#e8f5ed;color:#0f6b3c}@media(max-width:1100px){.ao-workspace,.ao-grid,.ao-row{grid-template-columns:1fr}.ao-rail{position:relative;top:auto;min-height:auto}.ao-nav,.ao-kpis{grid-template-columns:1fr 1fr}}@media(max-width:700px){.ao-nav,.ao-kpis{grid-template-columns:1fr}}',
 ]);
 ?>
-<?php if ($scopeWarning): ?>
-  <div class="notice error">This State Coordinator has no state assigned yet. Set the staff profile state so their dashboard and management scope can be restricted correctly.</div>
-<?php endif; ?>
+<div class="ao-workspace">
+  <aside class="ao-rail" aria-label="Admin operations navigation">
+    <div class="ao-brand"><img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV"><div><strong>NATCODEV</strong><small>Admin Operations</small></div></div>
+    <div class="ao-label">Main Navigation</div>
+    <nav class="ao-nav">
+      <a class="active" href="coordination.php"><span><i class="fa-solid fa-house"></i> Dashboard</span></a>
+      <a href="registry.php"><span><i class="fa-solid fa-id-card"></i> Registry</span></a>
+      <a href="wallet.php"><span><i class="fa-solid fa-wallet"></i> Wallet</span></a>
+      <a href="marketplace.php"><span><i class="fa-solid fa-cart-shopping"></i> Marketplace</span></a>
+      <a href="academy.php"><span><i class="fa-solid fa-graduation-cap"></i> Academy</span></a>
+      <a href="reports.php"><span><i class="fa-solid fa-chart-line"></i> Reports</span></a>
+      <a href="support.php"><span><i class="fa-solid fa-headset"></i> Support Desk</span></a>
+      <a href="settings.php"><span><i class="fa-solid fa-gear"></i> Settings</span></a>
+    </nav>
+    <div class="ao-label">Quick Links</div>
+    <nav class="ao-nav">
+      <a href="admin.php"><span><i class="fa-solid fa-user-plus"></i> Add New Grower</span></a>
+      <a href="document-verification.php"><span><i class="fa-solid fa-shield-check"></i> Verify Documents</span></a>
+      <a href="communications.php"><span><i class="fa-solid fa-bullhorn"></i> Create Announcement</span></a>
+      <a href="monitoring.php"><span><i class="fa-solid fa-heart-pulse"></i> System Health</span></a>
+    </nav>
+  </aside>
+  <main class="ao-content">
+    <div class="ao-top">
+      <div class="ao-search"><i class="fa-solid fa-magnifying-glass"></i><input aria-label="Search operations" placeholder="Search growers, applications, documents..."></div>
+      <span class="ao-tool"><i class="fa-regular fa-bell"></i> <?= $pendingApplications ?></span>
+      <span class="ao-tool"><i class="fa-regular fa-envelope"></i> <?= $unreadMessages ?></span>
+      <a class="button secondary" href="reports.php">Export</a>
+    </div>
+    <div class="ao-head">
+      <div><h2>NATCODEV Operations Dashboard</h2><p>Overview of registry operations, marketplace, learning, and support activities.</p></div>
+      <span class="ao-tool"><?= e(date('M j, Y')) ?></span>
+    </div>
 
-<section class="panel scope-band">
-  <div>
-    <h2><?= e($roleLabels[$platformRole] ?? $platformRole) ?> Scope</h2>
-    <p class="muted">Operational scope: <strong><?= e($scopeLabel) ?></strong></p>
-  </div>
-  <div class="actions">
-    <a class="button secondary" href="users.php">Manage People</a>
-    <a class="button secondary" href="fields-management.php">Manage Fields</a>
-  </div>
-</section>
+    <section class="notice ok">Welcome back, <?= e((string) ($admin['name'] ?? 'Admin')) ?>. You have <?= number_format($pendingApplications) ?> applications and <?= number_format($unreadMessages) ?> new support messages.</section>
 
-<section class="stats">
-  <div class="stat"><div class="metric"><?= (int) $stats['growers'] ?></div><strong>Growers</strong></div>
-  <div class="stat"><div class="metric"><?= (int) $stats['farms'] ?></div><strong>Farms</strong></div>
-  <div class="stat"><div class="metric"><?= (int) $stats['field_agents'] ?></div><strong>Field Agents</strong></div>
-  <div class="stat"><div class="metric"><?= (int) $stats['agronomists'] ?></div><strong>Agronomists</strong></div>
-  <div class="stat"><div class="metric"><?= (int) $stats['extensionists'] ?></div><strong>Extensionists</strong></div>
-  <div class="stat"><div class="metric"><?= (int) $stats['agronomy_cases'] ?></div><strong>Open Agronomy Cases</strong></div>
-</section>
+    <section class="ao-kpis">
+      <div class="ao-kpi"><div><small>Verified Growers</small><strong><?= number_format($verifiedGrowers) ?></strong><span>Registry confidence</span></div><div class="ao-icon"><i class="fa-solid fa-users"></i></div></div>
+      <div class="ao-kpi"><div><small>Active Providers</small><strong><?= number_format($activeProviders) ?></strong><span>Provider network</span></div><div class="ao-icon blue"><i class="fa-solid fa-store"></i></div></div>
+      <div class="ao-kpi"><div><small>Marketplace Orders</small><strong><?= number_format($marketplaceOrders) ?></strong><span>Last 30 days</span></div><div class="ao-icon orange"><i class="fa-solid fa-cart-shopping"></i></div></div>
+      <div class="ao-kpi"><div><small>Wallet Volume</small><strong><?= e(ao_money($walletBalance)) ?></strong><span>Current balance</span></div><div class="ao-icon"><i class="fa-solid fa-wallet"></i></div></div>
+      <div class="ao-kpi"><div><small>Training Completion</small><strong><?= number_format($trainingCompletion, 1) ?>%</strong><span>Academy completion</span></div><div class="ao-icon purple"><i class="fa-solid fa-graduation-cap"></i></div></div>
+      <div class="ao-kpi"><div><small>Open Support Tickets</small><strong><?= number_format($openTickets) ?></strong><span>Needs attention</span></div><div class="ao-icon red"><i class="fa-solid fa-headset"></i></div></div>
+    </section>
 
-<section class="panel">
-  <h2>Entry Points for This Role</h2>
-  <div class="grid role-entry-grid">
-    <?php foreach ($roleEntries as $entry): ?>
-      <article class="card">
-        <h3><?= e($entry['label']) ?></h3>
-        <p class="muted"><?= e($entry['body']) ?></p>
-        <a class="button secondary" href="<?= e($entry['href']) ?>">Open</a>
-      </article>
-    <?php endforeach; ?>
-  </div>
-</section>
+    <section class="ao-grid">
+      <div class="ao-panel">
+        <div class="ao-panel-head"><h3>Registry Growth</h3><a href="registry.php">Last 6 months</a></div>
+        <div class="ao-chart"><?php foreach ([35, 44, 51, 68, 82, 94] as $h): ?><div class="ao-bar" style="height:<?= $h ?>%"></div><?php endforeach; ?></div>
+      </div>
+      <div class="ao-panel">
+        <div class="ao-panel-head"><h3>Activity by State</h3><a href="national-dashboard.php">This month</a></div>
+        <div class="ao-map"><span>National Activity Map</span></div>
+      </div>
+    </section>
 
-<section class="panel">
-  <h2><?= $isStateScope ? 'People in State Scope' : 'Recent People in Network' ?></h2>
-  <table class="people-table">
-    <thead><tr><th>Name</th><th>Role</th><th>Email</th><th>State / LGA</th></tr></thead>
-    <tbody>
-      <?php foreach ($people as $person): ?>
-        <tr>
-          <td><?= e($person['name']) ?></td>
-          <td><?= e(ucwords(str_replace('_', ' ', (string) ($person['platform_role'] ?: $person['staff_type'])))) ?></td>
-          <td><?= e($person['email']) ?></td>
-          <td><?= e($person['state'] ?: $person['location'] ?: 'Not assigned') ?><?= $person['lga'] ? ' / ' . e($person['lga']) : '' ?></td>
-        </tr>
-      <?php endforeach; ?>
-      <?php if (!$people): ?><tr><td colspan="4">No people found for this scope yet.</td></tr><?php endif; ?>
-    </tbody>
-  </table>
-</section>
+    <section class="ao-row">
+      <div class="ao-panel">
+        <div class="ao-panel-head"><h3>Recent Applications</h3><a href="admin.php">View All</a></div>
+        <table class="ao-table"><thead><tr><th>ID</th><th>Applicant</th><th>State</th><th>LGA</th><th>Submitted</th><th>Status</th></tr></thead><tbody>
+          <?php foreach ($recentApplications as $row): ?><tr><td><?= e((string) $row['app_ref']) ?></td><td><?= e((string) $row['name']) ?></td><td><?= e((string) $row['state_name']) ?></td><td><?= e((string) $row['lga_name']) ?></td><td><?= e(date('M j, Y', strtotime((string) $row['created_at']))) ?></td><td><span class="ao-badge <?= e(ao_badge((string) $row['review_status'])) ?>"><?= e(ucwords(str_replace('_', ' ', (string) $row['review_status']))) ?></span></td></tr><?php endforeach; ?>
+        </tbody></table>
+      </div>
+      <div class="ao-panel">
+        <div class="ao-panel-head"><h3>Recent Activity</h3><a href="support.php">View</a></div>
+        <div class="ao-list">
+          <?php foreach ($activityRows as $row): ?><div class="ao-list-row"><div><strong><?= e((string) $row['title']) ?></strong><small><?= e((string) $row['actor']) ?> / <?= e((string) $row['detail']) ?></small></div><span><?= e(date('g:i A', strtotime((string) $row['created_at']))) ?></span></div><?php endforeach; ?>
+          <?php foreach ($ticketRows as $row): ?><div class="ao-list-row"><div><strong><?= e((string) $row['ticket_ref']) ?></strong><small><?= e((string) $row['subject']) ?></small></div><span class="ao-badge <?= e(ao_badge((string) $row['status'])) ?>"><?= e((string) $row['priority']) ?></span></div><?php endforeach; ?>
+        </div>
+      </div>
+    </section>
 
-<section class="panel">
-  <h2>Platform Role Coverage</h2>
-  <table>
-    <thead><tr><th>Role</th><th>Entry Point</th><th>Dashboard</th><th>Scope</th><th>Manages</th></tr></thead>
-    <tbody>
-      <?php foreach ($roleCoverage as $coverage): ?>
-        <tr>
-          <td><strong><?= e($coverage['role']) ?></strong></td>
-          <td><a href="<?= e($coverage['entry']) ?>">Open</a></td>
-          <td><?= e($coverage['dashboard']) ?></td>
-          <td><?= e($coverage['scope']) ?></td>
-          <td><?= e($coverage['manages']) ?></td>
-        </tr>
-      <?php endforeach; ?>
-    </tbody>
-  </table>
-</section>
+    <section class="ao-panel" style="margin-top:14px">
+      <div class="ao-panel-head"><h3>Quick Actions</h3></div>
+      <div class="ao-actions">
+        <a class="ao-action" href="admin.php"><i class="fa-solid fa-user-plus"></i><span><strong>Add New Grower</strong><small>Register or review application</small></span></a>
+        <a class="ao-action" href="document-verification.php"><i class="fa-solid fa-shield-check"></i><span><strong>Verify Applications</strong><small>Review documents</small></span></a>
+        <a class="ao-action" href="import-users.php"><i class="fa-solid fa-upload"></i><span><strong>Upload Document</strong><small>Import registry records</small></span></a>
+        <a class="ao-action" href="communications.php"><i class="fa-solid fa-bullhorn"></i><span><strong>Create Announcement</strong><small>Notify stakeholders</small></span></a>
+        <a class="ao-action" href="reports.php"><i class="fa-solid fa-file-export"></i><span><strong>View Reports</strong><small>Open reporting intelligence</small></span></a>
+      </div>
+    </section>
+  </main>
+</div>
 <?php admin_page_end(); ?>

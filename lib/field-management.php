@@ -109,6 +109,8 @@ function fm_ensure_schema(PDO $pdo): void
             visit_latitude DECIMAL(10,7) NULL,
             visit_longitude DECIMAL(10,7) NULL,
             distance_from_submitted_location_m DECIMAL(12,2) NULL,
+            client_visit_id VARCHAR(100) NULL,
+            sync_source VARCHAR(30) NOT NULL DEFAULT 'online_form',
             photos TEXT NULL,
             notes TEXT NULL,
             result VARCHAR(30) NOT NULL DEFAULT 'submitted',
@@ -119,6 +121,8 @@ function fm_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     app_ensure_primary_auto_increment($pdo, 'farm_visits');
+    app_add_column_if_missing($pdo, 'farm_visits', 'client_visit_id', "VARCHAR(100) NULL");
+    app_add_column_if_missing($pdo, 'farm_visits', 'sync_source', "VARCHAR(30) NOT NULL DEFAULT 'online_form'");
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS farm_weather_snapshots (
@@ -195,6 +199,118 @@ function fm_haversine_m(float $lat1, float $lng1, float $lat2, float $lng2): flo
     $dLng = deg2rad($lng2 - $lng1);
     $a = sin($dLat / 2) ** 2 + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
     return $earth * 2 * atan2(sqrt($a), sqrt(1 - $a));
+}
+
+function fm_record_task_visit(PDO $pdo, array $user, array $payload): array
+{
+    $taskId = (int) ($payload['task_id'] ?? 0);
+    $taskStmt = $pdo->prepare("
+        SELECT ft.*, gf.latitude submitted_latitude, gf.longitude submitted_longitude
+        FROM field_tasks ft
+        JOIN grower_farms gf ON gf.id = ft.farm_id
+        WHERE ft.id = ? AND (ft.assigned_to = ? OR ? = 'admin')
+        LIMIT 1
+    ");
+    $taskStmt->execute([$taskId, (int) $user['id'], (string) $user['role']]);
+    $task = $taskStmt->fetch();
+    if (!$task) {
+        throw new RuntimeException('Assigned task not found.');
+    }
+
+    $clientVisitId = trim((string) ($payload['client_visit_id'] ?? $payload['local_id'] ?? ''));
+    if ($clientVisitId !== '' && app_column_exists($pdo, 'farm_visits', 'client_visit_id')) {
+        $existing = $pdo->prepare("SELECT id FROM farm_visits WHERE agent_id = ? AND client_visit_id = ? LIMIT 1");
+        $existing->execute([(int) $user['id'], $clientVisitId]);
+        $existingId = $existing->fetchColumn();
+        if ($existingId) {
+            return ['visit_id' => (int) $existingId, 'task_id' => $taskId, 'duplicate' => true];
+        }
+    }
+
+    $lat = ($payload['visit_latitude'] ?? '') === '' ? null : (float) $payload['visit_latitude'];
+    $lng = ($payload['visit_longitude'] ?? '') === '' ? null : (float) $payload['visit_longitude'];
+    if ($lat !== null && ($lat < -90 || $lat > 90)) {
+        throw new RuntimeException('Latitude must be between -90 and 90.');
+    }
+    if ($lng !== null && ($lng < -180 || $lng > 180)) {
+        throw new RuntimeException('Longitude must be between -180 and 180.');
+    }
+
+    $distance = null;
+    if ($lat !== null && $lng !== null && $task['submitted_latitude'] !== null && $task['submitted_longitude'] !== null) {
+        $distance = fm_haversine_m((float) $task['submitted_latitude'], (float) $task['submitted_longitude'], $lat, $lng);
+    }
+
+    $result = in_array((string) ($payload['result'] ?? 'submitted'), ['verified', 'needs_review', 'rejected', 'submitted'], true)
+        ? (string) $payload['result']
+        : 'submitted';
+    $visitedAt = date('Y-m-d H:i:s', strtotime((string) ($payload['visited_at'] ?? $payload['timestamp'] ?? 'now')) ?: time());
+    $syncSource = (string) ($payload['sync_source'] ?? 'online_form');
+
+    $pdo->prepare("
+        INSERT INTO farm_visits
+            (farm_id, task_id, agent_id, visit_latitude, visit_longitude, distance_from_submitted_location_m, client_visit_id, sync_source, notes, result, visited_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ")->execute([
+        (int) $task['farm_id'],
+        $taskId,
+        (int) $user['id'],
+        $lat,
+        $lng,
+        $distance,
+        $clientVisitId !== '' ? $clientVisitId : null,
+        $syncSource,
+        trim((string) ($payload['notes'] ?? '')),
+        $result,
+        $visitedAt,
+    ]);
+    $visitId = (int) $pdo->lastInsertId();
+
+    if (trim((string) ($payload['crop_symptoms'] ?? '')) !== '' || trim((string) ($payload['pest_signs'] ?? '')) !== '') {
+        $pdo->prepare("
+            INSERT INTO agronomy_field_checklists
+                (farm_id, visit_id, agent_id, crop_symptoms, pest_signs, weed_pressure, water_stress, soil_condition, farmer_notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ")->execute([
+            (int) $task['farm_id'],
+            $visitId,
+            (int) $user['id'],
+            trim((string) ($payload['crop_symptoms'] ?? '')),
+            trim((string) ($payload['pest_signs'] ?? '')),
+            trim((string) ($payload['weed_pressure'] ?? '')),
+            trim((string) ($payload['water_stress'] ?? '')),
+            trim((string) ($payload['soil_condition'] ?? '')),
+            trim((string) ($payload['farmer_notes'] ?? '')),
+        ]);
+
+        if (function_exists('agronomy_case_ref')) {
+            $pdo->prepare("
+                INSERT INTO agronomy_cases
+                    (case_ref, grower_id, farm_id, assigned_to, source, category, priority, status, title, description, symptoms, created_by)
+                SELECT ?, gf.user_id, gf.id, NULL, 'field_agent', 'crop_management', 'normal', 'open',
+                       CONCAT('Field observation: ', gf.farm_name), ?, ?, ?
+                FROM grower_farms gf
+                WHERE gf.id = ?
+            ")->execute([
+                agronomy_case_ref(),
+                trim((string) ($payload['farmer_notes'] ?? 'Field agent submitted agronomy observations.')),
+                trim((string) ($payload['crop_symptoms'] ?? '')) . "\n" . trim((string) ($payload['pest_signs'] ?? '')),
+                (int) $user['id'],
+                (int) $task['farm_id'],
+            ]);
+        }
+    }
+
+    $pdo->prepare("UPDATE field_tasks SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$taskId]);
+    $verificationStatus = $result === 'verified' && ($distance === null || $distance <= 500) ? 'verified' : 'needs_review';
+    $notes = $distance === null ? 'Field visit submitted without comparable GPS distance.' : 'Field visit GPS distance from submitted point: ' . number_format($distance, 1) . 'm.';
+    $pdo->prepare("
+        INSERT INTO farm_verifications (farm_id, requested_by, status, system_notes, reviewed_at)
+        VALUES (?, ?, ?, ?, NOW())
+        ON DUPLICATE KEY UPDATE status = VALUES(status), system_notes = VALUES(system_notes), reviewed_at = NOW()
+    ")->execute([(int) $task['farm_id'], (int) $user['id'], $verificationStatus, $notes]);
+
+    return ['visit_id' => $visitId, 'task_id' => $taskId, 'duplicate' => false];
 }
 
 function fm_weather_estimate(PDO $pdo, int $farmId, ?float $lat, ?float $lng): array

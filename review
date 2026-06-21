@@ -1,0 +1,103 @@
+**Platform Capability Audit**
+I audited the NATCODEV/CDC codebase as it stands now. Overall, this is a broad PHP/MySQL agricultural registry and operations platform with many real modules already implemented, but it still needs security hardening before production/public review.
+
+**Core Capabilities**
+The platform currently supports:
+
+- Public NATCODEV landing page and registration paths
+- Grower/outgrower application submission and email confirmation
+- Farmer/grower dashboard
+- Profile, farm, document, wallet, certificate, support, inbox, agronomy, marketplace, webinars, and password/OTP flows
+- Admin operations console
+- Super Admin governance console
+- Role-based access matrix
+- State and national dashboards
+- Field-agent/offline PWA workflow
+- Provider/input/service provider registration and dashboard
+- Recruitment workflow for field agents, agronomists, and extensionists
+- Document verification for NIN, BVN, land proof, ID, and farm photos
+- Certificate generation and verification
+- Wallet/payment scaffolding
+- Paystack/Flutterwave webhook files
+- IoT ingestion and sensor readings
+- Satellite/imagery and farm analytics modules
+- Agronomy cases and advisory workflows
+- Communications, notifications, templates, resources, and reporting
+- Disaster recovery/multisite backup manifest features
+- Cron jobs for satellite fetch, validation retry, and weekly reporting
+
+**Role Capability**
+Current role structure is strong:
+
+- **Super Admin:** user governance, role permissions, module setup, announcements, audit, disaster recovery, multisite, restore/archive, application delete approvals, and root-level admin access.
+- **Admin:** application create/read/update, confirmation, archive, document review, user operations, imports, support, resources, providers, templates, notifications, reports.
+- **State Coordinator:** state-scoped dashboards, farmers, field network, farms, resources, communication, agronomy cases.
+- **National Coordinator:** national dashboard, state comparison, registry oversight, reports.
+- **Field Agent:** field console, visits, GPS capture, offline sync.
+- **Grower:** dashboard, documents, farms, certificate, wallet, support, marketplace, webinars.
+- **Provider:** new official provider registration and provider-facing dashboard.
+
+**What Is Strong**
+- The app has a real operational structure, not just static screens.
+- Most database writes use prepared statements.
+- CSRF protection exists for many form-based admin/dashboard actions.
+- Passwords use `password_hash()` / `password_verify()`.
+- Super Admin access matrix is implemented and enforced on admin menus/pages.
+- JWT auth exists for mobile/API flows.
+- Certificates include references, verification URLs, HTML/PDF output.
+- Offline/field-agent flow has caching and sync concepts.
+- Governance, DR, and audit tables/features exist, which is a good reviewer signal.
+
+**High-Risk Issues**
+1. **Sensitive files are tracked in git.**  
+   `documents/`, `recruitment_uploads/`, `private_backups/`, certificate files, and `db.sql` are tracked. These include NIN/BVN/ID uploads, names, phone numbers, emails, locations, and backups. This must be cleaned before sharing or production.
+
+2. **Payment webhooks contain placeholder secrets.**  
+   `webhooks/paystack.php` and `webhooks/flutterwave.php` still use placeholder secret strings like `YOUR_PAYSTACK_SECRET`. These must read from `.env`/settings and use real verified signatures.
+
+3. **Some APIs are unauthenticated or inconsistently protected.**  
+   Only some mobile endpoints call `require_api_user()`. Several API routes appear public or weakly protected. Every write/read endpoint should be reviewed for auth, role, and ownership checks.
+
+4. **Uploaded documents are web-accessible.**  
+   Identity documents are stored under public project paths. They should be moved outside web root or served through authenticated controllers.
+
+5. **Plain temporary passwords are still emailed.**  
+   Existing onboarding/reset flows email temporary passwords in some admin/super-admin paths. Better: send one-time reset links.
+
+**Medium-Risk Issues**
+- Custom JWT implementation works in tests but should ideally use a maintained library.
+- Some schema migration/ensure logic runs during page load, which is convenient but risky for production performance.
+- `db.sql` contains real-ish sample/application data and should not be the public source of truth.
+- Automated tests are very thin. Current `tests/run.php` only checks JWT, certificate reference/rendering, and HTML escaping.
+- No centralized rate limiting found for login, OTP, reset, or API endpoints.
+- Some public assets referenced from external `natcodev.com.ng/images/...`, so pages may depend on network availability.
+
+**Verification Run**
+I ran:
+
+```powershell
+php tests\run.php
+php -l config.php
+php -l admin\admin.php
+php -l super-admin\index.php
+```
+
+Results:
+
+- Focused CLI tests passed.
+- Syntax checks passed for the sampled core files.
+
+**Production Readiness Score**
+Current estimated readiness: **65/100**
+
+It has strong functional breadth and good administrative structure, but production readiness is held back by sensitive files in git, upload exposure, placeholder payment secrets, inconsistent API authorization, limited tests, and temporary-password workflows.
+
+**Recommended Next Steps**
+1. Remove sensitive uploaded files, backups, logs, `.env`, and real data dumps from git/history.
+2. Move private uploads outside web root or protect with authenticated download routes.
+3. Replace payment webhook placeholders with `.env` secrets and test real signature verification.
+4. Audit every `api/*.php` endpoint for authentication, role, and ownership checks.
+5. Replace emailed temporary passwords with reset/onboarding links.
+6. Add login/OTP/reset rate limiting.
+7. Add tests for admin permissions, provider registration, application CRUD/delete requests, document upload rules, and API auth.
+8. Create a production deployment checklist using the existing governance/readiness modules.

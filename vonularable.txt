@@ -1,0 +1,32 @@
+When I mentioned architectural "inconsistencies" or considerations regarding the entry points (index.php and its sub-modules),  I was referring to strategic trade-offs made for rapid development that may pose challenges as the platform scales.
+
+  They are not bugs, but rather areas that diverge from standard enterprise architectural practices:
+
+  1. Dynamic Schema Management (app_ensure_core_schema)
+   * The Approach: The application checks for and creates/alters database tables on-the-fly (CREATE TABLE IF NOT EXISTS, ALTER
+     TABLE) within the application code (config.php).
+   * The Consideration: While this allows for extremely fast deployment without managing separate migration files, it has
+     downsides in production:
+       * Permissions: The database user needs ALTER and CREATE privileges, which violates the principle of least privilege (the
+         application's DB user should typically only have SELECT, INSERT, UPDATE, DELETE).
+       * Race Conditions: If multiple requests trigger this check simultaneously during a deployment, it can lead to deadlocks
+         or unexpected errors.
+       * Scalability: As the database grows, schema changes can become expensive and disruptive.
+   * Best Practice: In a more mature architecture, schema changes are handled through versioned migration scripts (e.g., using
+     Phinx or Doctrine Migrations) executed during the deployment process, not at runtime.
+
+  2. Reliance on mail() (app_send_mail)
+   * The Approach: The app_send_mail function uses the native PHP mail() function.
+   * The Consideration: PHP's mail() function depends heavily on the local server's configuration (e.g., sendmail, postfix) and
+     is notoriously difficult to configure for reliable deliverability.
+       * Deliverability: Emails sent via mail() often land in spam folders because they lack proper authentication (SPF, DKIM,
+         DMARC) unless the server is expertly configured.
+       * Observability: It is harder to track soft/hard bounces or view logs of delivered vs. failed emails compared to using a
+         dedicated transactional email service (e.g., SendGrid, Postmark, AWS SES) via an SMTP or API integration.
+   * Best Practice: Use a modern library (like PHPMailer or Symfony Mailer) that provides better abstraction, error handling,
+     and support for SMTP or API-based sending services.
+
+  Summary
+  These design choices suggest the project is currently in a rapid-iteration phase. They are perfectly functional for the
+  current scale, but if the platform grows significantly in user base or complexity, these areas are the most likely candidates
+  for refactoring to improve security, reliability, and maintainability.

@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../config.php';
 
-const ADMIN_ACCESS_CATALOG_VERSION = '20260513-7';
+const ADMIN_ACCESS_CATALOG_VERSION = '20260606-super-delete-approval-1';
 
 function admin_password_is_valid(string $password): bool
 {
@@ -22,7 +22,7 @@ function admin_require(PDO $pdo): void
         session_start();
     }
     if (!admin_session_is_authenticated($pdo)) {
-        redirect_to('admin.php');
+        redirect_to('login.php');
     }
     admin_require_feature($pdo, admin_feature_for_script());
 }
@@ -32,15 +32,91 @@ function admin_logout(): void
     if (session_status() !== PHP_SESSION_ACTIVE) {
         session_start();
     }
-    session_regenerate_id(true);
-    unset($_SESSION['admin_authenticated'], $_SESSION['admin'], $_SESSION['_csrf']);
+    $_SESSION = [];
+    if (ini_get('session.use_cookies')) {
+        $params = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], (bool) $params['secure'], (bool) $params['httponly']);
+    }
+    session_destroy();
     redirect_to('admin.php');
+}
+
+function admin_ensure_payments_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS payments (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            amount DECIMAL(12,2) NOT NULL,
+            reference VARCHAR(100) NOT NULL UNIQUE,
+            status VARCHAR(50) DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (`user_id`) REFERENCES `users`(`id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+    app_ensure_primary_auto_increment($pdo, 'payments');
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS bank_statement_imports (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            filename VARCHAR(255) NOT NULL,
+            bank_name VARCHAR(100) NOT NULL,
+            upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            uploaded_by INT NOT NULL,
+            status ENUM('pending', 'processed', 'failed') DEFAULT 'pending',
+            total_records INT DEFAULT 0,
+            matched_records INT DEFAULT 0,
+            FOREIGN KEY (`uploaded_by`) REFERENCES `users`(`id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+    app_ensure_primary_auto_increment($pdo, 'bank_statement_imports');
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS reconciliation_matches (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            import_id INT NOT NULL,
+            transaction_id INT NULL,
+            external_reference VARCHAR(100),
+            amount DECIMAL(12,2) NOT NULL,
+            match_status ENUM('matched', 'mismatch', 'unmatched') DEFAULT 'unmatched',
+            match_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (`import_id`) REFERENCES `bank_statement_imports`(`id`),
+            FOREIGN KEY (`transaction_id`) REFERENCES `wallet_transactions`(`id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+    app_add_column_if_missing($pdo, 'marketplace_orders', 'payout_status', "VARCHAR(50) DEFAULT 'pending'");
 }
 
 function admin_ensure_schema(PDO $pdo): void
 {
+    admin_ensure_payments_table($pdo);
+    static $done = false;
+    if ($done || app_schema_flag_is_set($pdo, 'admin_schema_ready', '20260606-fast')) {
+        admin_ensure_action_request_schema($pdo);
+        $done = true;
+        return;
+    }
+
+    try {
+        $existing = $pdo->query("
+            SELECT COUNT(*)
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME IN ('settings','user_role_assignments','staff_profiles','recruitment_applications','resources')
+        ")->fetchColumn();
+        if ((int) $existing === 5) {
+            app_schema_flag_set($pdo, 'admin_schema_ready', '20260606-fast');
+            $done = true;
+            return;
+        }
+    } catch (Throwable $e) {
+        // Fall through to normal schema creation.
+    }
+
     app_ensure_core_schema($pdo);
     app_ensure_farmer_engagement_schema($pdo);
+    admin_ensure_user_role_assignments_schema($pdo);
+    admin_ensure_action_request_schema($pdo);
     if (app_column_exists($pdo, 'users', 'application_id')) {
         try {
             $pdo->exec("ALTER TABLE users MODIFY application_id INT NULL");
@@ -226,6 +302,309 @@ function admin_ensure_schema(PDO $pdo): void
         $stmt = $pdo->prepare("INSERT IGNORE INTO settings (key_name, value) VALUES (?, ?)");
         $stmt->execute([$key, $value]);
     }
+    app_schema_flag_set($pdo, 'admin_schema_ready', '20260606-fast');
+    $done = true;
+}
+
+function admin_ensure_user_role_assignments_schema(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS user_role_assignments (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            role_key VARCHAR(60) NOT NULL,
+            scope_type VARCHAR(40) NOT NULL DEFAULT 'global',
+            scope_value VARCHAR(160) NULL,
+            status VARCHAR(30) NOT NULL DEFAULT 'active',
+            notes TEXT NULL,
+            assigned_by INT NULL,
+            assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            revoked_at DATETIME NULL,
+            updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_user_role_scope (user_id, role_key, scope_type, scope_value),
+            INDEX idx_user_role_active (user_id, role_key, status),
+            INDEX idx_user_role_scope (role_key, scope_type, scope_value, status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+    app_ensure_primary_auto_increment($pdo, 'user_role_assignments');
+}
+
+function admin_ensure_action_request_schema(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS admin_action_requests (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            request_type VARCHAR(40) NOT NULL DEFAULT 'delete',
+            target_table VARCHAR(120) NOT NULL,
+            target_id INT NULL,
+            target_key VARCHAR(190) NULL,
+            target_label VARCHAR(255) NULL,
+            requested_by INT NULL,
+            reason TEXT NULL,
+            payload_json TEXT NULL,
+            status VARCHAR(30) NOT NULL DEFAULT 'pending',
+            reviewed_by INT NULL,
+            reviewed_at DATETIME NULL,
+            review_note TEXT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_admin_action_status (status, request_type),
+            INDEX idx_admin_action_target (target_table, target_id),
+            INDEX idx_admin_action_requested_by (requested_by)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+    app_ensure_primary_auto_increment($pdo, 'admin_action_requests');
+}
+
+function admin_current_user_id(PDO $pdo): ?int
+{
+    $user = current_user($pdo);
+    if ($user && (int) ($user['id'] ?? 0) > 0) {
+        return (int) $user['id'];
+    }
+    return $_SESSION['super_admin_user_id'] ?? null;
+}
+
+function admin_current_user_is_super_admin(PDO $pdo): bool
+{
+    return admin_current_platform_role($pdo) === 'super_admin';
+}
+
+function admin_queue_delete_request(PDO $pdo, string $targetTable, ?int $targetId, string $targetLabel, string $reason = '', array $payload = []): int
+{
+    admin_ensure_action_request_schema($pdo);
+    $targetTable = preg_replace('/[^a-zA-Z0-9_]/', '', $targetTable);
+    if ($targetTable === '') {
+        throw new RuntimeException('Delete request target is invalid.');
+    }
+    $targetKey = isset($payload['target_key']) ? trim((string) $payload['target_key']) : null;
+    $stmt = $pdo->prepare("
+        INSERT INTO admin_action_requests
+            (request_type, target_table, target_id, target_key, target_label, requested_by, reason, payload_json)
+        VALUES ('delete', ?, ?, ?, ?, ?, ?, ?)
+    ");
+    $stmt->execute([
+        $targetTable,
+        $targetId,
+        $targetKey !== '' ? $targetKey : null,
+        $targetLabel,
+        admin_current_user_id($pdo),
+        $reason !== '' ? $reason : 'Admin requested delete approval.',
+        $payload ? json_encode($payload, JSON_UNESCAPED_SLASHES) : null,
+    ]);
+    return (int) $pdo->lastInsertId();
+}
+
+function admin_record_authenticity_status(PDO $pdo, string $targetTable, ?int $targetId = null, ?string $targetKey = null): array
+{
+    $targetTable = preg_replace('/[^a-zA-Z0-9_]/', '', $targetTable);
+    if ($targetTable === '' || !app_table_exists($pdo, $targetTable)) {
+        return ['requires_approval' => false, 'status' => '', 'label' => ''];
+    }
+
+    $approvedStatuses = ['approved', 'verified', 'issued', 'confirmed', 'active', 'accredited', 'completed', 'valid'];
+    $statusColumns = [
+        'applications' => ['confirmed', 'review_status'],
+        'document_requirements' => ['verification_status', 'verified'],
+        'grower_farms' => [],
+        'farm_verifications' => ['status'],
+        'marketplace_sellers' => ['approval_status', 'verification_status'],
+        'marketplace_listings' => ['approval_status'],
+        'provider_registry' => ['status'],
+        'staff_profiles' => ['status'],
+        'certificates' => ['status'],
+        'academy_certificates' => ['status'],
+        'academy_enrollments' => ['status'],
+        'provider_offerings' => ['status'],
+    ][$targetTable] ?? [];
+
+    if ($targetTable === 'grower_farms' && $targetId !== null && app_table_exists($pdo, 'farm_verifications')) {
+        $stmt = $pdo->prepare("SELECT status FROM farm_verifications WHERE farm_id = ? ORDER BY verified_at DESC, id DESC LIMIT 1");
+        $stmt->execute([$targetId]);
+        $status = strtolower((string) ($stmt->fetchColumn() ?: ''));
+        return ['requires_approval' => in_array($status, $approvedStatuses, true), 'status' => $status, 'label' => 'farm verification'];
+    }
+
+    if (!$statusColumns) {
+        return ['requires_approval' => false, 'status' => '', 'label' => ''];
+    }
+
+    $where = '';
+    $params = [];
+    if ($targetId !== null && app_column_exists($pdo, $targetTable, 'id')) {
+        $where = 'id = ?';
+        $params[] = $targetId;
+    } elseif ($targetKey !== null && $targetTable === 'notification_templates' && app_column_exists($pdo, $targetTable, 'template_name')) {
+        $where = 'template_name = ?';
+        $params[] = $targetKey;
+    } else {
+        return ['requires_approval' => false, 'status' => '', 'label' => ''];
+    }
+
+    $existingColumns = array_values(array_filter($statusColumns, static fn(string $column): bool => app_column_exists($pdo, $targetTable, $column)));
+    if (!$existingColumns) {
+        return ['requires_approval' => false, 'status' => '', 'label' => ''];
+    }
+
+    $stmt = $pdo->prepare('SELECT ' . implode(', ', $existingColumns) . " FROM {$targetTable} WHERE {$where} LIMIT 1");
+    $stmt->execute($params);
+    $row = $stmt->fetch();
+    if (!$row) {
+        return ['requires_approval' => false, 'status' => '', 'label' => ''];
+    }
+
+    foreach ($existingColumns as $column) {
+        $value = strtolower(trim((string) ($row[$column] ?? '')));
+        if ($column === 'confirmed' || $column === 'verified') {
+            $isAuthentic = (int) ($row[$column] ?? 0) === 1;
+            if ($isAuthentic) {
+                return ['requires_approval' => true, 'status' => $column, 'label' => $column];
+            }
+            continue;
+        }
+        if (in_array($value, $approvedStatuses, true)) {
+            return ['requires_approval' => true, 'status' => $value, 'label' => $column];
+        }
+    }
+
+    return ['requires_approval' => false, 'status' => '', 'label' => ''];
+}
+
+function admin_verified_delete_requires_super_approval(PDO $pdo, string $targetTable, ?int $targetId = null, ?string $targetKey = null): bool
+{
+    return (bool) admin_record_authenticity_status($pdo, $targetTable, $targetId, $targetKey)['requires_approval'];
+}
+
+function admin_queue_verified_delete_request(PDO $pdo, string $targetTable, ?int $targetId, string $targetLabel, string $reason = '', array $payload = []): int
+{
+    $targetKey = isset($payload['target_key']) ? (string) $payload['target_key'] : null;
+    $auth = admin_record_authenticity_status($pdo, $targetTable, $targetId, $targetKey);
+    if ($auth['requires_approval']) {
+        $reason = trim($reason . ' Authenticity lock: ' . $auth['label'] . '=' . $auth['status'] . '.');
+        $payload['authenticity_lock'] = $auth;
+    }
+    return admin_queue_delete_request($pdo, $targetTable, $targetId, $targetLabel, $reason, $payload);
+}
+
+function admin_pending_delete_request_count(PDO $pdo): int
+{
+    admin_ensure_action_request_schema($pdo);
+    $generic = (int) $pdo->query("SELECT COUNT(*) FROM admin_action_requests WHERE request_type = 'delete' AND status = 'pending'")->fetchColumn();
+    if (!app_table_exists($pdo, 'application_delete_requests')) {
+        return $generic;
+    }
+    $applications = (int) $pdo->query("SELECT COUNT(*) FROM application_delete_requests WHERE status = 'pending'")->fetchColumn();
+    return $generic + $applications;
+}
+
+function admin_execute_approved_delete(PDO $pdo, array $request): void
+{
+    $table = (string) ($request['target_table'] ?? '');
+    $id = (int) ($request['target_id'] ?? 0);
+    $payload = json_decode((string) ($request['payload_json'] ?? ''), true);
+    $payload = is_array($payload) ? $payload : [];
+
+    if ($table === 'user_import_records') {
+        $pdo->prepare('DELETE FROM user_import_records WHERE id = ?')->execute([$id]);
+        return;
+    }
+
+    if ($table === 'notification_templates') {
+        $templateName = (string) ($request['target_key'] ?? $payload['template_name'] ?? '');
+        if ($templateName !== '') {
+            $pdo->prepare('DELETE FROM notification_templates WHERE template_name = ?')->execute([$templateName]);
+        }
+        return;
+    }
+
+    if ($table === 'provider_offerings') {
+        $pdo->prepare("UPDATE provider_offerings SET status = 'removed' WHERE id = ?")->execute([$id]);
+        return;
+    }
+
+    if ($table === 'marketplace_listings') {
+        $pdo->prepare('DELETE FROM marketplace_listings WHERE id = ?')->execute([$id]);
+        return;
+    }
+
+    if ($table === 'marketplace_sellers') {
+        $pdo->prepare('DELETE FROM marketplace_sellers WHERE id = ?')->execute([$id]);
+        return;
+    }
+
+    if ($table === 'provider_registry') {
+        $pdo->prepare('DELETE FROM provider_registry WHERE id = ?')->execute([$id]);
+        return;
+    }
+
+    if ($table === 'staff_profiles') {
+        $pdo->prepare('DELETE FROM staff_profiles WHERE id = ?')->execute([$id]);
+        return;
+    }
+
+    if ($table === 'document_requirements') {
+        $pdo->prepare('DELETE FROM document_requirements WHERE id = ?')->execute([$id]);
+        return;
+    }
+
+    if ($table === 'grower_farms') {
+        $pdo->prepare('DELETE FROM grower_farms WHERE id = ?')->execute([$id]);
+        return;
+    }
+
+    if ($table === 'farm_verifications') {
+        $pdo->prepare('DELETE FROM farm_verifications WHERE id = ?')->execute([$id]);
+        return;
+    }
+
+    if ($table === 'certificates') {
+        $pdo->prepare('DELETE FROM certificates WHERE id = ?')->execute([$id]);
+        return;
+    }
+
+    if ($table === 'academy_certificates') {
+        $pdo->prepare('DELETE FROM academy_certificates WHERE id = ?')->execute([$id]);
+        return;
+    }
+
+    throw new RuntimeException('No approved delete handler is registered for ' . $table . '.');
+}
+
+function admin_review_action_request(PDO $pdo, int $requestId, string $decision, string $note = ''): void
+{
+    if (!admin_current_user_is_super_admin($pdo)) {
+        http_response_code(403);
+        exit('Forbidden: only Super Admin can review delete requests.');
+    }
+    admin_ensure_action_request_schema($pdo);
+    $stmt = $pdo->prepare("SELECT * FROM admin_action_requests WHERE id = ? AND status = 'pending' LIMIT 1");
+    $stmt->execute([$requestId]);
+    $request = $stmt->fetch();
+    if (!$request) {
+        throw new RuntimeException('Delete request not found or already reviewed.');
+    }
+
+    $decision = $decision === 'approve' ? 'approved' : 'rejected';
+    $pdo->beginTransaction();
+    try {
+        if ($decision === 'approved') {
+            admin_execute_approved_delete($pdo, $request);
+        }
+        $pdo->prepare("
+            UPDATE admin_action_requests
+            SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_note = ?
+            WHERE id = ?
+        ")->execute([$decision, admin_current_user_id($pdo), $note !== '' ? $note : null, $requestId]);
+        if (app_table_exists($pdo, 'audit_log')) {
+            $pdo->prepare("INSERT INTO audit_log (action, description, ip_address) VALUES (?, ?, ?)")
+                ->execute(['delete_request_' . $decision, 'Reviewed delete request #' . $requestId . ' for ' . (string) $request['target_table'] . '.', $_SERVER['REMOTE_ADDR'] ?? null]);
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
 }
 
 function admin_ensure_settings_unique(PDO $pdo): void
@@ -320,6 +699,76 @@ function admin_display_staff_type(array $user): string
     return (string) ($user['role'] ?? 'grower');
 }
 
+function admin_active_role_assignments(PDO $pdo, int $userId): array
+{
+    if ($userId <= 0 || !app_table_exists($pdo, 'user_role_assignments')) {
+        return [];
+    }
+    $stmt = $pdo->prepare("
+        SELECT *
+        FROM user_role_assignments
+        WHERE user_id = ? AND status = 'active'
+        ORDER BY assigned_at DESC, id DESC
+    ");
+    $stmt->execute([$userId]);
+    return $stmt->fetchAll();
+}
+
+function admin_user_has_assigned_role(PDO $pdo, int $userId, string $roleKey): bool
+{
+    if ($userId <= 0 || $roleKey === '' || !app_table_exists($pdo, 'user_role_assignments')) {
+        return false;
+    }
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*)
+        FROM user_role_assignments
+        WHERE user_id = ? AND role_key = ? AND status = 'active'
+    ");
+    $stmt->execute([$userId, $roleKey]);
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+function admin_user_has_admin_access(PDO $pdo, int $userId): bool
+{
+    if ($userId <= 0) {
+        return false;
+    }
+    if (!app_table_exists($pdo, 'user_role_assignments')) {
+        return false;
+    }
+    $adminRoles = ['admin', 'national_coordinator', 'state_coordinator', 'agronomist', 'agric_extensionist', 'field_agent'];
+    $placeholders = implode(',', array_fill(0, count($adminRoles), '?'));
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*)
+        FROM user_role_assignments
+        WHERE user_id = ? AND status = 'active' AND role_key IN ({$placeholders})
+    ");
+    $stmt->execute(array_merge([$userId], $adminRoles));
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+function admin_highest_assigned_platform_role(PDO $pdo, int $userId): ?string
+{
+    $assignments = admin_active_role_assignments($pdo, $userId);
+    if (!$assignments) {
+        return null;
+    }
+    $priority = [
+        'super_admin' => 100,
+        'national_coordinator' => 90,
+        'state_coordinator' => 80,
+        'admin' => 70,
+        'agronomist' => 60,
+        'agric_extensionist' => 55,
+        'field_agent' => 50,
+        'investor' => 40,
+        'provider' => 35,
+        'grower' => 10,
+    ];
+    usort($assignments, static fn (array $a, array $b): int => ($priority[(string) $b['role_key']] ?? 0) <=> ($priority[(string) $a['role_key']] ?? 0));
+    return (string) $assignments[0]['role_key'];
+}
+
 function admin_setting(PDO $pdo, string $key, string $default = ''): string
 {
     if (!app_table_exists($pdo, 'settings')) {
@@ -353,7 +802,7 @@ function admin_feature_catalog(): array
         'resource_allocation' => 'Resource Allocation',
         'communications' => 'Communication Hub',
         'wallet' => 'Wallet',
-        'training' => 'Training & Webinars',
+        'training' => 'NATCODEV Academy',
         'healthcare' => 'Healthcare',
         'pricing' => 'Plans & Pricing',
         'resources' => 'Resources',
@@ -370,21 +819,35 @@ function admin_feature_catalog(): array
     ];
 }
 
+function admin_feature_is_globally_enabled(PDO $pdo, string $feature): bool
+{
+    if ($feature === '' || !array_key_exists($feature, admin_feature_catalog())) {
+        return true;
+    }
+
+    return admin_setting($pdo, 'module_' . $feature . '_enabled', '1') === '1';
+}
+
 function admin_default_access(string $role): array
 {
     return match ($role) {
         'super_admin' => array_keys(admin_feature_catalog()),
-        'admin' => ['dashboard', 'state_dashboard', 'national_dashboard', 'profile', 'applications', 'documents', 'certificates', 'field_network', 'field_management', 'agronomy_advisory', 'support', 'farm_health', 'marketplace', 'providers', 'resource_allocation', 'communications', 'wallet', 'training', 'resources', 'templates', 'notifications', 'reports', 'analytics', 'monitoring', 'production_readiness', 'user_management', 'imports'],
-        'national_coordinator' => ['dashboard', 'state_dashboard', 'national_dashboard', 'profile', 'applications', 'documents', 'certificates', 'field_network', 'field_management', 'agronomy_advisory', 'support', 'farm_health', 'marketplace', 'providers', 'resource_allocation', 'communications', 'wallet', 'training', 'resources', 'templates', 'notifications', 'reports', 'analytics', 'monitoring', 'production_readiness', 'user_management', 'imports'],
+        'admin' => array_keys(admin_feature_catalog()),
+        'national_coordinator' => array_keys(admin_feature_catalog()),
         'state_coordinator' => ['dashboard', 'state_dashboard', 'profile', 'applications', 'documents', 'certificates', 'field_network', 'field_management', 'agronomy_advisory', 'support', 'farm_health', 'providers', 'resource_allocation', 'communications', 'resources', 'training', 'notifications', 'reports', 'analytics'],
         'field_agent', 'agronomist', 'agric_extensionist' => ['dashboard', 'profile', 'applications', 'field_network', 'field_management', 'agronomy_advisory', 'support', 'farm_health', 'resources', 'training', 'notifications', 'reports'],
         'investor' => ['dashboard', 'profile', 'marketplace', 'wallet', 'reports', 'analytics', 'notifications'],
-        default => ['dashboard', 'profile', 'applications', 'documents', 'certificates', 'support', 'farm_health', 'marketplace', 'wallet', 'training', 'notifications'],
+        'learner' => ['dashboard', 'profile', 'support', 'wallet', 'training', 'notifications', 'reports'],
+        default => ['dashboard', 'profile', 'applications', 'documents', 'certificates', 'support', 'farm_health', 'marketplace', 'wallet', 'training', 'notifications', 'reports'],
     };
 }
 
 function admin_current_platform_role(PDO $pdo): ?string
 {
+    if (($_SESSION['super_admin_authenticated'] ?? false) === true) {
+        return 'super_admin';
+    }
+
     $user = current_user($pdo);
     if (($_SESSION['admin_authenticated'] ?? false) === true || ($_SESSION['admin'] ?? false) === true) {
         if ($user && (int) ($user['is_super_admin'] ?? 0) === 1) {
@@ -400,11 +863,20 @@ function admin_current_platform_role(PDO $pdo): ?string
     if ((int) ($user['is_super_admin'] ?? 0) === 1) {
         return 'super_admin';
     }
-    if (!empty($user['platform_role'])) {
+    if (!empty($user['platform_role']) && (string) $user['platform_role'] !== 'grower') {
         return (string) $user['platform_role'];
+    }
+    $assignedRole = admin_highest_assigned_platform_role($pdo, (int) $user['id']);
+    if ($assignedRole !== null && $assignedRole !== 'grower') {
+        return $assignedRole;
     }
 
     return (string) ($user['role'] ?? 'grower');
+}
+
+function status_label(string $status): string
+{
+    return ucwords(str_replace('_', ' ', $status));
 }
 
 function admin_current_scope_state(PDO $pdo): string
@@ -416,6 +888,20 @@ function admin_current_scope_state(PDO $pdo): string
     if (!$user) {
         return '';
     }
+    if (app_table_exists($pdo, 'user_role_assignments')) {
+        $stmt = $pdo->prepare("
+            SELECT scope_value
+            FROM user_role_assignments
+            WHERE user_id = ? AND role_key = 'state_coordinator' AND scope_type = 'state' AND status = 'active'
+            ORDER BY assigned_at DESC, id DESC
+            LIMIT 1
+        ");
+        $stmt->execute([(int) $user['id']]);
+        $assignedState = trim((string) ($stmt->fetchColumn() ?: ''));
+        if ($assignedState !== '') {
+            return $assignedState;
+        }
+    }
     $stmt = $pdo->prepare("SELECT state FROM staff_profiles WHERE user_id = ? LIMIT 1");
     $stmt->execute([(int) $user['id']]);
     $state = trim((string) ($stmt->fetchColumn() ?: ''));
@@ -426,7 +912,9 @@ function admin_feature_for_script(?string $script = null): string
 {
     $script = $script ?? basename((string) ($_SERVER['SCRIPT_NAME'] ?? 'admin.php'));
     return [
+        'index.php' => 'dashboard',
         'admin.php' => 'applications',
+        'registry.php' => 'applications',
         'coordination.php' => 'dashboard',
         'state-dashboard.php' => 'state_dashboard',
         'national-dashboard.php' => 'national_dashboard',
@@ -437,10 +925,11 @@ function admin_feature_for_script(?string $script = null): string
         'communications.php' => 'communications',
         'document-verification.php' => 'documents',
         'bulk-verification.php' => 'documents',
+        'certificate-batch-verification.php' => 'certificates',
         'support.php' => 'support',
         'recruitment.php' => 'field_network',
         'agent-map.php' => 'field_network',
-        'reports.php' => 'field_network',
+        'reports.php' => 'reports',
         'assign-growers.php' => 'field_network',
         'fields-management.php' => 'field_management',
         'agronomy.php' => 'agronomy_advisory',
@@ -449,7 +938,9 @@ function admin_feature_for_script(?string $script = null): string
         'validation-stats.php' => 'analytics',
         'monitoring.php' => 'monitoring',
         'marketplace.php' => 'marketplace',
+        'wallet.php' => 'wallet',
         'resources.php' => 'resources',
+        'academy.php' => 'training',
         'templates.php' => 'templates',
         'notifications.php' => 'notifications',
         'settings.php' => 'settings',
@@ -468,13 +959,34 @@ function admin_feature_is_allowed(PDO $pdo, string $feature): bool
     if ($role === 'super_admin') {
         return true;
     }
-
-    $default = implode(',', admin_default_access($role));
-    $allowed = array_values(array_filter(array_map('trim', explode(',', admin_setting($pdo, 'access_matrix_' . $role, $default)))));
-    if (admin_setting($pdo, 'access_matrix_catalog_version', '') !== ADMIN_ACCESS_CATALOG_VERSION) {
-        $allowed = array_values(array_unique(array_merge($allowed, admin_default_access($role))));
+    if (!admin_feature_is_globally_enabled($pdo, $feature)) {
+        return false;
     }
-    return in_array($feature, $allowed, true);
+
+    $roles = [$role];
+    $user = current_user($pdo);
+    if ($user) {
+        $baseRole = (string) ($user['role'] ?? '');
+        if (in_array($baseRole, ['grower', 'investor'], true)) {
+            $roles[] = $baseRole;
+        }
+        foreach (admin_active_role_assignments($pdo, (int) $user['id']) as $assignment) {
+            $roles[] = (string) $assignment['role_key'];
+        }
+    }
+    $roles = array_values(array_unique(array_filter($roles)));
+
+    foreach ($roles as $roleKey) {
+        $default = implode(',', admin_default_access($roleKey));
+        $allowed = array_values(array_filter(array_map('trim', explode(',', admin_setting($pdo, 'access_matrix_' . $roleKey, $default)))));
+        if (admin_setting($pdo, 'access_matrix_catalog_version', '') !== ADMIN_ACCESS_CATALOG_VERSION) {
+            $allowed = array_values(array_unique(array_merge($allowed, admin_default_access($roleKey))));
+        }
+        if (in_array($feature, $allowed, true)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 function admin_require_feature(PDO $pdo, string $feature): void
@@ -543,42 +1055,67 @@ function admin_pagination_controls(int $total, int $page, int $perPage, array $e
 function admin_nav_groups(): array
 {
     return [
-        'Operations' => [
+        'Dashboards' => [
+            ['href' => 'index.php', 'label' => 'Workspace Hub', 'feature' => 'dashboard'],
             ['href' => 'coordination.php', 'label' => 'Role Dashboard', 'feature' => 'dashboard'],
             ['href' => 'state-dashboard.php', 'label' => 'State Dashboard', 'feature' => 'state_dashboard'],
             ['href' => 'national-dashboard.php', 'label' => 'National Dashboard', 'feature' => 'national_dashboard'],
+        ],
+        'Registry Operations' => [
+            ['href' => 'registry.php', 'label' => 'Registry Workspace', 'feature' => 'applications'],
             ['href' => 'admin.php', 'label' => 'Applications', 'feature' => 'applications'],
             ['href' => 'document-verification.php', 'label' => 'Documents', 'feature' => 'documents'],
             ['href' => 'bulk-verification.php', 'label' => 'Bulk Review', 'feature' => 'documents'],
-            ['href' => 'support.php', 'label' => 'Support Desk', 'feature' => 'support'],
+            ['href' => 'certificate-batch-verification.php', 'label' => 'Batch Certificate Verify', 'feature' => 'certificates'],
+        ],
+        'Support Desk' => [
+            ['href' => 'support.php', 'label' => 'Support Console', 'feature' => 'support'],
+        ],
+        'HR & People' => [
+            ['href' => 'users.php', 'label' => 'Users & Roles', 'feature' => 'user_management'],
+            ['href' => 'recruitment.php', 'label' => 'Recruitment', 'feature' => 'field_network'],
+            ['href' => 'import-users.php', 'label' => 'Import & Engagement', 'feature' => 'imports'],
         ],
         'Field Network' => [
-            ['href' => 'recruitment.php', 'label' => 'Recruitment', 'feature' => 'field_network'],
             ['href' => 'agent-map.php', 'label' => 'Agent Map', 'feature' => 'field_network'],
             ['href' => 'fields-management.php', 'label' => 'Fields Management', 'feature' => 'field_management'],
             ['href' => 'agronomy.php', 'label' => 'Agronomy Advisory', 'feature' => 'agronomy_advisory'],
-            ['href' => 'reports.php', 'label' => 'Agent Reports', 'feature' => 'field_network'],
             ['href' => 'assign-growers.php', 'label' => 'Assignments', 'feature' => 'field_network'],
         ],
-        'Insights' => [
+        'Insights & Reports' => [
             ['href' => 'analytics.php', 'label' => 'Analytics', 'feature' => 'analytics'],
+            ['href' => 'reports.php', 'label' => 'Reporting Intelligence', 'feature' => 'reports'],
             ['href' => 'demographics.php', 'label' => 'Demographics', 'feature' => 'analytics'],
             ['href' => 'validation-stats.php', 'label' => 'Validation Stats', 'feature' => 'analytics'],
-            ['href' => 'monitoring.php', 'label' => 'System Health', 'feature' => 'monitoring'],
-            ['href' => 'production-readiness.php', 'label' => 'Production Readiness', 'feature' => 'production_readiness'],
         ],
-        'Content & Admin' => [
+        'Marketplace & Providers' => [
             ['href' => 'marketplace.php', 'label' => 'Marketplace', 'feature' => 'marketplace'],
-            ['href' => 'providers.php', 'label' => 'Providers', 'feature' => 'providers'],
+            ['href' => 'providers.php', 'label' => 'Input & Service Providers', 'feature' => 'providers'],
             ['href' => 'resource-allocation.php', 'label' => 'Resource Allocation', 'feature' => 'resource_allocation'],
+        ],
+        'Wallet & Payments' => [
+            ['href' => 'wallet.php', 'label' => 'Wallet Workspace', 'feature' => 'wallet'],
+            ['href' => 'reports.php?report=finance', 'label' => 'Finance Reports', 'feature' => 'reports'],
+        ],
+        'Communication & Content' => [
             ['href' => 'communications.php', 'label' => 'Communication Hub', 'feature' => 'communications'],
-            ['href' => 'resources.php', 'label' => 'Resources', 'feature' => 'resources'],
-            ['href' => 'templates.php', 'label' => 'Templates', 'feature' => 'templates'],
             ['href' => 'notifications.php', 'label' => 'Notification Log', 'feature' => 'notifications'],
-            ['href' => 'settings.php', 'label' => 'Settings', 'feature' => 'settings'],
-            ['href' => 'users.php', 'label' => 'Users', 'feature' => 'user_management'],
-            ['href' => 'import-users.php', 'label' => 'Import & Engagement', 'feature' => 'imports'],
-            ['href' => 'governance.php', 'label' => 'Governance', 'feature' => 'governance'],
+        ],
+        'Learning & Training' => [
+            ['href' => 'resources.php', 'label' => 'Learning Resources', 'feature' => 'resources'],
+            ['href' => 'academy.php', 'label' => 'NATCODEV Academy', 'feature' => 'training'],
+            ['href' => '../super-admin/index.php?view=training', 'label' => 'Training Governance Policy', 'feature' => 'training'],
+        ],
+        'Governance & Compliance' => [
+            ['href' => 'governance.php', 'label' => 'Policies & Governance', 'feature' => 'governance'],
+            ['href' => 'production-readiness.php', 'label' => 'Production Readiness', 'feature' => 'production_readiness'],
+            ['href' => 'monitoring.php', 'label' => 'System Health', 'feature' => 'monitoring'],
+        ],
+        'System Settings' => [
+            ['href' => 'settings.php', 'label' => 'Operational Settings', 'feature' => 'settings'],
+            ['href' => 'templates.php', 'label' => 'Message Templates', 'feature' => 'templates'],
+            ['href' => 'notifications.php', 'label' => 'Notification Delivery Log', 'feature' => 'notifications'],
+            ['href' => '../super-admin/index.php?view=modules', 'label' => 'Module Setup', 'feature' => 'integrations'],
         ],
     ];
 }
@@ -596,11 +1133,26 @@ function admin_allowed_nav_groups(PDO $pdo): array
     return $groups;
 }
 
+function admin_footer_nav_items(PDO $pdo): array
+{
+    $items = [
+        ['href' => 'admin.php', 'label' => 'Applications', 'feature' => 'applications'],
+        ['href' => 'document-verification.php', 'label' => 'Documents', 'feature' => 'documents'],
+        ['href' => 'support.php', 'label' => 'Support Desk', 'feature' => 'support'],
+        ['href' => 'reports.php', 'label' => 'Reports', 'feature' => 'reports'],
+        ['href' => 'settings.php', 'label' => 'Settings', 'feature' => 'settings'],
+    ];
+
+    return array_values(array_filter($items, static fn (array $item): bool => admin_feature_is_allowed($pdo, (string) ($item['feature'] ?? 'dashboard'))));
+}
+
 function admin_page_start(string $title, array $options = []): void
 {
     $active = $options['active'] ?? basename((string) ($_SERVER['SCRIPT_NAME'] ?? 'admin.php'));
     $description = (string) ($options['description'] ?? '');
     $wide = !empty($options['wide']);
+    $chrome = (bool) ($options['chrome'] ?? true);
+    $GLOBALS['admin_page_chrome'] = $chrome;
     $max = $wide ? '1320px' : '1180px';
     $navGroups = admin_allowed_nav_groups(db());
     ?>
@@ -658,6 +1210,9 @@ function admin_page_start(string $title, array $options = []): void
     input:not([type="checkbox"]), select, textarea { width:100%; }
     textarea { min-height:110px; }
     input:focus, select:focus, textarea:focus { border-color:var(--green); box-shadow:0 0 0 3px rgba(31,138,85,.14); outline:none; }
+    .password-field { position:relative; }
+    .password-field input { padding-right:76px; }
+    .password-toggle { position:absolute; right:8px; top:50%; transform:translateY(-50%); width:auto; margin:0; padding:7px 9px; border:0; background:#eef7f1; color:var(--green-dark); font-size:.82rem; box-shadow:none; }
     button, .button { display:inline-flex; align-items:center; justify-content:center; gap:8px; background:var(--green); color:#fff; border:0; border-radius:6px; padding:11px 14px; font-weight:850; cursor:pointer; text-decoration:none; box-shadow:0 10px 24px rgba(31,138,85,.18); }
     button:hover, .button:hover { background:var(--green-dark); color:#fff; text-decoration:none; }
     button[disabled], button.is-busy, .button[aria-disabled="true"] { opacity:.82; cursor:wait; pointer-events:none; }
@@ -677,11 +1232,10 @@ function admin_page_start(string $title, array $options = []): void
     .muted, .meta, small { color:var(--muted); }
     .empty { color:var(--muted); border:1px dashed var(--line); border-radius:8px; padding:18px; }
     .admin-footer { background:#12344a; color:#e6f0f5; margin-top:auto; }
-    .admin-footer-inner { max-width:<?= $max ?>; margin:0 auto; padding:22px; display:grid; grid-template-columns:minmax(220px,1fr) minmax(0,2.5fr); gap:28px; }
-    .footer-groups { display:grid; grid-template-columns:repeat(4,minmax(130px,1fr)); gap:18px; }
-    .footer-group strong { display:block; color:#fff; margin-bottom:8px; font-size:.9rem; }
-    .footer-links { display:grid; gap:7px; }
-    .footer-links a { color:#f6fff2; font-size:.9rem; font-weight:650; }
+    .admin-footer-inner { max-width:<?= $max ?>; margin:0 auto; padding:18px 22px; display:flex; align-items:center; justify-content:space-between; gap:22px; flex-wrap:wrap; }
+    .footer-links { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:10px; }
+    .footer-links a { color:#f6fff2; font-size:.9rem; font-weight:750; padding:7px 10px; border:1px solid rgba(255,255,255,.16); border-radius:6px; }
+    .footer-links a:hover { background:rgba(255,255,255,.1); text-decoration:none; }
     .admin-action-overlay { position:fixed; left:0; right:0; top:0; height:4px; background:linear-gradient(90deg, var(--green), #c9a227, var(--primary), var(--green)); background-size:220% 100%; z-index:90; display:none; pointer-events:none; animation:admin-progress 1s linear infinite; }
     .admin-working-toast { position:fixed; right:18px; bottom:18px; z-index:91; display:none; align-items:center; gap:10px; padding:12px 14px; border-radius:8px; background:#12344a; color:#fff; box-shadow:0 14px 30px rgba(16,24,40,.2); font-weight:850; }
     .admin-working-toast::before { content:""; width:16px; height:16px; border:2px solid rgba(255,255,255,.45); border-top-color:#fff; border-radius:50%; animation:admin-spin .7s linear infinite; }
@@ -695,8 +1249,7 @@ function admin_page_start(string $title, array $options = []): void
       .admin-user { text-align:left; }
       .layout { grid-template-columns:1fr; }
       .page-title { flex-direction:column; }
-      .admin-footer-inner { grid-template-columns:1fr; }
-      .footer-groups { grid-template-columns:repeat(2,minmax(140px,1fr)); }
+      .admin-footer-inner { align-items:flex-start; flex-direction:column; }
     }
     @media (max-width:560px) {
       .admin-bar, .admin-main, .admin-footer-inner { padding-left:16px; padding-right:16px; }
@@ -704,20 +1257,22 @@ function admin_page_start(string $title, array $options = []): void
       .admin-nav details, .admin-nav summary, .admin-nav .nav-link { width:100%; }
       .admin-nav summary, .admin-nav .nav-link { justify-content:center; }
       .admin-menu { width:calc(100vw - 32px); }
-      .footer-groups { grid-template-columns:1fr; }
+      .footer-links { justify-content:flex-start; }
     }
     <?= $options['css'] ?? '' ?>
   </style>
+  <link rel="stylesheet" href="../assets/css/natcodev-ui.css?v=20260530">
 </head>
 <body>
 <div class="admin-shell">
   <div class="admin-action-overlay" aria-hidden="true"></div>
   <div class="admin-working-toast" role="status" aria-live="polite">Processing request...</div>
+  <?php if ($chrome): ?>
   <header class="admin-header">
     <div class="admin-bar">
-      <a class="admin-brand" href="admin.php">
+      <a class="admin-brand" href="index.php">
         <img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV">
-        <span><strong>NATCODEV Admin</strong><span>Registry operations console</span></span>
+        <span><strong>NATCODEV Admin</strong><span>Workspace operations hub</span></span>
       </a>
       <nav class="admin-nav" aria-label="Admin navigation">
         <?php foreach ($navGroups as $groupLabel => $items): ?>
@@ -735,7 +1290,9 @@ function admin_page_start(string $title, array $options = []): void
       <div class="admin-user"><a href="admin.php?logout=1">Logout</a></div>
     </div>
   </header>
+  <?php endif; ?>
   <main class="admin-main">
+    <?php if ($chrome): ?>
     <section class="page-title">
       <div>
         <h1><?= e($title) ?></h1>
@@ -743,35 +1300,32 @@ function admin_page_start(string $title, array $options = []): void
       </div>
       <?php if (!empty($options['action_html'])): ?><div><?= $options['action_html'] ?></div><?php endif; ?>
     </section>
+    <?php endif; ?>
 <?php
 }
 
 function admin_page_end(): void
 {
-    $navGroups = admin_allowed_nav_groups(db());
+    $footerItems = admin_footer_nav_items(db());
     ?>
   </main>
+  <?php if (!empty($GLOBALS['admin_page_chrome'])): ?>
   <footer class="admin-footer">
     <div class="admin-footer-inner">
       <div>
-        <strong>NATCODEV Registry Operations</strong>
-        <div class="meta" style="margin-top:6px;color:#c9d8df;">Applications, verification, field network, support, and content controls.</div>
+        <strong>NATCODEV Admin Console</strong>
+        <div class="meta" style="margin-top:6px;color:#c9d8df;">Dashboards, registry work, HR, field operations, reporting, governance, and settings now have separate homes.</div>
       </div>
-      <nav class="footer-groups" aria-label="Admin secondary navigation">
-        <?php foreach ($navGroups as $groupLabel => $items): ?>
-          <div class="footer-group">
-            <strong><?= e((string) $groupLabel) ?></strong>
-            <div class="footer-links">
-              <?php foreach ($items as $item): ?>
-                <a href="<?= e($item['href']) ?>"><?= e($item['label']) ?></a>
-              <?php endforeach; ?>
-            </div>
-          </div>
+      <nav class="footer-links" aria-label="Admin quick links">
+        <?php foreach ($footerItems as $item): ?>
+          <a href="<?= e($item['href']) ?>"><?= e($item['label']) ?></a>
         <?php endforeach; ?>
       </nav>
     </div>
   </footer>
+  <?php endif; ?>
 </div>
+<script src="../lib/location-picker.js"></script>
 <script>
 (function () {
   const nav = document.querySelector('.admin-nav');
@@ -843,6 +1397,17 @@ function admin_page_end(): void
         if (button !== submitter) button.disabled = true;
       });
       document.body.classList.add('admin-submitting');
+    });
+  });
+
+  document.querySelectorAll('.password-toggle').forEach((button) => {
+    button.addEventListener('click', () => {
+      const input = document.getElementById(button.dataset.target || '');
+      if (!input) return;
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      button.textContent = show ? 'Hide' : 'Show';
+      button.setAttribute('aria-pressed', show ? 'true' : 'false');
     });
   });
 })();

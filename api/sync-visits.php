@@ -2,10 +2,14 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../lib/field-management.php';
+require_once __DIR__ . '/../lib/agronomy.php';
 
 session_start();
 $pdo = db();
 $user = require_user_role($pdo, ['field_agent', 'admin']);
+fm_ensure_schema($pdo);
+agronomy_ensure_schema($pdo);
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     json_response(['success' => false, 'error' => 'POST method required'], 405);
@@ -14,6 +18,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $input = json_decode(file_get_contents('php://input') ?: '[]', true);
 if (!is_array($input)) {
     json_response(['success' => false, 'error' => 'Invalid JSON'], 400);
+}
+$visits = isset($input['visits']) && is_array($input['visits']) ? $input['visits'] : $input;
+$csrf = is_string($input['_csrf'] ?? null) ? (string) $input['_csrf'] : null;
+if ($csrf !== null && !verify_csrf($csrf)) {
+    json_response(['success' => false, 'error' => 'Invalid sync token'], 403);
 }
 
 try {
@@ -41,8 +50,34 @@ try {
     ");
 
     $count = 0;
-    foreach ($input as $visit) {
+    $results = [];
+    foreach ($visits as $visit) {
         if (!is_array($visit) || empty($visit['grower_id'])) {
+            if (is_array($visit) && !empty($visit['task_id'])) {
+                try {
+                    $pdo->beginTransaction();
+                    $saved = fm_record_task_visit($pdo, $user, $visit + ['sync_source' => 'offline_sync']);
+                    $pdo->commit();
+                    $count++;
+                    $results[] = [
+                        'local_id' => (string) ($visit['local_id'] ?? $visit['client_visit_id'] ?? ''),
+                        'task_id' => (int) $visit['task_id'],
+                        'success' => true,
+                        'server_visit_id' => $saved['visit_id'],
+                        'duplicate' => $saved['duplicate'],
+                    ];
+                } catch (Throwable $itemError) {
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+                    $results[] = [
+                        'local_id' => (string) ($visit['local_id'] ?? $visit['client_visit_id'] ?? ''),
+                        'task_id' => (int) $visit['task_id'],
+                        'success' => false,
+                        'error' => $itemError->getMessage(),
+                    ];
+                }
+            }
             continue;
         }
 
@@ -57,9 +92,15 @@ try {
             (string) ($visit['source'] ?? 'manual'),
         ]);
         $count++;
+        $results[] = [
+            'local_id' => (string) ($visit['local_id'] ?? ''),
+            'grower_id' => (int) $visit['grower_id'],
+            'success' => true,
+            'server_visit_id' => (int) $pdo->lastInsertId(),
+        ];
     }
 
-    json_response(['success' => true, 'synced' => $count]);
+    json_response(['success' => true, 'synced' => $count, 'results' => $results]);
 } catch (Throwable $e) {
     error_log('Sync visits API error: ' . $e->getMessage());
     json_response(['success' => false, 'error' => 'Unable to sync visits'], 500);

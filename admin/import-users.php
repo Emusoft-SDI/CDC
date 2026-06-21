@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/_auth.php';
 require_once __DIR__ . '/../lib/admin-layout.php';
 require_once __DIR__ . '/../lib/notification-dispatch.php';
 require_once __DIR__ . '/../lib/admin-user-import.php';
 
-session_start();
 $pdo = db();
 admin_ensure_schema($pdo);
 admin_ensure_import_schema($pdo);
@@ -32,8 +32,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
                 if ($bulk === 'delete') {
-                    $pdo->prepare("DELETE FROM user_import_records WHERE id IN ({$placeholders})")->execute($selectedIds);
-                    $message = count($selectedIds) . ' row(s) deleted.';
+                    if (admin_current_user_is_super_admin($pdo)) {
+                        $pdo->prepare("DELETE FROM user_import_records WHERE id IN ({$placeholders})")->execute($selectedIds);
+                        $message = count($selectedIds) . ' row(s) deleted.';
+                    } else {
+                        $stmt = $pdo->prepare("SELECT id, COALESCE(name, email, phone, CONCAT('Import row #', id)) label FROM user_import_records WHERE id IN ({$placeholders})");
+                        $stmt->execute($selectedIds);
+                        $queued = 0;
+                        foreach ($stmt->fetchAll() as $row) {
+                            admin_queue_verified_delete_request($pdo, 'user_import_records', (int) $row['id'], (string) $row['label'], 'Bulk import row delete requested by admin.');
+                            $queued++;
+                        }
+                        $message = "{$queued} delete request(s) sent to Super Admin for approval.";
+                    }
                 } elseif ($bulk === 'archive') {
                     $stmt = $pdo->prepare("UPDATE user_import_records SET status = 'archived_no_response', status_note = 'Archived by admin after no engagement.' WHERE id IN ({$placeholders})");
                     $stmt->execute($selectedIds);
@@ -59,8 +70,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } elseif ($action === 'delete_record') {
             $recordId = (int) ($_POST['record_id'] ?? 0);
-            $pdo->prepare('DELETE FROM user_import_records WHERE id = ?')->execute([$recordId]);
-            $message = 'Import row deleted.';
+            if (admin_current_user_is_super_admin($pdo)) {
+                $pdo->prepare('DELETE FROM user_import_records WHERE id = ?')->execute([$recordId]);
+                $message = 'Import row deleted.';
+            } else {
+                $stmt = $pdo->prepare("SELECT COALESCE(name, email, phone, CONCAT('Import row #', id)) FROM user_import_records WHERE id = ? LIMIT 1");
+                $stmt->execute([$recordId]);
+                $label = (string) ($stmt->fetchColumn() ?: 'Import row #' . $recordId);
+                admin_queue_verified_delete_request($pdo, 'user_import_records', $recordId, $label, 'Import row delete requested by admin.');
+                $message = 'Delete request sent to Super Admin for approval.';
+            }
         } elseif ($action === 'update_record') {
             $recordId = (int) ($_POST['record_id'] ?? 0);
             $name = trim((string) ($_POST['name'] ?? ''));
@@ -145,20 +164,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (!isset($roles[$defaultRole])) {
                 $error = 'Choose a valid default role.';
-            } elseif (empty($_FILES['user_upload']['tmp_name']) || !is_uploaded_file($_FILES['user_upload']['tmp_name'])) {
-                $error = 'Choose a CSV or XLSX file.';
             } else {
-                $filename = (string) ($_FILES['user_upload']['name'] ?? 'upload');
-                $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-                if (!in_array($extension, ['csv', 'xlsx'], true)) {
-                    $error = 'Only CSV and XLSX files are supported.';
-                } else {
-                    try {
-                        $summary = admin_import_process($pdo, (string) $_FILES['user_upload']['tmp_name'], $filename, $defaultRole, $sendNotifications);
-                        $message = "Import {$summary['batch']} captured {$summary['total']} rows: {$summary['staff']} staff onboarded, {$summary['pending']} growers pending engagement, {$summary['needs_contact']} need contact cleanup, {$summary['skipped']} skipped, {$summary['failed']} failed.";
-                    } catch (Throwable $e) {
-                        $error = $e->getMessage();
-                    }
+                try {
+                    $upload = app_uploaded_file_info((array) ($_FILES['user_upload'] ?? []), ['csv', 'xlsx'], 15 * 1024 * 1024, 'Import spreadsheet');
+                    $summary = admin_import_process($pdo, $upload['tmp_name'], $upload['name'], $defaultRole, $sendNotifications);
+                    $message = "Import {$summary['batch']} captured {$summary['total']} rows: {$summary['staff']} staff onboarded, {$summary['pending']} growers pending engagement, {$summary['needs_contact']} need contact cleanup, {$summary['skipped']} skipped, {$summary['failed']} failed.";
+                } catch (Throwable $e) {
+                    $error = $e->getMessage();
                 }
             }
         }

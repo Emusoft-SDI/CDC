@@ -9,6 +9,58 @@ function certificate_generate_ref(string $appRef): string
     return 'CERT-' . preg_replace('/[^A-Z0-9-]/i', '', strtoupper($appRef)) . '-' . strtoupper(bin2hex(random_bytes(2)));
 }
 
+function grower_certificate_payment_required(PDO $pdo): bool
+{
+    return function_exists('admin_setting') && admin_setting($pdo, 'grower_certificate_payment_required', '0') === '1';
+}
+
+function grower_certificate_amount(PDO $pdo): float
+{
+    $amount = function_exists('admin_setting') ? (float) admin_setting($pdo, 'grower_certificate_amount', '0') : 0.0;
+    return max(0.0, $amount);
+}
+
+function grower_certificate_validity_months(PDO $pdo): int
+{
+    $months = function_exists('admin_setting') ? (int) admin_setting($pdo, 'grower_certificate_validity_months', '36') : 36;
+    return max(1, min(120, $months));
+}
+
+function grower_certificate_expires_at(PDO $pdo, ?string $issuedAt = null): string
+{
+    $base = $issuedAt ? strtotime($issuedAt) : time();
+    if ($base === false) {
+        $base = time();
+    }
+    return date('Y-m-d H:i:s', strtotime('+' . grower_certificate_validity_months($pdo) . ' months', $base));
+}
+
+function grower_certificate_payment_reference(int $userId, int $applicationId): string
+{
+    return 'NAT-GROWER-CERT-' . $userId . '-' . $applicationId;
+}
+
+function grower_certificate_is_paid(PDO $pdo, int $userId, int $applicationId): bool
+{
+    if (!grower_certificate_payment_required($pdo)) {
+        return true;
+    }
+    if (!app_table_exists($pdo, 'wallet_transactions')) {
+        return false;
+    }
+    $referencePrefix = grower_certificate_payment_reference($userId, $applicationId);
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*)
+        FROM wallet_transactions
+        WHERE user_id = ?
+          AND type = 'debit'
+          AND status = 'completed'
+          AND reference LIKE ?
+    ");
+    $stmt->execute([$userId, $referencePrefix . '%']);
+    return (int) $stmt->fetchColumn() > 0;
+}
+
 function canIssueCertificate(int $userId, PDO $pdo): bool
 {
     app_ensure_core_schema($pdo);
@@ -29,6 +81,20 @@ function canIssueCertificate(int $userId, PDO $pdo): bool
 
     if (!app_table_exists($pdo, 'document_requirements')) {
         return true;
+    }
+
+    foreach (['nin', 'bvn'] as $identityType) {
+        $identityStmt = $pdo->prepare("
+            SELECT verification_status, api_validation_status
+            FROM document_requirements
+            WHERE user_id = ? AND document_type = ?
+            LIMIT 1
+        ");
+        $identityStmt->execute([$userId, $identityType]);
+        $identity = $identityStmt->fetch();
+        if (!$identity || ($identity['verification_status'] ?? '') !== 'verified' || ($identity['api_validation_status'] ?? '') !== 'valid') {
+            return false;
+        }
     }
 
     $totalStmt = $pdo->prepare("SELECT COUNT(*) FROM document_requirements WHERE user_id = ?");
@@ -62,6 +128,11 @@ function generateCertificate(int $applicationId, int $userId, PDO $pdo): array
     $existing->execute([$applicationId]);
     $certificate = $existing->fetch();
     if ($certificate) {
+        if (empty($certificate['expires_at'] ?? null)) {
+            $expiresAt = grower_certificate_expires_at($pdo, (string) ($certificate['issued_at'] ?? 'now'));
+            $pdo->prepare("UPDATE certificates SET expires_at = ? WHERE id = ?")->execute([$expiresAt, (int) $certificate['id']]);
+            $certificate['expires_at'] = $expiresAt;
+        }
         if (empty($certificate['certificate_ref'])) {
             $certRef = $certificate['qr_code_hash'] ?: certificate_generate_ref('NAT-' . $applicationId);
             $verifyUrl = app_base_url() . '/verify-certificate.php?ref=' . urlencode($certRef);
@@ -102,6 +173,7 @@ function generateCertificate(int $applicationId, int $userId, PDO $pdo): array
     $pdfRelativePath = 'certificates/' . strtolower($certRef) . '.pdf';
     $verifyUrl = app_base_url() . '/verify-certificate.php?ref=' . urlencode($certRef);
     $issuedAt = date('Y-m-d H:i:s');
+    $expiresAt = grower_certificate_expires_at($pdo, $issuedAt);
     $html = certificate_render_html($app, $certRef, $issuedAt, $verifyUrl);
     file_put_contents($directory . '/' . $fileName, $html, LOCK_EX);
 
@@ -109,6 +181,7 @@ function generateCertificate(int $applicationId, int $userId, PDO $pdo): array
         'display_ref' => $certRef,
         'certificate_ref' => $certRef,
         'issued_at' => $issuedAt,
+        'expires_at' => $expiresAt,
         'verification_url' => $verifyUrl,
         'app_ref' => $app['app_ref'],
         'name' => $app['name'],
@@ -118,10 +191,10 @@ function generateCertificate(int $applicationId, int $userId, PDO $pdo): array
     file_put_contents(dirname(__DIR__) . '/' . $pdfRelativePath, $pdf, LOCK_EX);
 
     $insert = $pdo->prepare("
-        INSERT INTO certificates (certificate_ref, application_id, user_id, certificate_path, certificate_pdf_path, status, issued_at, qr_code_hash, verification_url)
-        VALUES (?, ?, ?, ?, ?, 'issued', ?, ?, ?)
+        INSERT INTO certificates (certificate_ref, application_id, user_id, certificate_path, certificate_pdf_path, status, issued_at, expires_at, qr_code_hash, verification_url)
+        VALUES (?, ?, ?, ?, ?, 'issued', ?, ?, ?, ?)
     ");
-    $insert->execute([$certRef, $applicationId, $userId, $relativePath, $pdfRelativePath, $issuedAt, $certRef, $verifyUrl]);
+    $insert->execute([$certRef, $applicationId, $userId, $relativePath, $pdfRelativePath, $issuedAt, $expiresAt, $certRef, $verifyUrl]);
 
     $fetch = $pdo->prepare("SELECT * FROM certificates WHERE id = ?");
     $fetch->execute([(int) $pdo->lastInsertId()]);
@@ -141,7 +214,6 @@ function certificate_render_html(array $app, string $certRef, string $issuedAt, 
 {
     $issuedDate = date('F j, Y', strtotime($issuedAt));
     $qr = certificate_qr_svg($verifyUrl, 17);
-    $barcode = certificate_barcode_html($certRef);
     $logoSrc = certificate_asset_src(['assets/logo/natcodev.jpeg', 'assets/logo/natcodev-logo.png'], 'assets/logo/natcodev-logo.svg');
     $fmardSrc = certificate_asset_src(['assets/seals/fmard-logo.png', 'assets/seals/fmaf.png'], 'assets/seals/fmaf.svg');
     $naicSrc = certificate_asset_src(['assets/seals/naic.png'], 'assets/seals/naic.svg');
@@ -171,25 +243,23 @@ function certificate_render_html(array $app, string $certRef, string $issuedAt, 
     h1 { color:var(--green); font-family:Georgia, "Times New Roman", serif; font-size:50px; line-height:1.05; margin:10px 0 18px; }
     .intro { color:var(--muted); margin:0; font-size:17px; }
     .name { color:#111b0d; font-family:Georgia, "Times New Roman", serif; font-size:48px; font-weight:700; margin:22px auto 12px; padding-bottom:10px; max-width:760px; border-bottom:2px solid var(--gold); }
-    .statement { font-size:18px; line-height:1.7; max-width:790px; margin:0 auto 24px; }
+    .statement { font-size:16px; line-height:1.55; max-width:720px; margin:0 auto 24px; overflow-wrap:break-word; }
     .details { display:grid; grid-template-columns:1fr 1fr; gap:14px; max-width:760px; margin:28px auto; }
     .detail { border:1px solid #e2dcc8; border-top:4px solid var(--gold); background:#fffaf0; padding:15px; min-height:74px; }
     .label { display:block; color:var(--muted); font-size:11px; letter-spacing:1.4px; text-transform:uppercase; margin-bottom:7px; }
     .value { color:var(--green); font-weight:800; }
     .seals { display:flex; align-items:center; justify-content:center; gap:12px; margin:18px 0 16px; flex-wrap:wrap; }
     .seal { width:112px; height:72px; object-fit:contain; background:#fff; border:1px solid #e4e0d2; border-radius:8px; padding:7px; filter:drop-shadow(0 8px 12px rgba(45,80,22,.10)); }
-    .verification { display:grid; grid-template-columns:150px 1fr 190px; align-items:end; gap:30px; margin-top:22px; text-align:left; }
-    .qr svg { width:112px; height:112px; background:#fff; border:6px solid #fff; box-shadow:0 0 0 1px #d9ddcf; }
-    .verifytext { font-size:11px; color:var(--muted); word-break:break-all; margin-top:8px; }
+    .verification { display:grid; grid-template-columns:170px 1fr 170px; align-items:end; gap:30px; margin-top:22px; text-align:left; }
+    .qr svg, .qr img { width:128px; height:128px; object-fit:contain; background:#fff; border:6px solid #fff; box-shadow:0 0 0 1px #d9ddcf; }
+    .verifytext { font-size:11px; color:var(--green); font-weight:800; margin-top:8px; text-align:center; }
     .signature { text-align:center; }
-    .signature img { width:310px; max-width:100%; display:block; margin:0 auto 4px; }
+    .signature img { width:1085px; max-width:100%; display:block; margin:-26px auto -12px; mix-blend-mode:multiply; }
     .sigline { border-top:1px solid #1f2d18; margin-top:2px; padding-top:8px; font-size:12px; font-weight:800; color:var(--green); letter-spacing:1.2px; }
-    .barcode { text-align:right; }
-    .bars { display:flex; justify-content:flex-end; align-items:end; gap:2px; height:54px; margin-bottom:8px; }
-    .bars span { display:block; background:#172211; }
+    .official-seal { justify-self:end; width:150px; height:150px; border-radius:50%; background:repeating-conic-gradient(from 0deg,#b70808 0 7deg,#e02b21 7deg 14deg); box-shadow:0 0 0 6px #9f0808, inset 0 0 0 16px #d71919, inset 0 0 0 24px #fff, inset 0 0 0 34px #c40909, 0 14px 28px rgba(137,20,20,.30); }
     .fine { font-size:10px; color:var(--muted); letter-spacing:.8px; }
     @media print { body { background:#fff; padding:0; } main { width:100%; min-height:100vh; box-shadow:none; } }
-    @media (max-width:760px) { body { padding:10px; } .content { padding:22px; } .top,.verification { grid-template-columns:1fr; display:grid; text-align:center; } .refbox,.barcode { text-align:center; } .logo { max-width:260px; width:80%; margin:auto; } .details { grid-template-columns:1fr; } h1 { font-size:32px; } .name { font-size:34px; } .seals { flex-wrap:wrap; } }
+    @media (max-width:760px) { body { padding:10px; } .content { padding:22px; } .top,.verification { grid-template-columns:1fr; display:grid; text-align:center; } .refbox { text-align:center; } .logo { max-width:260px; width:80%; margin:auto; } .details { grid-template-columns:1fr; } h1 { font-size:32px; } .name { font-size:34px; } .seals { flex-wrap:wrap; } }
   </style>
 </head>
 <body>
@@ -220,13 +290,13 @@ function certificate_render_html(array $app, string $certRef, string $issuedAt, 
         <img class="seal" src="' . e($lcfeSrc) . '" alt="LCFE seal">
       </div>
       <div class="verification">
-        <div class="qr">' . $qr . '<div class="verifytext">' . e($verifyUrl) . '</div></div>
+        <div class="qr">' . $qr . '<div class="verifytext">VERIFY ONLINE</div></div>
         <div class="signature">
-          <img src="../assets/signatures/chief-of-party.svg" alt="NATCODEV Chief of Party signature">
+          <img src="../assets/signatures/chief-of-party.jpg" alt="NATCODEV Chief of Party signature">
           <div class="sigline">NATCODEV CHIEF OF PARTY</div>
           <div class="fine">Digitally issued and verifiable online</div>
         </div>
-        <div class="barcode">' . $barcode . '<div class="fine">' . e($certRef) . '</div></div>
+        <div class="official-seal" aria-label="Official authenticated certificate seal"></div>
       </div>
     </div>
     <div class="bar"></div>
@@ -252,6 +322,11 @@ function certificate_asset_src(array $preferredRelativePaths, string $fallbackRe
 
 function certificate_qr_svg(string $value, int $cells = 17): string
 {
+    $qrAsset = dirname(__DIR__) . '/assets/certificates/verification-qr.jpg';
+    if (is_file($qrAsset) && filesize($qrAsset) > 0) {
+        return '<img src="../assets/certificates/verification-qr.jpg" alt="Certificate verification QR code">';
+    }
+
     $hash = hash('sha256', $value);
     $cellSize = 5;
     $size = $cells * $cellSize;
@@ -275,27 +350,13 @@ function certificate_qr_svg(string $value, int $cells = 17): string
     return '<svg viewBox="0 0 ' . $size . ' ' . $size . '" role="img" aria-label="Certificate verification QR code" xmlns="http://www.w3.org/2000/svg"><rect width="' . $size . '" height="' . $size . '" fill="#fff"/><g fill="#172211">' . $rects . '</g></svg>';
 }
 
-function certificate_barcode_html(string $value): string
-{
-    $bars = '';
-    $hash = hash('sha256', $value);
-    for ($i = 0; $i < 42; $i++) {
-        $digit = hexdec($hash[$i % strlen($hash)]);
-        $width = 1 + ($digit % 3);
-        $height = 24 + (($digit + $i) % 28);
-        $bars .= '<span style="width:' . $width . 'px;height:' . $height . 'px"></span>';
-    }
-
-    return '<div class="bars" aria-label="Certificate barcode">' . $bars . '</div>';
-}
-
 function findCertificate(string $ref, PDO $pdo): ?array
 {
     app_ensure_certificate_schema($pdo);
     $stmt = $pdo->prepare("
         SELECT COALESCE(c.certificate_ref, c.qr_code_hash, a.app_ref) certificate_ref,
                COALESCE(c.status, 'issued') status,
-               c.issued_at, c.revoked_at, c.revoked_reason, c.qr_code_hash, c.verification_url,
+               c.user_id, c.issued_at, c.expires_at, c.revoked_at, c.revoked_reason, c.qr_code_hash, c.verification_url,
                a.app_ref, a.name, a.location, a.farm_size
         FROM certificates c
         JOIN applications a ON a.id = c.application_id
@@ -313,12 +374,15 @@ function certificate_pdf_document(array $certificate): string
     $issuedAt = !empty($certificate['issued_at'])
         ? date('F j, Y', strtotime((string) $certificate['issued_at']))
         : date('F j, Y');
+    $expiresAt = !empty($certificate['expires_at'])
+        ? date('F j, Y', strtotime((string) $certificate['expires_at']))
+        : '';
     $verifyUrl = (string) ($certificate['verification_url'] ?: app_base_url() . '/verify-certificate.php?ref=' . urlencode((string) $certificate['display_ref']));
-    $jpeg = certificate_pdf_render_jpeg($certificate, $issuedAt, $verifyUrl);
+    $jpeg = certificate_pdf_render_jpeg($certificate, $issuedAt, $verifyUrl, $expiresAt);
     return certificate_pdf_build($jpeg, 1684, 1190);
 }
 
-function certificate_pdf_render_jpeg(array $certificate, string $issuedAt, string $verifyUrl): string
+function certificate_pdf_render_jpeg(array $certificate, string $issuedAt, string $verifyUrl, string $expiresAt = ''): string
 {
     $width = 1684;
     $height = 1190;
@@ -343,9 +407,13 @@ function certificate_pdf_render_jpeg(array $certificate, string $issuedAt, strin
     imagefilledrectangle($image, 92, $height - 124, $width - 92, $height - 86, $leaf);
 
     certificate_draw_logo($image, 165, 145, 250, 170, $green, $gold, $ink);
-    certificate_text($image, 'Certificate Reference', 1220, 170, 20, $muted, 'regular', 'right');
-    certificate_text($image, (string) $certificate['display_ref'], 1220, 202, 24, $green, 'bold', 'right');
-    certificate_text($image, 'Issued ' . $issuedAt, 1220, 236, 20, $muted, 'regular', 'right');
+    $refRight = $width - 270;
+    certificate_text($image, 'Certificate Reference', $refRight, 170, 20, $muted, 'regular', 'right');
+    certificate_text($image, (string) $certificate['display_ref'], $refRight, 202, 24, $green, 'bold', 'right');
+    certificate_text($image, 'Issued ' . $issuedAt, $refRight, 236, 20, $muted, 'regular', 'right');
+    if ($expiresAt !== '') {
+        certificate_text($image, 'Valid until ' . $expiresAt, $refRight, 268, 20, $muted, 'regular', 'right');
+    }
 
     certificate_text($image, 'OFFICIAL GROWER CREDENTIAL', $width / 2, 310, 22, $gold, 'bold', 'center');
     certificate_text($image, 'Certificate of Participation', $width / 2, 385, 66, $green, 'serif_bold', 'center');
@@ -356,8 +424,7 @@ function certificate_pdf_render_jpeg(array $certificate, string $issuedAt, strin
     imageline($image, 430, 574, 1254, 574, $gold);
     imagesetthickness($image, 1);
 
-    certificate_text($image, 'has been duly confirmed as a participant in the NATCODEV Coconut Outgrowers Program', $width / 2, 638, 28, $ink, 'regular', 'center');
-    certificate_text($image, 'and is recognized for verified engagement in the grower development pathway.', $width / 2, 680, 28, $ink, 'regular', 'center');
+    certificate_wrapped_text($image, 'has been duly confirmed as a participant in the NATCODEV Coconut Outgrowers Program and is recognized for verified engagement in the grower development pathway.', $width / 2, 626, 1130, 28, 36, $ink, 'regular', 'center');
 
     certificate_detail_box($image, 438, 732, 360, 92, 'APPLICATION REF', (string) $certificate['app_ref'], $line, $cream, $gold, $green, $muted);
     certificate_detail_box($image, 886, 732, 360, 92, 'FARM LOCATION', (string) $certificate['location'], $line, $cream, $gold, $green, $muted);
@@ -368,16 +435,14 @@ function certificate_pdf_render_jpeg(array $certificate, string $issuedAt, strin
     certificate_draw_partner_logo($image, ['assets/seals/boa.png'], 'BOA', 914, 842, 134, 94, $line, $white, $green);
     certificate_draw_partner_logo($image, ['assets/seals/lc_fe.jpg'], 'LCFE', 1062, 842, 166, 94, $line, $white, $green);
 
-    certificate_draw_qr($image, $verifyUrl, 188, 870, 150, $ink, $white, $line);
+    certificate_draw_qr($image, $verifyUrl, 188, 860, 170, $ink, $white, $line);
     certificate_text($image, 'VERIFY ONLINE', 263, 1048, 16, $green, 'bold', 'center');
-    certificate_text($image, $verifyUrl, 263, 1074, 12, $muted, 'regular', 'center');
 
-    certificate_draw_signature($image, 610, 975, $green, $gold, $ink);
+    certificate_draw_signature($image, 582, 798, $green, $gold, $ink);
     certificate_text($image, 'NATCODEV CHIEF OF PARTY', $width / 2, 1050, 18, $green, 'bold', 'center');
     certificate_text($image, 'Digitally issued and verifiable online', $width / 2, 1078, 15, $muted, 'regular', 'center');
 
-    certificate_draw_barcode($image, (string) $certificate['display_ref'], 1270, 910, $ink);
-    certificate_text($image, (string) $certificate['display_ref'], 1390, 1048, 13, $muted, 'regular', 'center');
+    certificate_draw_red_seal($image, 1296, 866, 168);
 
     ob_start();
     imagejpeg($image, null, 94);
@@ -419,6 +484,41 @@ function certificate_text(GdImage $image, string $text, float $x, float $y, int 
     }
 
     imagettftext($image, $size, 0, (int) round($x), (int) round($y), $color, $font, $text);
+}
+
+function certificate_embossed_text(GdImage $image, string $text, float $x, float $y, int $size, int $mainColor, int $shadowColor, int $highlightColor, string $fontStyle = 'bold', string $align = 'center'): void
+{
+    certificate_text($image, $text, $x + 2, $y + 2, $size, $shadowColor, $fontStyle, $align);
+    certificate_text($image, $text, $x - 1, $y - 1, $size, $highlightColor, $fontStyle, $align);
+    certificate_text($image, $text, $x, $y, $size, $mainColor, $fontStyle, $align);
+}
+
+function certificate_wrapped_text(GdImage $image, string $text, float $x, float $y, int $maxWidth, int $size, int $lineHeight, int $color, string $fontStyle = 'regular', string $align = 'left'): void
+{
+    $text = certificate_pdf_safe_text($text);
+    $font = certificate_font($fontStyle);
+    $words = preg_split('/\s+/', $text) ?: [];
+    $lines = [];
+    $current = '';
+
+    foreach ($words as $word) {
+        $candidate = trim($current . ' ' . $word);
+        $box = imagettfbbox($size, 0, $font, $candidate);
+        $candidateWidth = $box ? abs($box[2] - $box[0]) : strlen($candidate) * $size;
+        if ($current !== '' && $candidateWidth > $maxWidth) {
+            $lines[] = $current;
+            $current = $word;
+        } else {
+            $current = $candidate;
+        }
+    }
+    if ($current !== '') {
+        $lines[] = $current;
+    }
+
+    foreach ($lines as $index => $line) {
+        certificate_text($image, $line, $x, $y + ($index * $lineHeight), $size, $color, $fontStyle, $align);
+    }
 }
 
 function certificate_detail_box(GdImage $image, int $x, int $y, int $w, int $h, string $label, string $value, int $line, int $fill, int $gold, int $green, int $muted): void
@@ -525,31 +625,61 @@ function certificate_load_image(string $path): ?GdImage
 
 function certificate_draw_signature(GdImage $image, int $x, int $y, int $green, int $gold, int $ink): void
 {
-    $script = certificate_font('script');
-    certificate_text($image, 'NATCODEV', $x + 232, $y + 26, 44, $green, is_file($script) ? 'script' : 'serif_bold', 'center');
-    imagesetthickness($image, 4);
-    imageline($image, $x + 60, $y + 48, $x + 405, $y + 34, $gold);
-    imagesetthickness($image, 2);
-    imageline($image, $x + 55, $y + 58, $x + 410, $y + 58, $ink);
-    imagesetthickness($image, 1);
+    if (certificate_copy_signature($image, certificate_first_asset_path(['assets/signatures/chief-of-party.jpg']), $x, $y, 520, 308)) {
+        return;
+    }
+
+    certificate_text($image, 'Chief of Party', $x + 232, $y + 44, 34, $green, 'script', 'center');
 }
 
-function certificate_draw_barcode(GdImage $image, string $value, int $x, int $y, int $ink): void
+function certificate_copy_signature(GdImage $target, string $path, int $x, int $y, int $w, int $h): bool
 {
-    $hash = hash('sha256', $value);
-    $cursor = $x;
-
-    for ($i = 0; $i < 48; $i++) {
-        $digit = hexdec($hash[$i % strlen($hash)]);
-        $barWidth = 2 + ($digit % 5);
-        $barHeight = 45 + (($digit + $i) % 55);
-        imagefilledrectangle($image, $cursor, $y + (100 - $barHeight), $cursor + $barWidth, $y + 100, $ink);
-        $cursor += $barWidth + 3;
+    $source = certificate_load_image($path);
+    if (!$source instanceof GdImage) {
+        return false;
     }
+
+    $sourceWidth = imagesx($source);
+    $sourceHeight = imagesy($source);
+    if ($sourceWidth <= 0 || $sourceHeight <= 0) {
+        imagedestroy($source);
+        return false;
+    }
+
+    $scale = min($w / $sourceWidth, $h / $sourceHeight);
+    $drawWidth = (int) round($sourceWidth * $scale);
+    $drawHeight = (int) round($sourceHeight * $scale);
+    $drawX = $x + (int) round(($w - $drawWidth) / 2);
+    $drawY = $y + (int) round(($h - $drawHeight) / 2);
+    $tmp = imagecreatetruecolor($drawWidth, $drawHeight);
+    imagecopyresampled($tmp, $source, 0, 0, 0, 0, $drawWidth, $drawHeight, $sourceWidth, $sourceHeight);
+
+    for ($py = 0; $py < $drawHeight; $py++) {
+        for ($px = 0; $px < $drawWidth; $px++) {
+            $rgb = imagecolorat($tmp, $px, $py);
+            $r = ($rgb >> 16) & 0xFF;
+            $g = ($rgb >> 8) & 0xFF;
+            $b = $rgb & 0xFF;
+            if ($r > 238 && $g > 238 && $b > 238) {
+                continue;
+            }
+            imagesetpixel($target, $drawX + $px, $drawY + $py, $rgb);
+        }
+    }
+
+    imagedestroy($tmp);
+    imagedestroy($source);
+    return true;
 }
 
 function certificate_draw_qr(GdImage $image, string $value, int $x, int $y, int $size, int $ink, int $white, int $line): void
 {
+    $qrAsset = certificate_first_asset_path(['assets/certificates/verification-qr.jpg']);
+    if ($qrAsset !== '' && certificate_copy_image_contain($image, $qrAsset, $x, $y, $size, $size)) {
+        imagerectangle($image, $x, $y, $x + $size, $y + $size, $line);
+        return;
+    }
+
     imagefilledrectangle($image, $x, $y, $x + $size, $y + $size, $white);
     imagerectangle($image, $x, $y, $x + $size, $y + $size, $line);
     $cells = 17;
@@ -571,6 +701,42 @@ function certificate_draw_qr(GdImage $image, string $value, int $x, int $y, int 
                 imagefilledrectangle($image, $rx, $ry, $rx + $cell - 1, $ry + $cell - 1, $ink);
             }
         }
+    }
+}
+
+function certificate_draw_red_seal(GdImage $image, int $x, int $y, int $size): void
+{
+    $red = certificate_color($image, '#c91f1f');
+    $darkRed = certificate_color($image, '#8f1010');
+    $white = certificate_color($image, '#ffffff');
+    $gold = certificate_color($image, '#f2c75c');
+    $cx = $x + (int) round($size / 2);
+    $cy = $y + (int) round($size / 2);
+
+    $points = [];
+    for ($i = 0; $i < 64; $i++) {
+        $radius = $i % 2 === 0 ? $size / 2 : $size * 0.42;
+        $angle = deg2rad(($i * 360 / 64) - 90);
+        $points[] = (int) round($cx + cos($angle) * $radius);
+        $points[] = (int) round($cy + sin($angle) * $radius);
+    }
+    imagefilledpolygon($image, $points, $darkRed);
+
+    imagefilledellipse($image, $cx, $cy, $size, $size, $darkRed);
+    imagefilledellipse($image, $cx, $cy, $size - 12, $size - 12, $red);
+    imagefilledellipse($image, $cx, $cy, $size - 44, $size - 44, $white);
+    imagefilledellipse($image, $cx, $cy, $size - 66, $size - 66, $darkRed);
+    imagefilledellipse($image, $cx, $cy, $size - 100, $size - 100, $red);
+    imagesetthickness($image, 5);
+    imageellipse($image, $cx, $cy, $size - 24, $size - 24, $gold);
+    imageellipse($image, $cx, $cy, $size - 82, $size - 82, $gold);
+    imagesetthickness($image, 1);
+
+    for ($i = 0; $i < 36; $i++) {
+        $angle = deg2rad($i * 10);
+        $sx = (int) round($cx + cos($angle) * (($size / 2) - 26));
+        $sy = (int) round($cy + sin($angle) * (($size / 2) - 26));
+        imagefilledellipse($image, $sx, $sy, 7, 7, $gold);
     }
 }
 

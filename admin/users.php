@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/_auth.php';
 require_once __DIR__ . '/../lib/admin-layout.php';
 require_once __DIR__ . '/../lib/field-management.php';
 require_once __DIR__ . '/../lib/notification-dispatch.php';
 
-session_start();
 $pdo = db();
 admin_ensure_schema($pdo);
 fm_ensure_schema($pdo);
@@ -276,18 +276,7 @@ function admin_parse_xlsx_upload(string $path): array
 
 function admin_parse_csv_upload(string $path): array
 {
-    $handle = fopen($path, 'rb');
-    if (!$handle) {
-        throw new RuntimeException('Unable to open CSV file.');
-    }
-
-    $rows = [];
-    while (($row = fgetcsv($handle)) !== false) {
-        $rows[] = array_map(static fn($value) => trim((string) $value), $row);
-    }
-    fclose($handle);
-
-    return $rows;
+    return app_csv_import_rows($path);
 }
 
 function admin_parse_user_upload(string $path, string $originalName): array
@@ -397,7 +386,14 @@ function admin_onboard_uploaded_users(PDO $pdo, array $rows, string $defaultRole
             if ($selectedRole !== 'grower') {
                 admin_upsert_staff_profile($pdo, $existingId, $selectedRole, $profileData);
             } else {
-                $pdo->prepare('DELETE FROM staff_profiles WHERE user_id = ?')->execute([$existingId]);
+                $profileStmt = $pdo->prepare('SELECT id, staff_type, status FROM staff_profiles WHERE user_id = ? LIMIT 1');
+                $profileStmt->execute([$existingId]);
+                $staffProfile = $profileStmt->fetch();
+                if ($staffProfile && admin_current_user_is_super_admin($pdo)) {
+                    $pdo->prepare('DELETE FROM staff_profiles WHERE id = ?')->execute([(int) $staffProfile['id']]);
+                } elseif ($staffProfile) {
+                    admin_queue_verified_delete_request($pdo, 'staff_profiles', (int) $staffProfile['id'], $name . ' staff profile', 'Staff profile removal requested during role update.');
+                }
             }
             $summary['updated']++;
             continue;
@@ -476,7 +472,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     natcodev_notify_user($pdo, $newUserId, 'bulk_user_onboarded', 'Your NATCODEV staff account is ready', [
                         'role' => $roles[$selectedRole],
                         'temporary_password' => $password,
-                        'login_url' => app_base_url() . '/dashboard/login.php',
+                        'login_url' => app_base_url() . '/login.php',
                         'field_agent_url' => app_base_url() . '/field-agent/',
                     ], "Hello {name}, your NATCODEV {$roles[$selectedRole]} account has been created. Login: {login_url}. Temporary password: {temporary_password}. Field agent console: {field_agent_url}");
                     $message = $roles[$selectedRole] . ' user created and onboarding message sent.';
@@ -510,13 +506,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $userId,
                 ]);
                 if ($selectedRole === 'grower') {
-                    $pdo->prepare('DELETE FROM staff_profiles WHERE user_id = ?')->execute([$userId]);
+                    $profileStmt = $pdo->prepare('SELECT id, staff_type, status FROM staff_profiles WHERE user_id = ? LIMIT 1');
+                    $profileStmt->execute([$userId]);
+                    $staffProfile = $profileStmt->fetch();
+                    if ($staffProfile && admin_current_user_is_super_admin($pdo)) {
+                        $pdo->prepare('DELETE FROM staff_profiles WHERE id = ?')->execute([(int) $staffProfile['id']]);
+                        $message = 'User role updated.';
+                    } elseif ($staffProfile) {
+                        admin_queue_verified_delete_request($pdo, 'staff_profiles', (int) $staffProfile['id'], 'User #' . $userId . ' staff profile', 'Staff profile removal requested during role update.');
+                        $message = 'Role update saved; staff profile deletion sent to Super Admin for approval.';
+                    } else {
+                        $message = 'User role updated.';
+                    }
                 } else {
                     admin_upsert_staff_profile($pdo, $userId, $selectedRole, [
                         'license_number' => $license !== '' ? $license : null,
                     ]);
+                    $message = 'User role updated.';
                 }
-                $message = 'User role updated.';
             }
         }
     }
@@ -595,7 +602,10 @@ admin_page_start('Users', [
       <label>Phone</label>
       <input type="text" name="phone">
       <label>Temporary Password</label>
-      <input type="password" name="password" minlength="8" required>
+      <div class="password-field">
+        <input id="staff_temp_password" type="password" name="password" minlength="8" required>
+        <button class="password-toggle" type="button" data-target="staff_temp_password" aria-pressed="false">Show</button>
+      </div>
       <label>Staff Role</label>
       <select name="role" required>
         <option value="">Select role</option>

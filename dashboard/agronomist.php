@@ -1,17 +1,18 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/_user_auth.php';
 require_once __DIR__ . '/../lib/dashboard-layout.php';
 require_once __DIR__ . '/../lib/agronomy.php';
 
-session_start();
 $pdo = db();
-if (empty($_SESSION['user_id'])) {
-    redirect_to('login.php');
-}
 agronomy_ensure_schema($pdo);
 
 $user = current_user($pdo);
+if (!$user) {
+    redirect_to('login.php');
+}
+dashboard_redirect_learner_only($pdo, $user);
 $userId = (int) $_SESSION['user_id'];
 $message = '';
 $error = '';

@@ -7,6 +7,14 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     json_response(['success' => false, 'message' => 'POST method required'], 405);
 }
 
+if (!verify_csrf($_POST['_csrf'] ?? null)) {
+    json_response(['success' => false, 'message' => 'Invalid or expired session. Please refresh the page.'], 403);
+}
+
+if (!app_check_rate_limit('registration', 12, 3600)) {
+    json_response(['success' => false, 'message' => 'Too many registration attempts. Please try again in an hour.'], 429);
+}
+
 $name = trim((string) ($_POST['name'] ?? ''));
 $location = trim((string) ($_POST['location'] ?? ''));
 $stateId = filter_input(INPUT_POST, 'state_id', FILTER_VALIDATE_INT) ?: null;
@@ -16,6 +24,7 @@ $phone = preg_replace('/[^0-9]/', '', (string) ($_POST['phone'] ?? ''));
 $whatsapp = preg_replace('/[^0-9]/', '', (string) ($_POST['whatsapp'] ?? $phone));
 $email = filter_var(trim((string) ($_POST['email'] ?? '')), FILTER_VALIDATE_EMAIL);
 $commitments = trim((string) ($_POST['commitments'] ?? ''));
+$password = (string) ($_POST['password'] ?? '');
 
 if ($name === '' || $location === '' || $farmSize === false || $phone === '' || !$email || $commitments === '') {
     json_response(['success' => false, 'message' => 'All fields are required'], 422);
@@ -45,7 +54,9 @@ try {
         ], 409);
     }
 
+    $applicationId = 0;
     if ($existing) {
+        $applicationId = (int) $existing['id'];
         $appRef = $existing['app_ref'];
         $token = $existing['confirmation_token'] ?: bin2hex(random_bytes(32));
         $pdo->prepare("
@@ -77,7 +88,20 @@ try {
             $token,
             $_SERVER['REMOTE_ADDR'] ?? null,
         ]);
+        $applicationId = (int) $pdo->lastInsertId();
         $action = 'submitted';
+    }
+
+    if ($password !== '' && strlen($password) >= 6 && $applicationId > 0) {
+        app_add_column_if_missing($pdo, 'users', 'platform_role', "VARCHAR(60) NULL");
+        app_add_column_if_missing($pdo, 'users', 'account_status', "VARCHAR(40) NOT NULL DEFAULT 'active'");
+        $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+        $stmt = $pdo->prepare("
+            INSERT INTO users (email, password, application_id, name, phone, location, role, platform_role, account_status)
+            VALUES (?, ?, ?, ?, ?, ?, 'grower', 'grower', 'active')
+            ON DUPLICATE KEY UPDATE application_id = VALUES(application_id), name = VALUES(name), phone = VALUES(phone), location = VALUES(location), platform_role = COALESCE(platform_role, VALUES(platform_role)), account_status = 'active'
+        ");
+        $stmt->execute([(string) $email, $passwordHash, $applicationId, $name, $phone, $location]);
     }
 
     $confirmUrl = app_base_url() . '/confirm_email.php?token=' . urlencode($token);

@@ -53,20 +53,15 @@ function recruitment_upload(string $field, string $prefix): ?string
         return null;
     }
 
-    $allowed = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'];
-    $original = (string) $_FILES[$field]['name'];
-    $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
-    if (!in_array($ext, $allowed, true)) {
-        throw new RuntimeException('Only PDF, DOC, DOCX, JPG, and PNG files are supported.');
-    }
+    $upload = app_uploaded_file_info((array) ($_FILES[$field] ?? []), ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'], 8 * 1024 * 1024, 'Recruitment attachment');
 
     $dir = __DIR__ . '/recruitment_uploads';
     if (!is_dir($dir)) {
         mkdir($dir, 0755, true);
     }
 
-    $name = $prefix . '_' . time() . '_' . preg_replace('/[^a-z0-9._-]/i', '_', basename($original));
-    if (!move_uploaded_file((string) $_FILES[$field]['tmp_name'], $dir . '/' . $name)) {
+    $name = app_safe_upload_name($prefix, $upload['name'], $upload['extension']);
+    if (!move_uploaded_file($upload['tmp_name'], $dir . '/' . $name)) {
         throw new RuntimeException('Unable to upload one of the attached files.');
     }
 
@@ -133,16 +128,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NATCODEV Recruitment</title>
+  <script src="https://unpkg.com/lucide@latest"></script>
   <style>
-    :root { --primary:#1a5276; --green:#1f8a55; --green-dark:#166b41; --ink:#1f2937; --muted:#667085; --line:#d8e2dc; --bg:#f5f8f6; }
+    :root { --primary:#062b1d; --green:#007a3d; --green-dark:#005c2e; --ink:#07162f; --muted:#667085; --line:#d8e2dc; --bg:#f5f8f6; --gold:#d49400; }
     * { box-sizing:border-box; }
-    body { margin:0; background:linear-gradient(135deg, rgba(26,82,118,.08), rgba(31,138,85,.10)), var(--bg); color:var(--ink); font-family:"Segoe UI", Tahoma, Geneva, Verdana, sans-serif; padding:28px 16px; }
-    .shell { max-width:980px; margin:0 auto; }
+    body { margin:0; background:var(--bg); color:var(--ink); font-family:"Segoe UI", Tahoma, Geneva, Verdana, sans-serif; }
+    .shell { max-width:1220px; margin:0 auto; padding:24px 16px 40px; }
     .topbar { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:22px; }
     .brand { display:flex; align-items:center; gap:12px; color:var(--primary); font-weight:900; }
     .brand img { width:52px; height:52px; object-fit:contain; border-radius:50%; border:1px solid var(--line); background:#fff; }
     a { color:var(--green-dark); font-weight:800; text-decoration:none; }
-    .panel { background:#fff; border:1px solid rgba(16,24,40,.08); border-radius:8px; box-shadow:0 18px 44px rgba(16,24,40,.12); padding:30px; }
+    .hero { position:relative; overflow:hidden; border-radius:18px; min-height:360px; display:grid; grid-template-columns:minmax(0,1fr) 420px; align-items:end; gap:28px; padding:42px; color:#fff; background:linear-gradient(90deg, rgba(0,63,37,.94), rgba(0,63,37,.72) 44%, rgba(0,63,37,.08)), url('assets/public/field-agent-operations-hero.png') center/cover; box-shadow:0 24px 70px rgba(15,23,42,.18); margin-bottom:-46px; }
+    .hero h1 { color:#fff; text-shadow:0 2px 16px rgba(0,0,0,.25); }
+    .hero .lead { color:#eefdf2; max-width:670px; font-size:1.1rem; }
+    .hero-card { background:rgba(255,255,255,.92); color:var(--ink); border-radius:16px; padding:22px; border:1px solid rgba(255,255,255,.55); box-shadow:0 20px 50px rgba(0,0,0,.16); }
+    .hero-card .item { display:flex; gap:10px; align-items:flex-start; padding:10px 0; border-bottom:1px solid #e8f2ea; }
+    .hero-card .item:last-child { border-bottom:0; }
+    .hero-card i { color:var(--green); }
+    .panel { position:relative; background:#fff; border:1px solid rgba(16,24,40,.08); border-radius:18px; box-shadow:0 18px 44px rgba(16,24,40,.12); padding:30px; margin-top:0; }
     h1 { margin:0 0 8px; color:var(--primary); font-size:clamp(2rem,5vw,3.2rem); line-height:1.05; }
     .lead, .muted { color:var(--muted); }
     .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
@@ -150,11 +153,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     input, select, textarea { width:100%; padding:12px; border:1px solid var(--line); border-radius:6px; font:inherit; }
     textarea { min-height:120px; }
     input:focus, select:focus, textarea:focus { border-color:var(--green); box-shadow:0 0 0 3px rgba(31,138,85,.14); outline:none; }
-    button { margin-top:18px; width:100%; background:var(--green); color:#fff; border:0; border-radius:6px; padding:13px 16px; font-weight:900; cursor:pointer; }
+    button { margin-top:18px; width:100%; background:var(--green); color:#fff; border:0; border-radius:8px; padding:13px 16px; font-weight:900; cursor:pointer; }
     button:hover { background:var(--green-dark); }
+    .role-cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin:22px 0; }
+    .role-card { border:1px solid var(--line); border-radius:14px; padding:16px; background:#fbfdfc; }
+    .role-card i { color:var(--green); width:32px; height:32px; }
     .notice { padding:13px 15px; border-radius:8px; margin:16px 0; }
     .ok { background:#eaf8f0; color:#0f6b3c; border:1px solid #bfe8cf; }
     .error { background:#fff3f3; color:#a32020; border:1px solid #ffd2d2; }
+    @media (max-width:900px) { .hero { grid-template-columns:1fr; padding:28px 18px; margin-bottom:18px; } .role-cards { grid-template-columns:1fr; } }
     @media (max-width:720px) { .grid { grid-template-columns:1fr; } .topbar { align-items:flex-start; flex-direction:column; } .panel { padding:22px 16px; } }
   </style>
 </head>
@@ -162,11 +169,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <main class="shell">
   <div class="topbar">
     <a class="brand" href="index.php"><img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV"><span>NATCODEV Recruitment</span></a>
-    <a href="index.php">Back to Home</a>
+    <div><a href="field-agent/login.php" class="btn btn-sm btn-outline-success">Login</a> &nbsp; <a href="index.php">Back to Home</a></div>
   </div>
+  <section class="hero">
+    <div>
+      <h1>Join the Field Network</h1>
+      <p class="lead">Apply to verify growers, collect evidence, support farm operations, and strengthen NATCODEV’s coconut registry across Nigeria.</p>
+      <div class="role-cards">
+        <div class="role-card"><i data-lucide="map-pin"></i><h3>Field Agent</h3><p class="muted">Farm visits, GPS, photos, and verification.</p></div>
+        <div class="role-card"><i data-lucide="sprout"></i><h3>Agronomist</h3><p class="muted">Crop advisory, pest signals, and farm health.</p></div>
+        <div class="role-card"><i data-lucide="users"></i><h3>Extensionist</h3><p class="muted">Grower engagement, training, and support.</p></div>
+      </div>
+    </div>
+    <aside class="hero-card">
+      <div class="item"><i data-lucide="file-check"></i><div><strong>Application Review</strong><br><span class="muted">Back office validates your profile and documents.</span></div></div>
+      <div class="item"><i data-lucide="badge-check"></i><div><strong>RBAC Approval</strong><br><span class="muted">Admin grants the right field-agent access level.</span></div></div>
+      <div class="item"><i data-lucide="smartphone"></i><div><strong>Dashboard Access</strong><br><span class="muted">Approved agents receive the field workspace.</span></div></div>
+    </aside>
+  </section>
   <section class="panel">
-    <h1>Join the Field Network</h1>
-    <p class="lead">Apply as a Field Agent, Agronomist, or Agric Extensionist. Approved applicants receive staff dashboard access after NATCODEV review.</p>
+    <h1>Recruitment Application</h1>
+    <p class="lead">Approved applicants receive staff dashboard access after NATCODEV review.</p>
     <?php if ($message): ?><div class="notice ok"><?= e($message) ?></div><?php endif; ?>
     <?php if ($error): ?><div class="notice error"><?= e($error) ?></div><?php endif; ?>
     <form method="post" enctype="multipart/form-data">
@@ -263,6 +286,7 @@ function escapeHtml(value) {
 }
 
 stateSelect.addEventListener('change', loadLgas);
+if (window.lucide) { lucide.createIcons(); }
 </script>
 </body>
 </html>

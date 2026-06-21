@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/_auth.php';
 require_once __DIR__ . '/../lib/admin-layout.php';
 
-session_start();
 $pdo = db();
 admin_ensure_schema($pdo);
 admin_require($pdo);
@@ -38,24 +38,16 @@ function admin_profile_upload(string $field, string $prefix): ?string
         return null;
     }
 
-    $allowed = ['jpg', 'jpeg', 'png', 'webp'];
-    $original = (string) $_FILES[$field]['name'];
-    $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
-    if (!in_array($ext, $allowed, true)) {
-        throw new RuntimeException('Profile picture must be JPG, PNG, or WebP.');
-    }
-    if ((int) ($_FILES[$field]['size'] ?? 0) > 2 * 1024 * 1024) {
-        throw new RuntimeException('Profile picture must be 2MB or smaller.');
-    }
+    $upload = app_uploaded_file_info((array) ($_FILES[$field] ?? []), ['jpg', 'jpeg', 'png', 'webp'], 2 * 1024 * 1024, 'Profile picture');
 
     $uploadDir = dirname(__DIR__) . '/uploads/profile-pictures';
     if (!is_dir($uploadDir)) {
         mkdir($uploadDir, 0755, true);
     }
 
-    $fileName = preg_replace('/[^a-z0-9_-]/i', '', $prefix) . '_' . time() . '.' . $ext;
+    $fileName = app_safe_upload_name($prefix, $upload['name'], $upload['extension']);
     $target = $uploadDir . '/' . $fileName;
-    if (!move_uploaded_file((string) $_FILES[$field]['tmp_name'], $target)) {
+    if (!move_uploaded_file($upload['tmp_name'], $target)) {
         throw new RuntimeException('Unable to upload profile picture.');
     }
 

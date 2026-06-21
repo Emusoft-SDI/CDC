@@ -38,11 +38,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 ?>
 <?php auth_page_start('Reset Password'); ?>
   <form method="POST">
-    <h1>Create New Password</h1>
-    <p class="lead">Choose a strong password for your grower dashboard account.</p>
+    <h1>New Password</h1>
+    <p class="lead">Enter your new password and repeat it to secure your NATCODEV account.</p>
     <?php if ($error): ?><p class="error"><?= e($error) ?></p><?php endif; ?>
-    <input type="password" name="password" placeholder="New password" required minlength="8">
-    <input type="password" name="confirm" placeholder="Confirm password" required minlength="8">
-    <button type="submit">Reset Password</button>
+    <label>New Password
+      <span class="password-field">
+        <input id="reset_password" type="password" name="password" placeholder="********" required minlength="8">
+        <button class="password-toggle" type="button" data-target="reset_password" aria-pressed="false">Show</button>
+      </span>
+    </label>
+    <label>Retype Password
+      <span class="password-field">
+        <input id="reset_confirm" type="password" name="confirm" placeholder="********" required minlength="8">
+        <button class="password-toggle" type="button" data-target="reset_confirm" aria-pressed="false">Show</button>
+      </span>
+    </label>
+    <button type="submit">Update password</button>
   </form>
 <?php auth_page_end(); ?>

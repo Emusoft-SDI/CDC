@@ -33,22 +33,27 @@ try {
     if ($newlyConfirmed) {
         $pdo->prepare("UPDATE applications SET confirmed = 1, confirmed_at = NOW(), team_notified = 1 WHERE id = ?")->execute([$app['id']]);
 
-        $temporaryPassword = bin2hex(random_bytes(4));
-        $passwordHash = password_hash($temporaryPassword, PASSWORD_DEFAULT);
-        $pdo->prepare("
-            INSERT INTO users (email, password, application_id, name, role)
-            VALUES (?, ?, ?, ?, 'grower')
-            ON DUPLICATE KEY UPDATE application_id = VALUES(application_id), name = VALUES(name)
-        ")->execute([$app['email'], $passwordHash, $app['id'], $app['name']]);
+        $existingUserStmt = $pdo->prepare("SELECT id FROM users WHERE email = ? LIMIT 1");
+        $existingUserStmt->execute([$app['email']]);
+        $hasExistingUser = (bool) $existingUserStmt->fetchColumn();
+        $temporaryPassword = $hasExistingUser ? '' : bin2hex(random_bytes(4));
+        $passwordHash = $hasExistingUser ? '' : password_hash($temporaryPassword, PASSWORD_DEFAULT);
+        if ($hasExistingUser) {
+            $pdo->prepare("UPDATE users SET application_id = ?, name = ? WHERE email = ?")->execute([$app['id'], $app['name'], $app['email']]);
+        } else {
+            $pdo->prepare("
+                INSERT INTO users (email, password, application_id, name, role)
+                VALUES (?, ?, ?, ?, 'grower')
+            ")->execute([$app['email'], $passwordHash, $app['id'], $app['name']]);
+        }
 
-        $loginUrl = app_base_url() . '/dashboard/login.php';
-        $plain = "Dear {$app['name']},\n\nYour NATCODEV application ({$app['app_ref']}) has been confirmed.\n\nDashboard: {$loginUrl}\nTemporary password: {$temporaryPassword}\n\nPlease change this password after logging in.\n\nThe NATCODEV Team";
+        $loginUrl = app_base_url() . '/login.php';
+        $plain = "Dear {$app['name']},\n\nYour NATCODEV application ({$app['app_ref']}) has been confirmed.\n\nDashboard: {$loginUrl}\n" . ($temporaryPassword !== '' ? "Temporary password: {$temporaryPassword}\n\nPlease change this password after logging in.\n\n" : "Use the password you created during registration.\n\n") . "The NATCODEV Team";
         $html = "
             <p>Dear <strong>" . e($app['name']) . "</strong>,</p>
             <p>Your NATCODEV application <strong>" . e($app['app_ref']) . "</strong> has been confirmed.</p>
             <p><a href=\"" . e($loginUrl) . "\" style=\"display:inline-block;padding:10px 18px;background:#2d5016;color:#fff;text-decoration:none;border-radius:5px;\">Open Dashboard</a></p>
-            <p>Temporary password: <strong>" . e($temporaryPassword) . "</strong></p>
-            <p>Please change this password after logging in.</p>
+            " . ($temporaryPassword !== '' ? "<p>Temporary password: <strong>" . e($temporaryPassword) . "</strong></p><p>Please change this password after logging in.</p>" : "<p>Use the password you created during registration.</p>") . "
         ";
         app_send_mail((string) $app['email'], 'Welcome to NATCODEV', $plain, $html);
         app_send_mail((string) app_env('ADMIN_NOTIFY_EMAIL', 'info@coconutventurehub.ng'), 'Confirmed NATCODEV Application', "Confirmed: {$app['name']} ({$app['email']})\nRef: {$app['app_ref']}");
@@ -77,7 +82,7 @@ try {
     <h1>Email Confirmed</h1>
     <p>Thank you, <strong><?= e($app['name']) ?></strong>. Your application is active.</p>
     <p><?= $newlyConfirmed ? 'A dashboard login email has been sent to' : 'Your dashboard account is linked to' ?> <strong><?= e($app['email']) ?></strong>.</p>
-    <p><a href="dashboard/login.php">Go to your dashboard</a></p>
+    <p><a href="login.php">Go to your dashboard</a></p>
   </main>
 </body>
 </html>

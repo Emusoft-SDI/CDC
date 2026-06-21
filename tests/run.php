@@ -32,7 +32,7 @@ $html = certificate_render_html([
     'app_ref' => 'NAT-260509-ABC123',
     'location' => 'Lagos, Epe',
     'farm_size' => '5.00',
-], 'CERT-NAT-260509-ABC123-ABCD', '2026-05-09 12:00:00', 'https://example.test/verify');
+], 'CERT-NAT-260509-ABC123-ABCD', '2026-05-09 12:00:00', 'https://natcodev.com.ng/verify');
 assert_true(str_contains($html, 'Jane Grower'), 'Certificate HTML should include grower name.');
 assert_true(str_contains($html, 'CERT-NAT-260509-ABC123-ABCD'), 'Certificate HTML should include certificate ref.');
 

@@ -37,12 +37,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 ?>
 <?php auth_page_start('Forgot Password'); ?>
   <form method="POST">
-    <h1>Reset Your Password</h1>
-    <p class="lead">Enter your account email and we will send a secure reset link.</p>
+    <h1>Forgot password</h1>
+    <p class="lead">Input your email to recover password to access your account</p>
     <?php if ($message): ?><p class="success"><?= e($message) ?></p><?php endif; ?>
     <?php if ($error): ?><p class="error"><?= e($error) ?></p><?php endif; ?>
-    <input type="email" name="email" placeholder="Your email" required>
-    <button type="submit">Send Reset Link</button>
-    <div class="links"><a href="login.php">Back to login</a></div>
+    <label>Email<input type="email" name="email" placeholder="you@example.com" required></label>
+    <button type="submit">Continue</button>
+    <div class="links"><span>Remember password?</span> <a href="login.php">Login</a></div>
   </form>
 <?php auth_page_end(); ?>
