@@ -31,6 +31,14 @@ function app_load_env(string $path): void
 
 app_load_env(__DIR__ . '/.env');
 
+// Harden session cookie security
+ini_set('session.cookie_httponly', '1');
+ini_set('session.use_only_cookies', '1');
+ini_set('session.cookie_samesite', 'Lax');
+if (str_starts_with(app_base_url(), 'https://')) {
+    ini_set('session.cookie_secure', '1');
+}
+
 date_default_timezone_set(getenv('APP_TIMEZONE') ?: 'Africa/Lagos');
 
 function app_env(string $key, ?string $default = null): ?string
@@ -72,11 +80,15 @@ function db(): PDO
         return $pdo;
     }
 
-    $host = app_env('DB_HOST', 'localhost');
+    $host = app_env('DB_HOST', '127.0.0.1');
     $port = app_env('DB_PORT', '3306');
-    $name = app_env('DB_DATABASE', 'natcodevcom_data');
-    $user = app_env('DB_USERNAME', 'natcodevcom_data');
+    $name = app_env('DB_DATABASE', '');
+    $user = app_env('DB_USERNAME', '');
     $pass = app_env('DB_PASSWORD', '');
+
+    if ($name === '' || $user === '') {
+        throw new RuntimeException('Database configuration is incomplete.');
+    }
 
     $pdo = new PDO(
         "mysql:host={$host};port={$port};dbname={$name};charset=utf8mb4",
@@ -92,8 +104,64 @@ function db(): PDO
     return $pdo;
 }
 
+function app_schema_flag_is_set(PDO $pdo, string $key, string $version): bool
+{
+    static $cache = [];
+    $cacheKey = $key . ':' . $version;
+    if (array_key_exists($cacheKey, $cache)) {
+        return $cache[$cacheKey];
+    }
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS app_schema_flags (
+                flag_key VARCHAR(120) PRIMARY KEY,
+                flag_value VARCHAR(120) NOT NULL,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+        $stmt = $pdo->prepare("SELECT flag_value FROM app_schema_flags WHERE flag_key = ? LIMIT 1");
+        $stmt->execute([$key]);
+        $cache[$cacheKey] = (string) ($stmt->fetchColumn() ?: '') === $version;
+        return $cache[$cacheKey];
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+function app_schema_flag_set(PDO $pdo, string $key, string $version): void
+{
+    try {
+        $stmt = $pdo->prepare("INSERT INTO app_schema_flags (flag_key, flag_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE flag_value = VALUES(flag_value)");
+        $stmt->execute([$key, $version]);
+    } catch (Throwable $e) {
+        error_log("Unable to set schema flag {$key}: " . $e->getMessage());
+    }
+}
+
 function app_ensure_core_schema(PDO $pdo): void
 {
+    static $done = false;
+    if ($done || app_schema_flag_is_set($pdo, 'core_schema_ready', '20260606-fast')) {
+        $done = true;
+        return;
+    }
+
+    try {
+        $existing = $pdo->query("
+            SELECT COUNT(*)
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME IN ('applications','users','notification_logs')
+        ")->fetchColumn();
+        if ((int) $existing === 3) {
+            app_schema_flag_set($pdo, 'core_schema_ready', '20260606-fast');
+            $done = true;
+            return;
+        }
+    } catch (Throwable $e) {
+        // Fall through to the normal create path.
+    }
+
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS applications (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -176,28 +244,139 @@ function app_ensure_core_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     app_ensure_primary_auto_increment($pdo, 'notification_logs');
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS app_rate_limits (
+            limit_key VARCHAR(180) PRIMARY KEY,
+            attempts INT NOT NULL DEFAULT 1,
+            last_attempt_at INT NOT NULL,
+            expires_at INT NOT NULL,
+            INDEX idx_rate_limit_expiry (expires_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    app_schema_flag_set($pdo, 'core_schema_ready', '20260606-fast');
+    $done = true;
+}
+
+/**
+ * Basic database-backed rate limiting.
+ * Returns true if the action is allowed, false if blocked.
+ */
+function app_check_rate_limit(string $action, int $maxAttempts, int $decaySeconds): bool
+{
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    $key = $action . ':' . $ip;
+    $now = time();
+    $pdo = db();
+
+    try {
+        $stmt = $pdo->prepare("SELECT attempts, last_attempt_at FROM app_rate_limits WHERE limit_key = ? AND expires_at > ? LIMIT 1");
+        $stmt->execute([$key, $now]);
+        $record = $stmt->fetch();
+
+        if (!$record) {
+            $stmt = $pdo->prepare("INSERT INTO app_rate_limits (limit_key, attempts, last_attempt_at, expires_at) VALUES (?, 1, ?, ?)");
+            $stmt->execute([$key, $now, $now + $decaySeconds]);
+            return true;
+        }
+
+        if ((int)$record['attempts'] >= $maxAttempts) {
+            return false;
+        }
+
+        $stmt = $pdo->prepare("UPDATE app_rate_limits SET attempts = attempts + 1, last_attempt_at = ? WHERE limit_key = ?");
+        $stmt->execute([$now, $key]);
+        return true;
+    } catch (Throwable $e) {
+        error_log('Rate limit database check failed: ' . $e->getMessage());
+        return app_check_file_rate_limit($key, $maxAttempts, $decaySeconds);
+    }
+}
+
+function app_check_file_rate_limit(string $key, int $maxAttempts, int $decaySeconds): bool
+{
+    $dir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'natcodev-rate-limits';
+    if (!is_dir($dir) && !mkdir($dir, 0700, true) && !is_dir($dir)) {
+        error_log('Rate limit fallback directory unavailable.');
+        return false;
+    }
+
+    $file = $dir . DIRECTORY_SEPARATOR . hash('sha256', $key) . '.json';
+    $now = time();
+    $record = ['attempts' => 0, 'expires_at' => 0];
+    $handle = fopen($file, 'c+');
+    if (!$handle) {
+        error_log('Rate limit fallback file unavailable.');
+        return false;
+    }
+
+    try {
+        if (!flock($handle, LOCK_EX)) {
+            fclose($handle);
+            return false;
+        }
+        $raw = stream_get_contents($handle);
+        $decoded = is_string($raw) && $raw !== '' ? json_decode($raw, true) : null;
+        if (is_array($decoded)) {
+            $record = $decoded;
+        }
+        if ((int) ($record['expires_at'] ?? 0) <= $now) {
+            $record = ['attempts' => 0, 'expires_at' => $now + $decaySeconds];
+        }
+        if ((int) ($record['attempts'] ?? 0) >= $maxAttempts) {
+            flock($handle, LOCK_UN);
+            fclose($handle);
+            return false;
+        }
+        $record['attempts'] = (int) ($record['attempts'] ?? 0) + 1;
+        $record['expires_at'] = (int) ($record['expires_at'] ?? ($now + $decaySeconds));
+        rewind($handle);
+        ftruncate($handle, 0);
+        fwrite($handle, json_encode($record, JSON_UNESCAPED_SLASHES) ?: '{}');
+        fflush($handle);
+        flock($handle, LOCK_UN);
+        fclose($handle);
+        return true;
+    } catch (Throwable $e) {
+        error_log('Rate limit fallback failed: ' . $e->getMessage());
+        fclose($handle);
+        return false;
+    }
 }
 
 function app_table_exists(PDO $pdo, string $table): bool
 {
+    static $cache = [];
+    if (array_key_exists($table, $cache)) {
+        return $cache[$table];
+    }
+
     $stmt = $pdo->prepare("
         SELECT COUNT(*)
         FROM information_schema.TABLES
         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
     ");
     $stmt->execute([$table]);
-    return (int) $stmt->fetchColumn() > 0;
+    $cache[$table] = (int) $stmt->fetchColumn() > 0;
+    return $cache[$table];
 }
 
 function app_column_exists(PDO $pdo, string $table, string $column): bool
 {
+    static $cache = [];
+    $key = $table . '.' . $column;
+    if (array_key_exists($key, $cache)) {
+        return $cache[$key];
+    }
+
     $stmt = $pdo->prepare("
         SELECT COUNT(*)
         FROM information_schema.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
     ");
     $stmt->execute([$table, $column]);
-    return (int) $stmt->fetchColumn() > 0;
+    $cache[$key] = (int) $stmt->fetchColumn() > 0;
+    return $cache[$key];
 }
 
 function app_add_column_if_missing(PDO $pdo, string $table, string $column, string $definition): void
@@ -209,6 +388,12 @@ function app_add_column_if_missing(PDO $pdo, string $table, string $column, stri
 
 function app_column_extra(PDO $pdo, string $table, string $column): string
 {
+    static $cache = [];
+    $key = $table . '.' . $column;
+    if (array_key_exists($key, $cache)) {
+        return $cache[$key];
+    }
+
     $stmt = $pdo->prepare("
         SELECT EXTRA
         FROM information_schema.COLUMNS
@@ -216,11 +401,17 @@ function app_column_extra(PDO $pdo, string $table, string $column): string
         LIMIT 1
     ");
     $stmt->execute([$table, $column]);
-    return strtolower((string) $stmt->fetchColumn());
+    $cache[$key] = strtolower((string) $stmt->fetchColumn());
+    return $cache[$key];
 }
 
 function app_primary_key_columns(PDO $pdo, string $table): array
 {
+    static $cache = [];
+    if (array_key_exists($table, $cache)) {
+        return $cache[$table];
+    }
+
     $stmt = $pdo->prepare("
         SELECT COLUMN_NAME
         FROM information_schema.KEY_COLUMN_USAGE
@@ -230,23 +421,43 @@ function app_primary_key_columns(PDO $pdo, string $table): array
         ORDER BY ORDINAL_POSITION
     ");
     $stmt->execute([$table]);
-    return array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    $cache[$table] = array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    return $cache[$table];
 }
 
 function app_ensure_primary_auto_increment(PDO $pdo, string $table): void
 {
+    static $checked = null;
+    if ($checked === null) {
+        $checked = [];
+    }
+    
+    if (isset($checked[$table])) {
+        return;
+    }
+    
+    // Only check if not already checked for this table in this request
+    $checked[$table] = true;
+
     if (!app_column_exists($pdo, $table, 'id')) {
         return;
     }
-
+    
     $primary = app_primary_key_columns($pdo, $table);
     if ($primary === []) {
-        app_resequence_id_column($pdo, $table);
-        $pdo->exec("ALTER TABLE `{$table}` ADD PRIMARY KEY (`id`)");
+        try {
+            $pdo->exec("ALTER TABLE `{$table}` ADD PRIMARY KEY (`id`)");
+        } catch (Throwable $e) {
+            error_log("Unable to add primary key to {$table}.id: " . $e->getMessage());
+        }
     }
 
     if (!str_contains(app_column_extra($pdo, $table, 'id'), 'auto_increment')) {
-        $pdo->exec("ALTER TABLE `{$table}` MODIFY `id` INT NOT NULL AUTO_INCREMENT");
+        try {
+            $pdo->exec("ALTER TABLE `{$table}` MODIFY `id` INT NOT NULL AUTO_INCREMENT");
+        } catch (Throwable $e) {
+            error_log("Unable to enable auto_increment on {$table}.id: " . $e->getMessage());
+        }
     }
 }
 
@@ -269,6 +480,7 @@ function app_ensure_certificate_schema(PDO $pdo): void
             certificate_pdf_path VARCHAR(255) NULL,
             status VARCHAR(30) NOT NULL DEFAULT 'issued',
             issued_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATETIME NULL,
             verified_at DATETIME NULL,
             qr_code_hash VARCHAR(64) NULL,
             verification_url VARCHAR(255) NULL,
@@ -285,11 +497,43 @@ function app_ensure_certificate_schema(PDO $pdo): void
     app_add_column_if_missing($pdo, 'certificates', 'certificate_path', "VARCHAR(255) NULL");
     app_add_column_if_missing($pdo, 'certificates', 'certificate_pdf_path', "VARCHAR(255) NULL");
     app_add_column_if_missing($pdo, 'certificates', 'status', "VARCHAR(30) NOT NULL DEFAULT 'issued'");
+    app_add_column_if_missing($pdo, 'certificates', 'expires_at', "DATETIME NULL");
     app_add_column_if_missing($pdo, 'certificates', 'verified_at', "DATETIME NULL");
     app_add_column_if_missing($pdo, 'certificates', 'qr_code_hash', "VARCHAR(64) NULL");
     app_add_column_if_missing($pdo, 'certificates', 'verification_url', "VARCHAR(255) NULL");
     app_add_column_if_missing($pdo, 'certificates', 'revoked_at', "DATETIME NULL");
     app_add_column_if_missing($pdo, 'certificates', 'revoked_reason', "TEXT NULL");
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS certificate_types (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            type_key VARCHAR(80) NOT NULL UNIQUE,
+            title VARCHAR(180) NOT NULL,
+            description TEXT NULL,
+            validity_months INT NULL,
+            revocable TINYINT(1) NOT NULL DEFAULT 1,
+            permanent TINYINT(1) NOT NULL DEFAULT 0,
+            status VARCHAR(30) NOT NULL DEFAULT 'active',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_certificate_types_status (status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+    app_ensure_primary_auto_increment($pdo, 'certificate_types');
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO certificate_types (type_key, title, description, validity_months, revocable, permanent, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'active')
+            ON DUPLICATE KEY UPDATE title = VALUES(title), description = VALUES(description), validity_months = VALUES(validity_months), revocable = VALUES(revocable), permanent = VALUES(permanent)
+        ");
+        $stmt->execute(['grower_participation', 'Verified Grower Participation Certificate', 'Time-bound grower, participation, farmer-credit, seller-accreditation, and related operational credentials.', 36, 1, 0]);
+        $stmt->execute(['academy_course', 'Academy Course Certificate', 'Permanent certificate issued after completing an Academy course.', null, 0, 1]);
+        $stmt->execute(['academy_group', 'Academy Grouped Certificate', 'Permanent certificate issued after completing a grouped Academy certificate pathway.', null, 0, 1]);
+    } catch (Throwable $e) {
+    }
+    try {
+        $pdo->exec("UPDATE certificates SET expires_at = DATE_ADD(issued_at, INTERVAL 36 MONTH) WHERE status = 'issued' AND issued_at IS NOT NULL");
+    } catch (Throwable $e) {
+    }
     app_ensure_primary_auto_increment($pdo, 'certificates');
 }
 
@@ -435,9 +679,21 @@ function admin_session_is_authenticated(PDO $pdo): bool
     if (($_SESSION['admin_authenticated'] ?? false) === true || ($_SESSION['admin'] ?? false) === true) {
         return true;
     }
+    if (($_SESSION['super_admin_authenticated'] ?? false) === true) {
+        return true;
+    }
 
     $user = current_user($pdo);
-    return $user && ($user['role'] ?? '') === 'admin';
+    if (!$user) {
+        return false;
+    }
+    if (($user['role'] ?? '') === 'admin') {
+        return true;
+    }
+    if (function_exists('admin_user_has_admin_access')) {
+        return admin_user_has_admin_access($pdo, (int) $user['id']);
+    }
+    return false;
 }
 
 function e(?string $value): string
@@ -476,6 +732,33 @@ function verify_csrf(?string $token): bool
         session_start();
     }
     return is_string($token) && hash_equals($_SESSION['_csrf'] ?? '', $token);
+}
+
+function csrf_token_from_request(): ?string
+{
+    $header = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? $_SERVER['HTTP_X_CSRF'] ?? '';
+    if (is_string($header) && $header !== '') {
+        return $header;
+    }
+    if (isset($_POST['_csrf'])) {
+        return (string) $_POST['_csrf'];
+    }
+    return null;
+}
+
+function require_csrf_request(?string $message = null): void
+{
+    if (!verify_csrf(csrf_token_from_request())) {
+        http_response_code(403);
+        exit($message ?: 'Invalid security token.');
+    }
+}
+
+function require_csrf_json(): void
+{
+    if (!verify_csrf(csrf_token_from_request())) {
+        json_response(['success' => false, 'error' => 'Invalid request token'], 403);
+    }
 }
 
 function app_send_mail(string $to, string $subject, string $plainText, ?string $html = null): bool
@@ -554,6 +837,186 @@ function app_log_notification(
     } catch (Throwable $e) {
         error_log('Notification audit log failed: ' . $e->getMessage());
     }
+}
+
+function app_csv_value(mixed $value): string
+{
+    if ($value === null) {
+        return '';
+    }
+
+    if (is_bool($value)) {
+        return $value ? '1' : '0';
+    }
+
+    $text = (string) $value;
+    $text = str_replace(["\r\n", "\r"], "\n", $text);
+
+    if ($text !== '' && in_array($text[0], ['=', '+', '-', '@'], true)) {
+        return "'" . $text;
+    }
+
+    return $text;
+}
+
+function app_export_csv(string $filename, array $headers, iterable $rows): void
+{
+    if (!str_ends_with(strtolower($filename), '.csv')) {
+        $filename .= '.csv';
+    }
+
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="' . str_replace('"', '', basename($filename)) . '"');
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+
+    $out = fopen('php://output', 'w');
+    if (!$out) {
+        exit;
+    }
+
+    fwrite($out, "\xEF\xBB\xBF");
+    if ($headers) {
+        $headers[0] = preg_match('/^id\b/i', (string) $headers[0]) ? 'Record ' . (string) $headers[0] : (string) $headers[0];
+        fputcsv($out, array_map('app_csv_value', $headers));
+    }
+    foreach ($rows as $row) {
+        if ($row instanceof Traversable) {
+            $row = iterator_to_array($row);
+        }
+        if (!is_array($row)) {
+            $row = [$row];
+        }
+        fputcsv($out, array_map('app_csv_value', array_values($row)));
+    }
+    fclose($out);
+    exit;
+}
+
+function app_csv_import_rows(string $path, int $maxRows = 20000): array
+{
+    $handle = fopen($path, 'rb');
+    if (!$handle) {
+        throw new RuntimeException('Unable to open CSV file.');
+    }
+
+    $sample = (string) fgets($handle);
+    $delimiters = [',', ';', "\t"];
+    $delimiter = ',';
+    $bestCount = 0;
+    foreach ($delimiters as $candidate) {
+        $count = count(str_getcsv($sample, $candidate));
+        if ($count > $bestCount) {
+            $bestCount = $count;
+            $delimiter = $candidate;
+        }
+    }
+    rewind($handle);
+
+    $rows = [];
+    while (($row = fgetcsv($handle, 0, $delimiter)) !== false) {
+        if (count($rows) >= $maxRows) {
+            fclose($handle);
+            throw new RuntimeException('CSV exceeds the maximum allowed row count of ' . $maxRows . '.');
+        }
+        if ($rows === [] && isset($row[0])) {
+            $row[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) $row[0]) ?? (string) $row[0];
+        }
+        $rows[] = array_map(static fn($value): string => trim(str_replace("\0", '', (string) $value)), $row);
+    }
+    fclose($handle);
+    return $rows;
+}
+
+function app_uploaded_file_info(array $file, array $allowedExtensions, int $maxBytes, string $label = 'File', array $allowedMimes = []): array
+{
+    $error = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($error !== UPLOAD_ERR_OK) {
+        $messages = [
+            UPLOAD_ERR_INI_SIZE => 'exceeds the server upload limit.',
+            UPLOAD_ERR_FORM_SIZE => 'exceeds the form upload limit.',
+            UPLOAD_ERR_PARTIAL => 'was only partially uploaded.',
+            UPLOAD_ERR_NO_FILE => 'was not selected.',
+            UPLOAD_ERR_NO_TMP_DIR => 'cannot be uploaded because the temporary folder is missing.',
+            UPLOAD_ERR_CANT_WRITE => 'could not be written to disk.',
+            UPLOAD_ERR_EXTENSION => 'was blocked by a server extension.',
+        ];
+        throw new RuntimeException($label . ' ' . ($messages[$error] ?? 'could not be uploaded.'));
+    }
+
+    $tmp = (string) ($file['tmp_name'] ?? '');
+    if ($tmp === '' || !is_uploaded_file($tmp)) {
+        throw new RuntimeException($label . ' upload is invalid.');
+    }
+
+    $size = (int) ($file['size'] ?? 0);
+    if ($size <= 0) {
+        throw new RuntimeException($label . ' is empty.');
+    }
+    if ($size > $maxBytes) {
+        throw new RuntimeException($label . ' exceeds the allowed file size.');
+    }
+
+    $original = (string) ($file['name'] ?? 'upload');
+    $extension = strtolower(pathinfo($original, PATHINFO_EXTENSION));
+    $allowed = array_map('strtolower', $allowedExtensions);
+    if (!in_array($extension, $allowed, true)) {
+        throw new RuntimeException($label . ' has an unsupported file type.');
+    }
+
+    $detectedMime = '';
+    if ($allowedMimes !== []) {
+        if (function_exists('finfo_open')) {
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            if ($finfo) {
+                $detectedMime = (string) finfo_file($finfo, $tmp);
+                finfo_close($finfo);
+            }
+        }
+        if ($detectedMime === '' && function_exists('mime_content_type')) {
+            $detectedMime = (string) mime_content_type($tmp);
+        }
+
+        $allowedMimeMap = array_fill_keys(array_map('strtolower', $allowedMimes), true);
+        if ($extension === 'pdf') {
+            $handle = fopen($tmp, 'rb');
+            $signature = $handle ? (string) fread($handle, 4) : '';
+            if ($handle) {
+                fclose($handle);
+            }
+            if ($signature !== '%PDF') {
+                throw new RuntimeException($label . ' is not a valid PDF file.');
+            }
+        } elseif ($detectedMime !== '' && !isset($allowedMimeMap[strtolower($detectedMime)])) {
+            throw new RuntimeException($label . ' content does not match the selected file type.');
+        } elseif (in_array($extension, ['jpg', 'jpeg', 'png', 'webp'], true)) {
+            $imageInfo = @getimagesize($tmp);
+            if ($imageInfo === false) {
+                throw new RuntimeException($label . ' is not a valid image file.');
+            }
+        }
+    }
+
+    return [
+        'tmp_name' => $tmp,
+        'name' => $original,
+        'extension' => $extension,
+        'size' => $size,
+        'type' => $detectedMime !== '' ? $detectedMime : (string) ($file['type'] ?? ''),
+    ];
+}
+
+function app_safe_upload_name(string $prefix, string $originalName, string $extension): string
+{
+    $prefix = preg_replace('/[^a-z0-9_-]/i', '_', $prefix) ?: 'upload';
+    $base = pathinfo($originalName, PATHINFO_FILENAME);
+    $base = preg_replace('/[^a-z0-9._-]/i', '_', $base) ?: 'file';
+    $base = trim($base, '._-');
+    return $prefix . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(5)) . '_' . substr($base, 0, 80) . '.' . strtolower($extension);
 }
 
 function generate_application_ref(): string
