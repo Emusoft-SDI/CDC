@@ -630,9 +630,26 @@ dashboard_page_start('Farm Operations', [
             <div><button type="submit"><?= fo_icon('check') ?> Save Input</button></div>
           </form>
         </div></details>
-        <details class="fo-fold" open><summary>Health Alerts <span class="fo-badge high">2</span></summary><div class="fo-fold-body">
-          <div class="fo-alert"><div class="fo-row-main"><span class="fo-row-ic"><?= fo_icon('warning') ?></span><div><div class="fo-nm">Fall armyworm risk in maize</div><div class="fo-dt">Field: Maize Block A</div></div></div><span class="fo-badge high">High</span></div>
-          <div class="fo-alert"><div class="fo-row-main"><span class="fo-row-ic"><?= fo_icon('medical') ?></span><div><div class="fo-nm">Goat vaccination due</div><div class="fo-dt">8 animals need review</div></div></div><span class="fo-badge med">Medium</span></div>
+        <?php
+          $alerts = [];
+          foreach ($livestockRows as $r) {
+              if (in_array((string)$r['health_status'], ['watch','treatment','vaccination_due'], true)) {
+                  $alerts[] = ['title' => 'Livestock Attention: ' . e($r['animal_type']), 'detail' => e($r['farm_name']), 'level' => 'med', 'icon' => 'medical'];
+              }
+          }
+          foreach ($intercropRows as $r) {
+              if ((string)$r['status'] === 'needs_attention') {
+                  $alerts[] = ['title' => 'Crop Issue: ' . e($r['crop_name']), 'detail' => e($r['farm_name']), 'level' => 'high', 'icon' => 'warning'];
+              }
+          }
+        ?>
+        <details class="fo-fold" open><summary>Health Alerts <?php if ($alerts): ?><span class="fo-badge high"><?= count($alerts) ?></span><?php endif; ?></summary><div class="fo-fold-body">
+          <?php foreach ($alerts as $a): ?>
+            <div class="fo-alert"><div class="fo-row-main"><span class="fo-row-ic"><?= fo_icon($a['icon']) ?></span><div><div class="fo-nm"><?= $a['title'] ?></div><div class="fo-dt"><?= $a['detail'] ?></div></div></div><span class="fo-badge <?= $a['level'] ?>"><?= $a['level'] === 'high' ? 'High' : 'Medium' ?></span></div>
+          <?php endforeach; ?>
+          <?php if (!$alerts): ?>
+            <div class="fo-note">No active health or crop alerts.</div>
+          <?php endif; ?>
         </div></details>
         <details class="fo-fold" open><summary>Next Activities</summary><div class="fo-fold-body">
           <?php foreach (array_slice($farmTasks, 0, 3) as $task): ?>
@@ -724,20 +741,28 @@ dashboard_page_start('Farm Operations', [
               </tr>
             <?php endforeach; ?>
           <?php else: ?>
-            <tr><td>Maize</td><td><?= e($location) ?></td><td>0.60 ha</td><td><span class="fo-badge">Good</span></td><td>NGN 312,000</td><td>Prototype starter</td><td></td></tr>
-            <tr><td>Cassava</td><td><?= e($location) ?></td><td>0.50 ha</td><td><span class="fo-badge med">Fair</span></td><td>NGN 245,000</td><td>Prototype starter</td><td></td></tr>
-            <tr><td>Pineapple</td><td><?= e($location) ?></td><td>0.40 ha</td><td><span class="fo-badge">Good</span></td><td>NGN 418,000</td><td>Prototype starter</td><td></td></tr>
-            <tr><td>Vegetables</td><td><?= e($location) ?></td><td>0.30 ha</td><td><span class="fo-badge">Good</span></td><td>NGN 270,000</td><td>Prototype starter</td><td></td></tr>
+            <tr><td colspan="7"><div class="fo-note" style="border:none;background:transparent;padding:10px 0;">No intercrop records yet. Click "Add Intercrop Record" to begin.</div></td></tr>
           <?php endif; ?>
-          <tr style="font-weight:900;background:#F9FAFB"><td>Total</td><td></td><td><?= number_format($intercropArea ?: 1.80, 2) ?> ha</td><td></td><td><?= e(fo_money($intercropRevenue ?: 1245000.0)) ?></td><td></td><td></td></tr>
+          <tr style="font-weight:900;background:#F9FAFB"><td>Total</td><td></td><td><?= number_format($intercropArea, 2) ?> ha</td><td></td><td><?= e(fo_money($intercropRevenue)) ?></td><td></td><td></td></tr>
         </tbody>
       </table>
       <div class="fo-grid fo-g2" style="margin-top:18px">
-        <div class="fo-row-main"><div class="fo-donut" data-label="<?= e(fo_money($intercropRevenue ?: 1245000.0)) ?>&#10;Est. Total"></div><div><strong>Revenue Bridge</strong><p class="muted">Intercrops provide pre-coconut cash flow before dwarf coconut yields begin.</p><div class="fo-dt"><?= $intercropRows ? 'Based on grower-entered intercrop records.' : 'Maize 25% / Cassava 20% / Pineapple 33% / Vegetables 21%' ?></div></div></div>
+        <div class="fo-row-main"><div class="fo-donut" data-label="<?= e(fo_money($intercropRevenue)) ?>&#10;Est. Total"></div><div><strong>Revenue Bridge</strong><p class="muted">Intercrops provide pre-coconut cash flow before dwarf coconut yields begin.</p><div class="fo-dt">Based on grower-entered intercrop records.</div></div></div>
         <details class="fo-fold" open><summary>Planting & Harvest Calendar</summary><div class="fo-fold-body">
-          <?php foreach ([['Maize',10,30,50,25],['Cassava',5,40,55,35],['Pineapple',15,35,60,30],['Vegetables',8,20,35,20]] as $row): ?>
-            <div class="fo-calendar-row"><strong><?= e($row[0]) ?></strong><div class="fo-bar"><span style="left:<?= $row[1] ?>%;width:<?= $row[2] ?>%;background:var(--primary-green)"></span><span style="left:<?= $row[3] ?>%;width:<?= $row[4] ?>%;background:#F59E0B"></span></div></div>
-          <?php endforeach; ?>
+          <?php if ($intercropRows): ?>
+            <?php foreach ($intercropRows as $row): ?>
+              <?php
+                // Simple placeholder visualization for dynamic records
+                $plantProgress = rand(10, 30);
+                $plantWidth = rand(20, 40);
+                $harvestProgress = rand(50, 70);
+                $harvestWidth = rand(20, 30);
+              ?>
+              <div class="fo-calendar-row"><strong><?= e((string) $row['crop_name']) ?></strong><div class="fo-bar"><span style="left:<?= $plantProgress ?>%;width:<?= $plantWidth ?>%;background:var(--primary-green)"></span><span style="left:<?= $harvestProgress ?>%;width:<?= $harvestWidth ?>%;background:#F59E0B"></span></div></div>
+            <?php endforeach; ?>
+          <?php else: ?>
+            <div class="fo-note">Add intercrop records with planting and harvest dates to visualize your calendar.</div>
+          <?php endif; ?>
         </div></details>
       </div>
     </div>
@@ -775,10 +800,10 @@ dashboard_page_start('Farm Operations', [
       </div>
       <div class="fo-grid fo-g2" style="margin-top:18px">
         <details class="fo-fold" open><summary>Performance This Season</summary><div class="fo-fold-body fo-grid fo-g4">
-          <div class="fo-metric"><div class="lb">Sales</div><div class="vl" style="font-size:16px;color:var(--primary-green)">NGN 356,000</div><div class="st">12 animals/birds</div></div>
-          <div class="fo-metric"><div class="lb">Feed Cost</div><div class="vl" style="font-size:16px;color:#EF4444">NGN 128,600</div></div>
-          <div class="fo-metric"><div class="lb">Vet & Health</div><div class="vl" style="font-size:16px;color:#F59E0B">NGN 35,200</div></div>
-          <div class="fo-metric"><div class="lb">Net Cash Flow</div><div class="vl" style="font-size:16px;color:var(--primary-green)">NGN 192,200</div></div>
+          <div class="fo-metric"><div class="lb">Sales</div><div class="vl" style="font-size:16px;color:var(--primary-green)">NGN 0.00</div><div class="st">0 animals</div></div>
+          <div class="fo-metric"><div class="lb">Feed Cost</div><div class="vl" style="font-size:16px;color:#EF4444">NGN 0.00</div></div>
+          <div class="fo-metric"><div class="lb">Vet & Health</div><div class="vl" style="font-size:16px;color:#F59E0B">NGN 0.00</div></div>
+          <div class="fo-metric"><div class="lb">Net Cash Flow</div><div class="vl" style="font-size:16px;color:var(--primary-green)">NGN 0.00</div></div>
         </div></details>
         <details class="fo-fold" open><summary>Health & Recent Activity</summary><div class="fo-fold-body">
           <?php foreach ($livestockRows as $row): ?>
@@ -788,9 +813,7 @@ dashboard_page_start('Farm Operations', [
             </div>
           <?php endforeach; ?>
           <?php if (!$livestockRows): ?>
-            <div class="fo-alert"><div class="fo-row-main"><span class="fo-row-ic"><?= fo_icon('medical') ?></span><div><div class="fo-nm">PPR vaccination due</div><div class="fo-dt">18 goats require attention</div></div></div><span class="fo-badge med">Medium</span></div>
-            <div class="fo-row"><div class="fo-row-main"><span class="fo-row-ic"><?= fo_icon('coins') ?></span><div><div class="fo-nm">Sold 6 broilers</div><div class="fo-dt">Recorded May 22, 2026</div></div></div><span class="fo-badge">Recorded</span></div>
-            <div class="fo-row"><div class="fo-row-main"><span class="fo-row-ic"><?= fo_icon('flask') ?></span><div><div class="fo-nm">Purchased feed</div><div class="fo-dt">Grower mash</div></div></div><span class="fo-badge">Recorded</span></div>
+            <div class="fo-note">No livestock records or health alerts yet. Click "Add Livestock Record" to log your animals.</div>
           <?php endif; ?>
         </div></details>
       </div>
@@ -841,9 +864,9 @@ dashboard_page_start('Farm Operations', [
         </div></details>
       </div>
       <details class="fo-fold" style="margin-top:18px"><summary>Attendance & Wages</summary><div class="fo-fold-body fo-grid fo-g3">
-        <div class="fo-metric"><div class="lb">Attendance Rate</div><div class="vl" style="color:var(--primary-green)">92%</div><div class="st">11/12 workers</div></div>
-        <div class="fo-metric"><div class="lb">Wages Paid</div><div class="vl" style="font-size:17px">NGN 186,500</div><div class="st">This period</div></div>
-        <div class="fo-metric"><div class="lb">Pending</div><div class="vl" style="font-size:17px;color:#F59E0B">NGN 24,000</div><div class="st">2 workers</div></div>
+        <div class="fo-metric"><div class="lb">Attendance Rate</div><div class="vl" style="color:var(--primary-green)">100%</div><div class="st"><?= $farmHands ?>/<?= $farmHands ?> workers</div></div>
+        <div class="fo-metric"><div class="lb">Wages Paid</div><div class="vl" style="font-size:17px">NGN 0.00</div><div class="st">This period</div></div>
+        <div class="fo-metric"><div class="lb">Pending</div><div class="vl" style="font-size:17px;color:#F59E0B">NGN 0.00</div><div class="st">0 workers</div></div>
       </div></details>
     </div>
   </section>
@@ -851,19 +874,28 @@ dashboard_page_start('Farm Operations', [
   <details class="fo-fold" open>
     <summary>How am I doing? <span class="fo-badge">Performance Intelligence</span></summary>
     <div class="fo-fold-body fo-grid fo-g4">
-      <div class="fo-card"><h3>Cashflow Before Coconut Yield</h3><p class="fo-badge">Strong</p><div class="fo-metric"><span class="fo-metric-ic"><?= fo_icon('coins') ?></span><div class="vl"><?= e(fo_money($cashflowNet)) ?></div><div class="st">Net cash flow YTD</div></div><a class="link" href="reports.php?report=finance">View cashflow report</a></div>
-      <div class="fo-card"><h3>Labor Efficiency</h3><p class="fo-badge">Good</p><div class="fo-grid fo-g2"><div class="fo-metric"><div class="lb">Tasks Completed</div><div class="vl">78%</div></div><div class="fo-metric"><div class="lb">On-time</div><div class="vl">83%</div></div></div></div>
-      <div class="fo-card"><h3>Farm Health</h3><p class="fo-badge med">Fair</p><div class="fo-grid fo-g2"><div class="fo-metric"><div class="lb">Healthy Blocks</div><div class="vl">7/9</div></div><div class="fo-metric"><div class="lb">Health Score</div><div class="vl" style="color:#F59E0B">72%</div></div></div></div>
-      <div class="fo-card"><h3>Recommendations</h3><div class="fo-row"><div class="fo-row-main"><span class="fo-row-ic"><?= fo_icon('seedling') ?></span><div class="fo-dt">Apply organic mulch in coconut blocks.</div></div></div><div class="fo-row"><div class="fo-row-main"><span class="fo-row-ic"><?= fo_icon('activity') ?></span><div class="fo-dt">Rotate intercrops in cassava block.</div></div></div><div class="fo-row"><div class="fo-row-main"><span class="fo-row-ic"><?= fo_icon('medical') ?></span><div class="fo-dt">Vaccinate goats against PPR.</div></div></div></div>
+      <div class="fo-card"><h3>Cashflow Before Coconut Yield</h3><p class="fo-badge">Review</p><div class="fo-metric"><span class="fo-metric-ic"><?= fo_icon('coins') ?></span><div class="vl"><?= e(fo_money($cashflowNet)) ?></div><div class="st">Net cash flow YTD</div></div><a class="link" href="reports.php?report=finance">View cashflow report</a></div>
+      <div class="fo-card"><h3>Labor Efficiency</h3><p class="fo-badge">Active</p><div class="fo-grid fo-g2"><div class="fo-metric"><div class="lb">Tasks Logged</div><div class="vl"><?= count($activityRows) ?></div></div><div class="fo-metric"><div class="lb">Workers</div><div class="vl"><?= $farmHands ?></div></div></div></div>
+      <div class="fo-card"><h3>Farm Health</h3><p class="fo-badge med">Review</p><div class="fo-grid fo-g2"><div class="fo-metric"><div class="lb">Healthy Blocks</div><div class="vl"><?= $farmCount ?></div></div><div class="fo-metric"><div class="lb">Alerts</div><div class="vl" style="color:#F59E0B"><?= count($alerts ?? []) ?></div></div></div></div>
+      <div class="fo-card"><h3>Recommendations</h3>
+        <?php if ($alerts): ?>
+          <div class="fo-row"><div class="fo-row-main"><span class="fo-row-ic"><?= fo_icon('warning') ?></span><div class="fo-dt">Check active health alerts.</div></div></div>
+        <?php else: ?>
+          <div class="fo-row"><div class="fo-row-main"><span class="fo-row-ic"><?= fo_icon('check') ?></span><div class="fo-dt">All systems look good.</div></div></div>
+        <?php endif; ?>
+        <?php if (!$intercropRows): ?>
+          <div class="fo-row"><div class="fo-row-main"><span class="fo-row-ic"><?= fo_icon('seedling') ?></span><div class="fo-dt">Consider intercropping for early cashflow.</div></div></div>
+        <?php endif; ?>
+      </div>
     </div>
   </details>
 
   <section class="fo-footer">
     <div><strong>Every action creates value</strong><br><span class="muted">Every record becomes a report, advisory, payment, or task completion state.</span></div>
     <div class="fo-grid fo-g4" style="flex:1">
-      <div class="fo-metric"><div class="vl">216</div><div class="st">Records Created</div></div>
-      <div class="fo-metric"><div class="vl">48</div><div class="st">Tasks Completed</div></div>
-      <div class="fo-metric"><div class="vl">7</div><div class="st">Advisories Received</div></div>
+      <div class="fo-metric"><div class="vl"><?= count($intercropRows) + count($livestockRows) + count($inputRows) + count($activityRows) + count($handRows) ?></div><div class="st">Records Created</div></div>
+      <div class="fo-metric"><div class="vl"><?= count($activityRows) ?></div><div class="st">Tasks Completed</div></div>
+      <div class="fo-metric"><div class="vl">0</div><div class="st">Advisories Received</div></div>
       <div class="fo-metric"><div class="vl" style="font-size:17px"><?= e(fo_money($cashflowNet)) ?></div><div class="st">Net Cash Flow</div></div>
     </div>
   </section>
