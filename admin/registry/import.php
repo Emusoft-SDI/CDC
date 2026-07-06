@@ -107,6 +107,7 @@ require __DIR__ . '/layout/header.php';
                     <th>Role</th>
                     <th>Status</th>
                     <th>Created</th>
+                    <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -120,6 +121,17 @@ require __DIR__ . '/layout/header.php';
                         <td><?= rx_e($row['role']) ?></td>
                         <td><span class="status-badge <?= rx_status_class($row['status']) ?>"><?= rx_e($row['status']) ?></span></td>
                         <td><?= date('M j, Y', strtotime($row['created_at'])) ?></td>
+                        <td>
+                            <?php if (in_array($row['status'], ['pending_engagement', 'engagement_expired', 'failed'], true)): ?>
+                                <form action="inc/actions.php" method="post">
+                                    <input type="hidden" name="_csrf" value="<?= rx_e(csrf_token()) ?>">
+                                    <input type="hidden" name="action" value="send_import_activation">
+                                    <input type="hidden" name="import_record_id" value="<?= (int) $row['id'] ?>">
+                                    <input type="hidden" name="page" value="../import.php">
+                                    <button type="submit" class="btn btn-sm btn-secondary">Resend Activation</button>
+                                </form>
+                            <?php endif; ?>
+                        </td>
                     </tr>
                 <?php endforeach; ?>
             </tbody>
