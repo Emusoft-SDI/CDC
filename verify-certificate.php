@@ -100,7 +100,8 @@ if ($certificate && !empty($certificate['expires_at'])) {
     $expiryTime = strtotime((string) $certificate['expires_at']);
     $expired = $expiryTime !== false && $expiryTime < time();
 }
-$valid = $certificate && (string) ($certificate['status'] ?? '') === 'issued' && !$expired && empty($certificate['revoked_at']);
+$revoked = $certificate && ((string) ($certificate['status'] ?? '') === 'revoked' || !empty($certificate['revoked_at']));
+$valid = $certificate && (string) ($certificate['status'] ?? '') === 'issued' && !$expired && !$revoked;
 
 $viewerId = (int) ($_SESSION['user_id'] ?? 0);
 $viewer = null;
