@@ -185,6 +185,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
+        if ($action === 'restore_certificate') {
+            $certificateId = (int) ($_POST['certificate_id'] ?? 0);
+            if ($certificateId <= 0) {
+                throw new RuntimeException('Certificate is required.');
+            }
+            $certStmt = $pdo->prepare("SELECT id, certificate_ref, status FROM certificates WHERE id = ? LIMIT 1");
+            $certStmt->execute([$certificateId]);
+            $certificate = $certStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$certificate || (string) ($certificate['status'] ?? '') !== 'revoked') {
+                throw new RuntimeException('Certificate was not found or is not revoked.');
+            }
+
+            if (!admin_current_user_is_super_admin($pdo)) {
+                admin_ensure_action_request_schema($pdo);
+                $pending = $pdo->prepare("SELECT id FROM admin_action_requests WHERE request_type = 'restore_certificate' AND target_table = 'certificates' AND target_id = ? AND status = 'pending' LIMIT 1");
+                $pending->execute([$certificateId]);
+                if (!$pending->fetchColumn()) {
+                    $request = $pdo->prepare("
+                        INSERT INTO admin_action_requests
+                            (request_type, target_table, target_id, target_key, target_label, requested_by, reason, payload_json)
+                        VALUES ('restore_certificate', 'certificates', ?, ?, ?, ?, ?, ?)
+                    ");
+                    $request->execute([
+                        $certificateId,
+                        (string) ($certificate['certificate_ref'] ?? ''),
+                        'Certificate ' . (string) ($certificate['certificate_ref'] ?? ('#' . $certificateId)),
+                        admin_current_user_id($pdo),
+                        'Admin mistakenly revoked',
+                        json_encode(['reason' => 'Restore mistakenly revoked certificate', 'certificate_ref' => (string) ($certificate['certificate_ref'] ?? '')], JSON_UNESCAPED_SLASHES),
+                    ]);
+                }
+                header("Location: {$redirectPage}?message=" . urlencode('Certificate restoration sent for Super Admin approval.'));
+                exit;
+            }
+
+            $stmt = $pdo->prepare("UPDATE certificates SET status = 'issued', revoked_at = NULL, revoked_reason = NULL WHERE id = ? AND status = 'revoked'");
+            $stmt->execute([$certificateId]);
+            if ($stmt->rowCount() !== 1) {
+                throw new RuntimeException('Certificate was not found or is not revoked.');
+            }
+            header("Location: {$redirectPage}?message=Certificate+restored");
+            exit;
+        }
+
         if ($action === 'issue_certificate') {
             $userId = (int) ($_POST['user_id'] ?? 0);
             $readiness = grower_certificate_readiness($userId, $pdo);

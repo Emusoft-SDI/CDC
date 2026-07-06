@@ -245,6 +245,15 @@ require __DIR__ . '/layout/header.php';
                   <?php if ($tab === 'grower' && $ref !== ''): ?><a href="certificates.php?download=<?= urlencode($ref) ?>" class="btn btn-sm btn-secondary">Download</a><?php endif; ?>
                   <?php if ($ref !== ''): ?><a href="../../verify-certificate.php?ref=<?= urlencode($ref) ?>" class="btn btn-sm btn-secondary" target="_blank" rel="noopener">Public Verify</a><?php endif; ?>
                   <?php if ($tab === 'grower' && $status === 'issued'): ?><button type="button" class="danger btn btn-sm btn-danger" onclick="openRevokeModal(<?= (int) $row['id'] ?>, <?= htmlspecialchars(json_encode($ref), ENT_QUOTES, 'UTF-8') ?>)"><?= $canRevokeImmediately ? 'Revoke' : 'Request Revocation' ?></button><?php endif; ?>
+                  <?php if ($tab === 'grower' && $status === 'revoked'): ?>
+                    <form action="inc/actions.php" method="post" onsubmit="return confirm('Restore this revoked certificate?');" style="display:inline;">
+                      <input type="hidden" name="_csrf" value="<?= rx_e(csrf_token()) ?>">
+                      <input type="hidden" name="action" value="restore_certificate">
+                      <input type="hidden" name="certificate_id" value="<?= (int) $row['id'] ?>">
+                      <input type="hidden" name="page" value="../certificates.php?tab=<?= rx_e($tab) ?>">
+                      <button type="submit" class="btn btn-sm btn-success"><?= $canRevokeImmediately ? 'Restore' : 'Request Restore' ?></button>
+                    </form>
+                  <?php endif; ?>
                 </div>
               </td>
             </tr>
