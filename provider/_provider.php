@@ -125,7 +125,8 @@ function provider_accreditation_certificate_issue(PDO $pdo, array $provider): ar
         throw new RuntimeException('Provider accreditation must be fully approved before issuing the certificate.');
     }
 
-    $certificateRef = provider_accreditation_certificate_ref($provider);
+    $existing = provider_accreditation_certificate_record($pdo, $providerId);
+    $certificateRef = $existing['certificate_ref'] ?? provider_accreditation_certificate_ref($provider);
     $issuedAt = date('Y-m-d H:i:s');
     $pdf = provider_accreditation_certificate_pdf_document($provider, $certificateRef, $issuedAt);
     $fileName = provider_accreditation_certificate_filename($provider, $certificateRef);
