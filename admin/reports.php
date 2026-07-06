@@ -269,6 +269,29 @@ $accreditationRate = report_pct($accredited, $farmersTotal);
 $verificationRate = report_pct($verifiedFarms, max(1, $farmsTotal));
 $budgetBurn = report_pct($spent, $budgeted);
 
+// Generate Real Chart Data (10 bars) for Marketplace Value
+$chartDataMarketplace = [];
+$chartDataProviders = [];
+$maxMarket = 0;
+$maxProv = 0;
+for ($i = 9; $i >= 0; $i--) {
+    $dayStart = date('Y-m-d 00:00:00', strtotime("-{$i} days"));
+    $dayEnd = date('Y-m-d 23:59:59', strtotime("-{$i} days"));
+    
+    $mVal = report_sum($pdo, "SELECT COALESCE(SUM(total_amount), 0) FROM marketplace_orders WHERE created_at BETWEEN ? AND ?", [$dayStart, $dayEnd]);
+    $pVal = report_count($pdo, "SELECT COUNT(*) FROM marketplace_orders WHERE created_at BETWEEN ? AND ?", [$dayStart, $dayEnd]) * 10; // rough representation of activity
+    
+    $maxMarket = max($maxMarket, $mVal);
+    $maxProv = max($maxProv, $pVal);
+    
+    $chartDataMarketplace[] = $mVal;
+    $chartDataProviders[] = $pVal;
+}
+
+// Normalize to percentages
+$chartMarketplacePct = array_map(fn($v) => $maxMarket > 0 ? max(10, round(($v / $maxMarket) * 100)) : 10, $chartDataMarketplace);
+$chartProvidersPct = array_map(fn($v) => $maxProv > 0 ? max(10, round(($v / $maxProv) * 100)) : 10, $chartDataProviders);
+
 $areaLabel = $selectedStateId > 0 ? 'Local Government Area' : 'State';
 $areaNameSql = $selectedStateId > 0 ? "COALESCE(nl.lga_name, 'Unassigned LGA')" : "COALESCE(ns.state_name, 'Unassigned')";
 $stateRows = report_rows($pdo, "
@@ -438,7 +461,7 @@ admin_page_start('Reporting Intelligence', [
     <div class="ri-tabs"><span class="active">Farm Performance</span><span>Verification</span><span>Academy</span><span>Wallet</span><span>Orders</span></div>
     <div class="ri-board" style="margin:0">
       <div class="ri-card ri-span-6" style="box-shadow:none"><h3>Farm Activities</h3><div class="ri-donut"><b><?= number_format($fieldVisits) ?><small>Total</small></b></div></div>
-      <div class="ri-card ri-span-6" style="box-shadow:none"><h3>Value Bridge</h3><div class="ri-num"><?= e(report_money($orderValue)) ?></div><small>Marketplace value this period</small><div class="ri-chart"><?php foreach ([22,35,28,46,42,61,38,72,64,48] as $h): ?><i class="ri-bar" style="--h:<?= $h ?>%"></i><?php endforeach; ?></div></div>
+      <div class="ri-card ri-span-6" style="box-shadow:none"><h3>Value Bridge</h3><div class="ri-num"><?= e(report_money($orderValue)) ?></div><small>Marketplace value this period</small><div class="ri-chart"><?php foreach ($chartMarketplacePct as $h): ?><i class="ri-bar" style="--h:<?= $h ?>%"></i><?php endforeach; ?></div></div>
     </div>
   </article>
 
@@ -451,7 +474,7 @@ admin_page_start('Reporting Intelligence', [
       <div class="ri-mini"><strong><?= number_format($listingCount) ?></strong><span>Products</span></div>
       <div class="ri-mini"><strong><?= number_format($providersApproved) ?></strong><span>Providers</span></div>
     </div>
-    <div class="ri-chart"><?php foreach ([18,31,26,43,57,41,66,52,73,39] as $h): ?><i class="ri-bar" style="--h:<?= $h ?>%"></i><?php endforeach; ?></div>
+    <div class="ri-chart"><?php foreach ($chartProvidersPct as $h): ?><i class="ri-bar" style="--h:<?= $h ?>%"></i><?php endforeach; ?></div>
     <div class="ri-list">
       <?php foreach (array_slice($marketRows, 0, 4) as $row): ?><div class="ri-row"><span><?= e((string) $row['store_name']) ?></span><strong><?= e(report_money((float) $row['order_value'])) ?></strong></div><?php endforeach; ?>
     </div>
