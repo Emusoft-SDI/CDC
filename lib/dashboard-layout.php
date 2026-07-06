@@ -232,6 +232,17 @@ function dashboard_page_start(string $title, array $options = []): void
             if ($current && !array_key_exists('profile_picture', $options)) {
                 $options['profile_picture'] = $current['profile_picture'] ?? '';
             }
+            if ($current && !array_key_exists('app_ref', $options)) {
+                $options['app_ref'] = null;
+                if (!empty($current['application_id']) && app_table_exists($pdo, 'applications')) {
+                    $appStmt = $pdo->prepare("SELECT app_ref FROM applications WHERE id = ?");
+                    $appStmt->execute([(int) $current['application_id']]);
+                    $fetchedRef = $appStmt->fetchColumn();
+                    if ($fetchedRef) {
+                        $options['app_ref'] = (string) $fetchedRef;
+                    }
+                }
+            }
             if ($current && !array_key_exists('unread', $options) && app_table_exists($pdo, 'messages')) {
                 $unreadStmt = $pdo->prepare("SELECT COUNT(*) FROM messages WHERE user_id = ? AND is_from_admin = 1 AND is_read = 0");
                 $unreadStmt->execute([(int) $current['id']]);
