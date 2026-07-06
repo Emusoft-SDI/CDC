@@ -1373,6 +1373,7 @@ $verificationStatus = (string) ($primaryGrowerFarm['verification_status'] ?? 'pe
     <form method="post" enctype="multipart/form-data">
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
       <input type="hidden" name="action" value="save_profile">
+      <?php if (in_array('personal', $profileAllowedTabs, true)): ?>
       <section class="profile-section profile-tab-panel" data-profile-panel="personal">
         <h2>Edit Profile</h2>
         <p class="hint">Update the profile details used for verification, support, and field engagement.</p>
@@ -1415,8 +1416,10 @@ $verificationStatus = (string) ($primaryGrowerFarm['verification_status'] ?? 'pe
         <div><label>Relationship</label><input type="text" name="next_of_kin_relationship" value="<?= e($profileForm['next_of_kin_relationship'] ?? '') ?>"></div>
         </div>
       </section>
+      <?php endif; ?>
 
-      <section class="profile-section profile-tab-panel" data-profile-panel="security" hidden>
+      <?php if (in_array('security', $profileAllowedTabs, true)): ?>
+      <section class="profile-section profile-tab-panel" data-profile-panel="security" <?= $profileDefaultTab === 'security' ? '' : 'hidden' ?>>
         <h2>Security</h2>
         <p class="hint">Review the protections on your account and complete verification steps that improve trust and recovery.</p>
         <div class="grid">
@@ -1441,9 +1444,10 @@ $verificationStatus = (string) ($primaryGrowerFarm['verification_status'] ?? 'pe
           </div>
         </div>
       </section>
+      <?php endif; ?>
 
-      <?php if (($user['role'] ?? 'grower') === 'grower'): ?>
-      <section class="profile-section profile-tab-panel" data-profile-panel="farm" hidden>
+      <?php if (($user['role'] ?? 'grower') === 'grower' && in_array('farm', $profileAllowedTabs, true)): ?>
+      <section class="profile-section profile-tab-panel" data-profile-panel="farm" <?= $profileDefaultTab === 'farm' ? '' : 'hidden' ?>>
         <h2>Farm Information</h2>
         <p class="hint">Capture where the farm is, how large it is, and the main production conditions field teams should understand.</p>
         <?php if (empty($user['application_id'])): ?><p class="notice pending">This account is not linked to a registration application yet, so farm information cannot be saved.</p><?php endif; ?>
@@ -1529,8 +1533,9 @@ $verificationStatus = (string) ($primaryGrowerFarm['verification_status'] ?? 'pe
           <div><label>Land Title Details</label><input list="land_title_options" name="land_title_details" value="<?= e($profileForm['land_title_details'] ?? '') ?>" placeholder="Select or type title details" <?= empty($user['application_id']) ? 'disabled' : '' ?>></div>
         </div>
       </section>
-
-      <section class="profile-section profile-tab-panel" data-profile-panel="activity" hidden>
+      <?php endif; ?>
+      <?php if (($user['role'] ?? 'grower') === 'grower' && in_array('activity', $profileAllowedTabs, true)): ?>
+      <section class="profile-section profile-tab-panel" data-profile-panel="activity" <?= $profileDefaultTab === 'activity' ? '' : 'hidden' ?>>
         <h2>What You Are Doing On The Farm</h2>
         <p class="hint">This helps NATCODEV understand the grower’s coconut varieties, intercrops, livestock integration, stage of production, and support needs.</p>
         <div class="grid">
@@ -1578,19 +1583,22 @@ $verificationStatus = (string) ($primaryGrowerFarm['verification_status'] ?? 'pe
       </section>
       <?php endif; ?>
 
-      <section class="profile-section profile-tab-panel" data-profile-panel="notifications" hidden>
+      <?php if (in_array('notifications', $profileAllowedTabs, true)): ?>
+      <section class="profile-section profile-tab-panel" data-profile-panel="notifications" <?= $profileDefaultTab === 'notifications' ? '' : 'hidden' ?>>
         <h2>Notification Preferences</h2>
       <label class="check"><input type="checkbox" name="notify_email" <?= (int) ($profileForm['notify_email'] ?? 1) === 1 ? 'checked' : '' ?>> Email notifications</label><br>
       <label class="check"><input type="checkbox" name="notify_whatsapp" <?= (int) ($profileForm['notify_whatsapp'] ?? 0) === 1 ? 'checked' : '' ?>> WhatsApp notifications</label><br>
       <label class="check"><input type="checkbox" name="notify_sms" <?= (int) ($profileForm['notify_sms'] ?? 0) === 1 ? 'checked' : '' ?>> SMS notifications</label><br><br>
       </section>
+      <?php endif; ?>
       <div class="profile-actions" data-profile-save-actions><button type="submit">Save Profile</button></div>
     </form>
     <form id="send-profile-otp-form" method="post" hidden>
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
       <input type="hidden" name="action" value="send_profile_otp">
     </form>
-    <section class="profile-section profile-tab-panel" data-profile-panel="password" hidden>
+    <?php if (in_array('password', $profileAllowedTabs, true)): ?>
+    <section class="profile-section profile-tab-panel" data-profile-panel="password" <?= $profileDefaultTab === 'password' ? '' : 'hidden' ?>>
       <h2>Password</h2>
       <p class="hint">Change your password regularly and use at least 8 characters with a mix of letters, numbers, and symbols.</p>
       <form method="post" class="panel">
@@ -1604,8 +1612,9 @@ $verificationStatus = (string) ($primaryGrowerFarm['verification_status'] ?? 'pe
         <button type="submit">Update Password</button>
       </form>
     </section>
-    <?php if (($user['role'] ?? 'grower') === 'grower'): ?>
-      <section class="profile-section profile-tab-panel" data-profile-panel="locations" hidden>
+    <?php endif; ?>
+    <?php if (($user['role'] ?? 'grower') === 'grower' && in_array('locations', $profileAllowedTabs, true)): ?>
+      <section class="profile-section profile-tab-panel" data-profile-panel="locations" <?= $profileDefaultTab === 'locations' ? '' : 'hidden' ?>>
         <h2>Farm Locations</h2>
         <p class="hint">A grower can have more than one farm. Add each farm separately with State, LGA, address, and GPS coordinates.</p>
         <div class="grid">
@@ -1675,7 +1684,9 @@ $verificationStatus = (string) ($primaryGrowerFarm['verification_status'] ?? 'pe
           </form>
         </div>
       </section>
-      <section class="profile-section profile-tab-panel" data-profile-panel="hands" hidden>
+    <?php endif; ?>
+    <?php if (($user['role'] ?? 'grower') === 'grower' && in_array('hands', $profileAllowedTabs, true)): ?>
+      <section class="profile-section profile-tab-panel" data-profile-panel="hands" <?= $profileDefaultTab === 'hands' ? '' : 'hidden' ?>>
         <h2>Farm Hands</h2>
         <p class="hint">Register practical workers on your farm, classify the work they do, and assign them to a specific farm or to your grower profile generally.</p>
 

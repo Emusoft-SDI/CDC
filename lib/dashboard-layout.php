@@ -11,6 +11,7 @@ function dashboard_nav_items(): array
     return [
         ['href' => 'index.php', 'label' => 'Overview'],
         ['href' => 'wallet.php', 'label' => 'Wallet'],
+        ['href' => 'loans.php', 'label' => 'Loans'],
         ['href' => 'farm-health.php', 'label' => 'Farm Performance'],
         ['href' => 'farm-operations.php', 'label' => 'Farm Operations'],
         ['href' => '../market/index.php', 'label' => 'Marketplace'],
@@ -48,6 +49,7 @@ function dashboard_nav_groups(): array
         ['label' => 'Commerce', 'items' => [
             ['href' => '../market/index.php', 'label' => 'Marketplace', 'feature' => 'marketplace', 'icon' => 'fas fa-store'],
             ['href' => '../market/seller-central.php', 'label' => 'Seller Central', 'feature' => 'marketplace', 'icon' => 'fas fa-shop', 'roles' => ['seller','marketplace_seller']],
+            ['href' => 'loans.php', 'label' => 'Loans', 'feature' => 'wallet', 'icon' => 'fas fa-money-bill-wave'],
         ]],
         ['label' => 'Grower', 'items' => [
             ['href' => 'profile.php', 'label' => 'My Profile', 'feature' => 'profile', 'icon' => 'fas fa-user-circle'],
