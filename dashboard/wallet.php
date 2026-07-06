@@ -223,8 +223,9 @@ function wallet_tx_payload(array $tx): array
         </form>
         <p id="fundWalletStatus" class="muted"></p>
     </section>
-    <section class="card withdraw-card">
-        <h2>Withdraw Earnings</h2>
+    <details class="card withdraw-card">
+        <summary style="font-size:1.5em;font-weight:bold;cursor:pointer;">Withdraw Earnings</summary>
+        <div style="margin-top:10px;">
         <p class="muted">Declare your withdrawal intention, verify the receiving bank account, then submit for admin payout approval.</p>
         <form method="post" class="withdraw-flow" data-withdrawal-form data-bank-url="../api/wallet-banks.php" data-resolve-url="../api/resolve-bank-account.php">
             <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
@@ -254,8 +255,9 @@ function wallet_tx_payload(array $tx): array
                 <button type="submit" name="request_withdrawal" data-submit-withdrawal disabled>Submit Verified Withdrawal</button>
             </div></div>
         </form>
-        <p class="muted">A verified request places the amount on hold until an admin approves or rejects it.</p>
-    </section>
+        <p class="muted" style="margin-top:15px;">A verified request places the amount on hold until an admin approves or rejects it.</p>
+        </div>
+    </details>
 </div>
 
 <!-- Row 3: Withdrawal Requests (collapsible) -->
