@@ -156,16 +156,27 @@ function db(): PDO
     $user = app_env('DB_USERNAME', 'natcodevcom_data');
     $pass = app_env('DB_PASSWORD', '');
 
-    $pdo = new PDO(
-        "mysql:host={$host};port={$port};dbname={$name};charset=utf8mb4",
-        $user,
-        $pass,
-        [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
-        ]
-    );
+    try {
+        $pdo = new PDO(
+            "mysql:host={$host};port={$port};dbname={$name};charset=utf8mb4",
+            $user,
+            $pass,
+            [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES => false,
+            ]
+        );
+    } catch (PDOException $e) {
+        error_log('Database connection failed: ' . $e->getMessage());
+        if (!isset($_COOKIE['natcodev_bypass']) && basename($_SERVER['SCRIPT_NAME'] ?? '') !== 'maintenance.php') {
+            // Auto-fallback to maintenance mode if DB is completely down
+            require __DIR__ . '/maintenance.php';
+            exit;
+        }
+        // If they have bypass cookie, they still get the raw error so they can debug
+        throw $e;
+    }
 
     return $pdo;
 }
