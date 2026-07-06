@@ -292,74 +292,12 @@ for ($i = 9; $i >= 0; $i--) {
 $chartMarketplacePct = array_map(fn($v) => $maxMarket > 0 ? max(10, round(($v / $maxMarket) * 100)) : 10, $chartDataMarketplace);
 $chartProvidersPct = array_map(fn($v) => $maxProv > 0 ? max(10, round(($v / $maxProv) * 100)) : 10, $chartDataProviders);
 
-$areaLabel = $selectedStateId > 0 ? 'Local Government Area' : 'State';
-$areaNameSql = $selectedStateId > 0 ? "COALESCE(nl.lga_name, 'Unassigned LGA')" : "COALESCE(ns.state_name, 'Unassigned')";
-$stateRows = report_rows($pdo, "
-    SELECT {$areaNameSql} area_name,
-           COUNT(DISTINCT u.id) farmers,
-           COUNT(DISTINCT gf.id) farms,
-           COALESCE(SUM(gf.farm_size), 0) hectares,
-           SUM(CASE WHEN COALESCE(u.accreditation_status, 'not_accredited') = 'accredited' THEN 1 ELSE 0 END) accredited
-    FROM users u
-    LEFT JOIN applications a ON a.id = u.application_id
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
-    LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
-    LEFT JOIN nigeria_lgas nl ON nl.id = COALESCE(gf.lga_id, a.lga_id)
-    WHERE u.role = 'grower' AND {$locationFilterSql}
-    GROUP BY {$areaNameSql}
-    ORDER BY farmers DESC, area_name
-    LIMIT 20
-", $locationFilterParams);
-$providerRows = report_rows($pdo, "
-    SELECT provider_type, status, COUNT(*) total
-    FROM provider_registry
-    GROUP BY provider_type, status
-    ORDER BY provider_type, status
-");
-$marketRows = report_rows($pdo, "
-    SELECT ms.store_name, ms.seller_type, COUNT(ml.id) listings, COALESCE(SUM(mo.total_amount), 0) order_value
-    FROM marketplace_sellers ms
-    LEFT JOIN marketplace_listings ml ON ml.seller_id = ms.id
-    LEFT JOIN marketplace_orders mo ON mo.seller_id = ms.id AND mo.created_at BETWEEN ? AND ?
-    GROUP BY ms.id, ms.store_name, ms.seller_type
-    ORDER BY order_value DESC, listings DESC
-    LIMIT 12
-", $dateParams);
-$supportRows = report_rows($pdo, "
-    SELECT category, priority, status, COUNT(*) total
-    FROM messages
-    GROUP BY category, priority, status
-    ORDER BY FIELD(priority, 'high','medium','low'), total DESC
-    LIMIT 14
-");
-$fieldRows = report_rows($pdo, "
-    SELECT u.name agent, COUNT(fv.id) visits,
-           SUM(CASE WHEN ft.status IN ('pending','assigned','in_progress') THEN 1 ELSE 0 END) open_tasks
-    FROM users u
-    LEFT JOIN farm_visits fv ON fv.agent_id = u.id AND fv.visited_at BETWEEN ? AND ?
-    LEFT JOIN field_tasks ft ON ft.assigned_to = u.id
-    WHERE u.role = 'field_agent' OR u.is_agronomist = 1 OR u.is_extensionist = 1
-    GROUP BY u.id, u.name
-    ORDER BY visits DESC, open_tasks DESC
-    LIMIT 12
-", $dateParams);
+$moduleFile = __DIR__ . '/reports/modules/' . basename($selectedReport) . '.php';
+if (!is_file($moduleFile)) {
+    $moduleFile = __DIR__ . '/reports/modules/default.php';
+}
 
-$exportRows = match ($selectedReport) {
-    'state', 'executive' => $stateRows,
-    'provider' => $providerRows,
-    'marketplace', 'finance' => $marketRows,
-    'support' => $supportRows,
-    'field' => $fieldRows,
-    default => report_rows($pdo, "
-        SELECT u.id, u.name, u.email, u.created_at, u.account_status, u.accreditation_status, COUNT(gf.id) farms
-        FROM users u
-        LEFT JOIN grower_farms gf ON gf.user_id = u.id
-        WHERE u.role = 'grower'
-        GROUP BY u.id, u.name, u.email, u.created_at, u.account_status, u.accreditation_status
-        ORDER BY u.created_at DESC
-        LIMIT 500
-    "),
-};
+require $moduleFile;
 
 if (($_GET['format'] ?? '') === 'csv') {
     report_csv('natcodev-' . $selectedReport . '-report-' . date('Ymd') . '.csv', $exportRows);
@@ -618,46 +556,7 @@ admin_page_start('Reporting Intelligence', [
 
     <section class="panel" style="margin-top:18px;">
       <h2><?= e($catalog[$selectedReport][0]) ?> Detail</h2>
-      <?php if (in_array($selectedReport, ['executive', 'state'], true)): ?>
-        <table>
-          <thead><tr><th><?= e($areaLabel) ?></th><th>Growers</th><th>Farms</th><th>Hectares</th><th>Accredited</th><th>Accreditation Rate</th></tr></thead>
-          <tbody>
-          <?php foreach ($stateRows as $row): ?>
-            <tr><td><strong><?= e($row['area_name']) ?></strong></td><td><?= (int) $row['farmers'] ?></td><td><?= (int) $row['farms'] ?></td><td><?= number_format((float) $row['hectares'], 1) ?></td><td><?= (int) $row['accredited'] ?></td><td><?= report_pct((float) $row['accredited'], (float) $row['farmers']) ?>%</td></tr>
-          <?php endforeach; ?>
-          <?php if (!$stateRows): ?><tr><td colspan="6">No state intelligence available yet.</td></tr><?php endif; ?>
-          </tbody>
-        </table>
-      <?php elseif ($selectedReport === 'provider'): ?>
-        <table><thead><tr><th>Provider Type</th><th>Status</th><th>Total</th></tr></thead><tbody>
-          <?php foreach ($providerRows as $row): ?><tr><td><?= e(ucwords(str_replace('_', ' ', (string) $row['provider_type']))) ?></td><td><?= e(ucwords(str_replace('_', ' ', (string) $row['status']))) ?></td><td><?= (int) $row['total'] ?></td></tr><?php endforeach; ?>
-          <?php if (!$providerRows): ?><tr><td colspan="3">No provider records yet.</td></tr><?php endif; ?>
-        </tbody></table>
-      <?php elseif (in_array($selectedReport, ['marketplace', 'finance'], true)): ?>
-        <table><thead><tr><th>Seller</th><th>Type</th><th>Listings</th><th>Order Value</th></tr></thead><tbody>
-          <?php foreach ($marketRows as $row): ?><tr><td><strong><?= e($row['store_name']) ?></strong></td><td><?= e(ucwords(str_replace('_', ' ', (string) $row['seller_type']))) ?></td><td><?= (int) $row['listings'] ?></td><td><?= report_money((float) $row['order_value']) ?></td></tr><?php endforeach; ?>
-          <?php if (!$marketRows): ?><tr><td colspan="4">No marketplace records yet.</td></tr><?php endif; ?>
-        </tbody></table>
-        <p class="muted">Wallet funding/spend in this period: <strong><?= e(report_money($walletVolume)) ?></strong>. Budget spent: <strong><?= e(report_money($spent)) ?></strong> of <?= e(report_money($budgeted)) ?>.</p>
-      <?php elseif ($selectedReport === 'support'): ?>
-        <table><thead><tr><th>Category</th><th>Priority</th><th>Status</th><th>Total</th></tr></thead><tbody>
-          <?php foreach ($supportRows as $row): ?><tr><td><?= e(ucwords(str_replace('_', ' ', (string) $row['category']))) ?></td><td><?= e(ucwords((string) $row['priority'])) ?></td><td><?= e(ucwords(str_replace('_', ' ', (string) $row['status']))) ?></td><td><?= (int) $row['total'] ?></td></tr><?php endforeach; ?>
-          <?php if (!$supportRows): ?><tr><td colspan="4">No support messages yet.</td></tr><?php endif; ?>
-        </tbody></table>
-      <?php elseif ($selectedReport === 'field'): ?>
-        <table><thead><tr><th>Agent</th><th>Visits In Period</th><th>Open Tasks</th></tr></thead><tbody>
-          <?php foreach ($fieldRows as $row): ?><tr><td><strong><?= e($row['agent']) ?></strong></td><td><?= (int) $row['visits'] ?></td><td><?= (int) $row['open_tasks'] ?></td></tr><?php endforeach; ?>
-          <?php if (!$fieldRows): ?><tr><td colspan="3">No field team activity yet.</td></tr><?php endif; ?>
-        </tbody></table>
-      <?php else: ?>
-        <table><thead><tr><th>Metric</th><th>Value</th><th>Meaning</th></tr></thead><tbody>
-          <tr><td>Grower accreditation</td><td><?= $accreditationRate ?>%</td><td>Readiness for certification and formal participation.</td></tr>
-          <tr><td>Farm verification</td><td><?= $verificationRate ?>%</td><td>Ground-truth confidence across captured farms.</td></tr>
-          <tr><td>Provider coverage</td><td><?= number_format($providersApproved) ?> approved / <?= number_format($providersPending) ?> pending</td><td>Input and service ecosystem strength.</td></tr>
-          <tr><td>Marketplace depth</td><td><?= number_format($sellerCount) ?> sellers / <?= number_format($listingCount) ?> listings</td><td>Seller supply available to buyers.</td></tr>
-          <tr><td>Open support</td><td><?= number_format($openSupport) ?></td><td>Stakeholder unresolved communication load.</td></tr>
-        </tbody></table>
-      <?php endif; ?>
+      <?php if (function_exists('render_module_table')) render_module_table(); ?>
     </section>
   </div>
 </section>
