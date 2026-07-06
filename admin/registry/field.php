@@ -82,7 +82,8 @@ require __DIR__ . '/layout/header.php';
             <td><strong><?= number_format($row['visit_count']) ?></strong></td>
             <td><?= number_format($row['grower_count']) ?></td>
             <td>
-              <a href="agent-view.php?id=<?= $row['id'] ?>" class="btn btn-sm btn-secondary">Logs</a>
+              <a href="../users.php?search=<?= urlencode((string) ($row['email'] ?? '')) ?>" class="btn btn-sm btn-secondary">View Agent</a>
+              <a href="../fields-management.php" class="btn btn-sm btn-secondary">Field Logs</a>
             </td>
           </tr>
         <?php endforeach; ?>

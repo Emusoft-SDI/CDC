@@ -214,6 +214,7 @@ require __DIR__ . '/layout/header.php';
                   <input type="hidden" name="page" value="../growers.php">
                   <button type="submit" class="btn btn-sm btn-secondary">Send Password Reset</button>
                 </form>
+                <a href="../users.php?search=<?= urlencode((string) ($row['email'] ?? '')) ?>" class="btn btn-sm btn-secondary">View Profile</a>
               </div>
             </td>
           </tr>

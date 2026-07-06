@@ -365,7 +365,7 @@ foreach (rx_rows($pdo, "SELECT pr.*, u.account_status FROM provider_registry pr 
         'status' => (string) ($pr['status'] ?? 'pending_review'),
         'detail' => 'Contact: ' . (string) ($pr['contact_person'] ?? '') . ' / Coverage: ' . (string) ($pr['coverage_area'] ?? ''),
         'created_at' => (string) ($pr['created_at'] ?? ''),
-        'actions' => '',
+        'actions' => '<a class="btn btn-sm btn-secondary" href="users.php?search=' . urlencode((string) ($pr['email'] ?? '')) . '">User</a>',
     ]);
 }
 
@@ -381,7 +381,7 @@ foreach (rx_rows($pdo, "SELECT ms.*, u.email user_email, u.account_status FROM m
         'status' => (string) ($s['approval_status'] ?? 'pending'),
         'detail' => 'Verification: ' . (string) ($s['verification_status'] ?? 'pending') . ' / Location: ' . (string) ($s['location_label'] ?? ''),
         'created_at' => (string) ($s['created_at'] ?? ''),
-        'actions' => '',
+        'actions' => '<a class="btn btn-sm btn-secondary" href="users.php?search=' . urlencode((string) ($s['email'] ?: ($s['user_email'] ?? ''))) . '">User</a>',
     ]);
 }
 
@@ -413,7 +413,7 @@ foreach (rx_rows($pdo, "SELECT wr.user_id, COUNT(*) enrollments, MAX(wr.register
         'status' => (string) ($l['account_status'] ?? 'active'),
         'detail' => number_format((int) ($l['enrollments'] ?? 0)) . ' course enrollment(s)',
         'created_at' => (string) ($l['registered_at'] ?? ''),
-        'actions' => '',
+        'actions' => '<a class="btn btn-sm btn-secondary" href="users.php?search=' . urlencode((string) ($l['email'] ?? '')) . '">User</a>',
     ]);
 }
 
