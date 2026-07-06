@@ -244,12 +244,19 @@ require __DIR__ . '/layout/header.php';
                 <div style="display:flex;gap:6px;flex-wrap:wrap">
                   <?php if ($tab === 'grower' && $ref !== ''): ?><a href="certificates.php?download=<?= urlencode($ref) ?>" class="btn btn-sm btn-secondary">Download</a><?php endif; ?>
                   <?php if ($ref !== ''): ?><a href="../../verify-certificate.php?ref=<?= urlencode($ref) ?>" class="btn btn-sm btn-secondary" target="_blank" rel="noopener">Public Verify</a><?php endif; ?>
-                  <?php if ($tab === 'grower' && $status === 'issued'): ?><button type="button" class="danger btn btn-sm btn-danger" onclick="openRevokeModal(<?= (int) $row['id'] ?>, <?= htmlspecialchars(json_encode($ref), ENT_QUOTES, 'UTF-8') ?>)"><?= $canRevokeImmediately ? 'Revoke' : 'Request Revocation' ?></button><?php endif; ?>
-                  <?php if ($tab === 'grower' && $status === 'revoked'): ?>
+                  <?php
+                    $targetTable = 'certificates';
+                    if ($tab === 'provider') $targetTable = 'provider_accreditation_certificates';
+                    if ($tab === 'academy') $targetTable = 'academy_certificates';
+                    if ($tab === 'grouped') $targetTable = 'academy_group_certificates';
+                  ?>
+                  <?php if ($status === 'issued'): ?><button type="button" class="danger btn btn-sm btn-danger" onclick="openRevokeModal(<?= (int) $row['id'] ?>, <?= htmlspecialchars(json_encode($ref), ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars(json_encode($targetTable), ENT_QUOTES, 'UTF-8') ?>)"><?= $canRevokeImmediately ? 'Revoke' : 'Request Revocation' ?></button><?php endif; ?>
+                  <?php if ($status === 'revoked'): ?>
                     <form action="inc/actions.php" method="post" onsubmit="return confirm('Restore this revoked certificate?');" style="display:inline;">
                       <input type="hidden" name="_csrf" value="<?= rx_e(csrf_token()) ?>">
                       <input type="hidden" name="action" value="restore_certificate">
                       <input type="hidden" name="certificate_id" value="<?= (int) $row['id'] ?>">
+                      <input type="hidden" name="target_table" value="<?= rx_e($targetTable) ?>">
                       <input type="hidden" name="page" value="../certificates.php?tab=<?= rx_e($tab) ?>">
                       <button type="submit" class="btn btn-sm btn-success"><?= $canRevokeImmediately ? 'Restore' : 'Request Restore' ?></button>
                     </form>
@@ -298,15 +305,14 @@ require __DIR__ . '/layout/header.php';
       <input type="hidden" name="_csrf" value="<?= rx_e(csrf_token()) ?>">
       <input type="hidden" name="action" value="revoke_certificate">
       <input type="hidden" name="certificate_id" id="revokeCertId">
-      <input type="hidden" name="page" value="../certificates.php?tab=grower">
-      <div class="card-body">
-        <div class="form-group">
-          <label class="form-label">Revocation Reason</label>
-          <?php if (!$canRevokeImmediately): ?><p class="text-secondary" style="margin-top:0">This creates a Super Admin approval request before the certificate is marked revoked.</p><?php endif; ?>
-          <textarea name="reason" class="form-textarea" required placeholder="Reason for revocation..."></textarea>
-        </div>
+      <input type="hidden" name="target_table" id="revokeTargetTable">
+      <input type="hidden" name="page" id="revokePageUrl" value="../certificates.php?tab=<?= rx_e($tab) ?>">
+      <div style="margin:20px">
+        <label>Reason for Revocation</label>
+        <textarea name="reason" rows="3" required placeholder="Required..."></textarea>
+        <?php if (!$canRevokeImmediately): ?><p class="text-secondary" style="margin-top:0">This creates a Super Admin approval request before the certificate is marked revoked.</p><?php endif; ?>
       </div>
-      <div class="card-header" style="justify-content:flex-end">
+      <div style="text-align:right;margin:20px;padding-top:15px;border-top:1px solid #E5E7EB">
         <button type="button" class="btn btn-secondary" onclick="closeModal('revokeModal')">Cancel</button>
         <button type="submit" class="btn btn-danger" style="margin-left:10px"><?= $canRevokeImmediately ? 'Revoke Certificate' : 'Send to Super Admin' ?></button>
       </div>
@@ -315,9 +321,10 @@ require __DIR__ . '/layout/header.php';
 </div>
 
 <script>
-function openRevokeModal(id, ref) {
+function openRevokeModal(id, ref, table) {
     document.getElementById('revokeCertId').value = id;
     document.getElementById('revokeCertRef').textContent = ref;
+    document.getElementById('revokeTargetTable').value = table || 'certificates';
     openModal('revokeModal');
 }
 </script>

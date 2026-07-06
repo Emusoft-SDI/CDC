@@ -143,10 +143,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'revoke_certificate') {
             $certificateId = (int) ($_POST['certificate_id'] ?? 0);
             $reason = trim((string) ($_POST['reason'] ?? ''));
+            $targetTable = (string) ($_POST['target_table'] ?? 'certificates');
+            if (!in_array($targetTable, ['certificates', 'provider_accreditation_certificates', 'academy_certificates', 'academy_group_certificates'], true)) {
+                $targetTable = 'certificates';
+            }
+
             if ($certificateId <= 0 || $reason === '') {
                 throw new RuntimeException('Certificate and revocation reason are required.');
             }
-            $certStmt = $pdo->prepare("SELECT id, certificate_ref, status FROM certificates WHERE id = ? LIMIT 1");
+            $certStmt = $pdo->prepare("SELECT id, certificate_ref, status FROM {$targetTable} WHERE id = ? LIMIT 1");
             $certStmt->execute([$certificateId]);
             $certificate = $certStmt->fetch(PDO::FETCH_ASSOC);
             if (!$certificate || (string) ($certificate['status'] ?? '') !== 'issued') {
@@ -155,15 +160,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (!admin_current_user_is_super_admin($pdo)) {
                 admin_ensure_action_request_schema($pdo);
-                $pending = $pdo->prepare("SELECT id FROM admin_action_requests WHERE request_type = 'revoke_certificate' AND target_table = 'certificates' AND target_id = ? AND status = 'pending' LIMIT 1");
-                $pending->execute([$certificateId]);
+                $pending = $pdo->prepare("SELECT id FROM admin_action_requests WHERE request_type = 'revoke_certificate' AND target_table = ? AND target_id = ? AND status = 'pending' LIMIT 1");
+                $pending->execute([$targetTable, $certificateId]);
                 if (!$pending->fetchColumn()) {
                     $request = $pdo->prepare("
                         INSERT INTO admin_action_requests
                             (request_type, target_table, target_id, target_key, target_label, requested_by, reason, payload_json)
-                        VALUES ('revoke_certificate', 'certificates', ?, ?, ?, ?, ?, ?)
+                        VALUES ('revoke_certificate', ?, ?, ?, ?, ?, ?, ?)
                     ");
                     $request->execute([
+                        $targetTable,
                         $certificateId,
                         (string) ($certificate['certificate_ref'] ?? ''),
                         'Certificate ' . (string) ($certificate['certificate_ref'] ?? ('#' . $certificateId)),
@@ -176,7 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
 
-            $stmt = $pdo->prepare("UPDATE certificates SET status = 'revoked', revoked_at = NOW(), revoked_reason = ? WHERE id = ? AND status = 'issued'");
+            $stmt = $pdo->prepare("UPDATE {$targetTable} SET status = 'revoked', revoked_at = NOW(), revoked_reason = ? WHERE id = ? AND status = 'issued'");
             $stmt->execute([$reason, $certificateId]);
             if ($stmt->rowCount() !== 1) {
                 throw new RuntimeException('Certificate was not found or is already inactive.');
@@ -187,10 +193,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($action === 'restore_certificate') {
             $certificateId = (int) ($_POST['certificate_id'] ?? 0);
+            $targetTable = (string) ($_POST['target_table'] ?? 'certificates');
+            if (!in_array($targetTable, ['certificates', 'provider_accreditation_certificates', 'academy_certificates', 'academy_group_certificates'], true)) {
+                $targetTable = 'certificates';
+            }
+
             if ($certificateId <= 0) {
                 throw new RuntimeException('Certificate is required.');
             }
-            $certStmt = $pdo->prepare("SELECT id, certificate_ref, status FROM certificates WHERE id = ? LIMIT 1");
+            $certStmt = $pdo->prepare("SELECT id, certificate_ref, status FROM {$targetTable} WHERE id = ? LIMIT 1");
             $certStmt->execute([$certificateId]);
             $certificate = $certStmt->fetch(PDO::FETCH_ASSOC);
             if (!$certificate || (string) ($certificate['status'] ?? '') !== 'revoked') {
@@ -199,15 +210,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (!admin_current_user_is_super_admin($pdo)) {
                 admin_ensure_action_request_schema($pdo);
-                $pending = $pdo->prepare("SELECT id FROM admin_action_requests WHERE request_type = 'restore_certificate' AND target_table = 'certificates' AND target_id = ? AND status = 'pending' LIMIT 1");
-                $pending->execute([$certificateId]);
+                $pending = $pdo->prepare("SELECT id FROM admin_action_requests WHERE request_type = 'restore_certificate' AND target_table = ? AND target_id = ? AND status = 'pending' LIMIT 1");
+                $pending->execute([$targetTable, $certificateId]);
                 if (!$pending->fetchColumn()) {
                     $request = $pdo->prepare("
                         INSERT INTO admin_action_requests
                             (request_type, target_table, target_id, target_key, target_label, requested_by, reason, payload_json)
-                        VALUES ('restore_certificate', 'certificates', ?, ?, ?, ?, ?, ?)
+                        VALUES ('restore_certificate', ?, ?, ?, ?, ?, ?, ?)
                     ");
                     $request->execute([
+                        $targetTable,
                         $certificateId,
                         (string) ($certificate['certificate_ref'] ?? ''),
                         'Certificate ' . (string) ($certificate['certificate_ref'] ?? ('#' . $certificateId)),
@@ -220,7 +232,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
 
-            $stmt = $pdo->prepare("UPDATE certificates SET status = 'issued', revoked_at = NULL, revoked_reason = NULL WHERE id = ? AND status = 'revoked'");
+            $stmt = $pdo->prepare("UPDATE {$targetTable} SET status = 'issued', revoked_at = NULL, revoked_reason = NULL WHERE id = ? AND status = 'revoked'");
             $stmt->execute([$certificateId]);
             if ($stmt->rowCount() !== 1) {
                 throw new RuntimeException('Certificate was not found or is not revoked.');
