@@ -159,45 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array((string) ($_POST['action'
 $view = (string) ($_GET['view'] ?? 'overview');
 $allowedViews = array_keys(super_admin_views());
 $view = in_array($view, $allowedViews, true) ? $view : 'overview';
-$search = trim((string) ($_GET['q'] ?? ''));
-$roleFilter = trim((string) ($_GET['role'] ?? ''));
-$statusFilter = trim((string) ($_GET['status'] ?? ''));
-$perPage = super_admin_per_page(25);
-$page = admin_current_page();
-$offset = admin_pagination_offset($page, $perPage);
-
-[$whereSql, $params] = super_admin_user_filters($search, $roleFilter, $statusFilter);
-$countStmt = $pdo->prepare("SELECT COUNT(*) FROM users {$whereSql}");
-$countStmt->execute($params);
-$totalUsers = (int) $countStmt->fetchColumn();
-
-$usersStmt = $pdo->prepare("
-    SELECT id, name, email, phone, role, platform_role, account_status, is_super_admin, is_agronomist, is_extensionist,
-           two_factor_required, profile_verified, suspended_until, archived_at, created_at, last_login_at
-    FROM users
-    {$whereSql}
-    ORDER BY created_at DESC, id DESC
-    LIMIT {$perPage} OFFSET {$offset}
-");
-$usersStmt->execute($params);
-$users = $usersStmt->fetchAll();
-
 $stats = super_admin_stats($pdo);
-$roleSummary = super_admin_role_summary($pdo, $roles);
-admin_ensure_action_request_schema($pdo);
-$pendingRevocationRequests = $pdo->query("SELECT ar.*, c.certificate_ref, c.status certificate_status, u.name requester_name, u.email requester_email FROM admin_action_requests ar LEFT JOIN certificates c ON c.id = ar.target_id LEFT JOIN users u ON u.id = ar.requested_by WHERE ar.request_type = 'revoke_certificate' AND ar.target_table = 'certificates' AND ar.status = 'pending' ORDER BY ar.created_at DESC LIMIT 25")->fetchAll();
-$settings = super_admin_control_settings($pdo);
-$accessMatrix = super_admin_access_matrix($pdo, $roles);
-$moduleSettings = super_admin_module_settings($pdo);
-$trainingSettings = super_admin_training_settings($pdo);
-$announcements = $pdo->query("SELECT id, title, body, audience_role, is_active, created_at FROM system_announcements ORDER BY created_at DESC LIMIT 20")->fetchAll();
-$drSettings = dr_settings($pdo);
-$siteNodes = $pdo->query("SELECT id, node_key, name, base_url, node_role, status, sync_enabled, last_seen_at, last_error, created_at FROM site_nodes ORDER BY created_at DESC")->fetchAll();
-$backups = $pdo->query("SELECT backup_ref, backup_type, status, storage_path, file_size, checksum, started_at, completed_at FROM dr_backups ORDER BY created_at DESC LIMIT 10")->fetchAll();
-$syncEvents = $pdo->query("SELECT event_uuid, direction, event_type, source_node, target_node, status, attempts, error_message, created_at, processed_at FROM sync_events ORDER BY created_at DESC LIMIT 20")->fetchAll();
-$auditRows = app_table_exists($pdo, 'audit_log')
-    ? $pdo->query("SELECT action, description, ip_address, created_at FROM audit_log ORDER BY created_at DESC LIMIT 60")->fetchAll()
-    : [];
 
 $pageMeta = super_admin_page_meta($view);
 super_admin_page_start($pageMeta['title'], $pageMeta['description'], $view);
@@ -216,7 +178,7 @@ super_admin_page_start($pageMeta['title'], $pageMeta['description'], $view);
 <?php
 define('NATCODEV_SUPER_ADMIN', true);
 if (in_array($view, ['disaster', 'profile', 'overview', 'users', 'controls'], true)) {
-    require __DIR__ . '/views/' . $view . '.php';
+    require __DIR__ . '/modules/' . $view . '.php';
 }
 ?>
 

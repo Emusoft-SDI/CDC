@@ -1,7 +1,11 @@
 <?php
-declare(strict_types=1);
-
-require_once __DIR__ . '/../lib/support.php';
+    $view = $_GET['view'] ?? 'new-ticket';
+    $allowed = ['new-ticket', 'upgrade', 'lookup', 'knowledge', 'support-flow'];
+    if (!in_array($view, $allowed, true)) {
+        $view = 'new-ticket';
+    }
+    require __DIR__ . '/modules/' . $view . '.php';
+    ?>_once __DIR__ . '/../lib/support.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
@@ -832,10 +836,10 @@ $upgradePaths = [
     <a class="brand" href="../index.php"><img src="<?= e($logo) ?>" alt="NATCODEV"><span>NATCODEV<br><small>Support Desk</small></span></a>
     <nav class="nav" aria-label="Public support navigation">
       <a href="index.php">Support Home</a>
-      <a href="#new-ticket">New Ticket</a>
-      <a href="#lookup">Track Ticket</a>
-      <a href="#knowledge">Knowledge Base</a>
-      <a href="#upgrade">Registration Paths</a>
+      <a href="index.php?view=new-ticket">New Ticket</a>
+      <a href="index.php?view=lookup">Track Ticket</a>
+      <a href="index.php?view=knowledge">Knowledge Base</a>
+      <a href="index.php?view=upgrade">Registration Paths</a>
       <?php if ($user): ?><a class="btn light" href="../dashboard/index.php">Dashboard</a><?php else: ?><a class="btn light" href="login.php?next=index.php">Track Existing Ticket</a><?php endif; ?>
     </nav>
   </div>
@@ -847,11 +851,11 @@ $upgradePaths = [
       <h2>Support Center</h2>
       <p>Open a case, track a ticket, read help notes, or choose the correct registration path without leaving support.</p>
       <nav>
-        <a class="primary" href="#new-ticket"><span><i class="fas fa-plus-circle"></i> New Ticket</span></a>
-        <a href="#lookup"><span><i class="fas fa-magnifying-glass"></i> Track Ticket</span></a>
-        <a href="#knowledge"><span><i class="fas fa-book-open"></i> Knowledge Base</span></a>
-        <a href="#upgrade"><span><i class="fas fa-route"></i> Registration Paths</span></a>
-        <a href="#support-flow"><span><i class="fas fa-list-check"></i> Resolution Flow</span></a>
+        <a class="primary" href="index.php?view=new-ticket"><span><i class="fas fa-plus-circle"></i> New Ticket</span></a>
+        <a href="index.php?view=lookup"><span><i class="fas fa-magnifying-glass"></i> Track Ticket</span></a>
+        <a href="index.php?view=knowledge"><span><i class="fas fa-book-open"></i> Knowledge Base</span></a>
+        <a href="index.php?view=upgrade"><span><i class="fas fa-route"></i> Registration Paths</span></a>
+        <a href="index.php?view=support-flow"><span><i class="fas fa-list-check"></i> Resolution Flow</span></a>
         <?php if ($user): ?><a href="../dashboard/index.php"><span><i class="fas fa-table-columns"></i> My Dashboard</span></a><?php else: ?><a href="login.php?next=index.php"><span><i class="fas fa-ticket"></i> Ticket Access</span></a><?php endif; ?>
       </nav>
       <small>Support remains self-contained here. Service registration links are kept in the registration paths section only.</small>
@@ -861,183 +865,14 @@ $upgradePaths = [
   <?php if ($message): ?><div class="notice ok"><?= e($message) ?></div><?php endif; ?>
   <?php if ($error): ?><div class="notice err"><?= e($error) ?></div><?php endif; ?>
 
-    <details class="support-panel" open><summary>New Support Request</summary><div class="support-panel-body">
-<section class="hero">
-    <article class="panel">
-      <div class="head"><div><h1>Support Desk, Requests & Resolution Flows</h1><p class="muted">Fast help, clear updates, and resolved issues for public visitors and registered NATCODEV users.</p></div><span class="badge ok">Available 24/7</span></div>
-      <div class="grid g4">
-        <div class="stat"><span>Open</span><b><?= (int) ($stats['open'] ?? 0) ?></b></div>
-        <div class="stat"><span>Waiting on You</span><b><?= (int) ($stats['waiting_on_user'] ?? 0) ?></b></div>
-        <div class="stat"><span>In Progress</span><b><?= (int) ($stats['in_progress'] ?? 0) ?></b></div>
-        <div class="stat"><span>Resolved</span><b><?= (int) ($stats['resolved'] ?? 0) ?></b></div>
-      </div>
-      <h2 style="margin-top:18px">Popular Categories</h2>
-      <div class="grid g3">
-        <?php foreach ($categories as $key => $cat): ?>
-          <a class="cat" href="#new-ticket" onclick="document.getElementById('category').value='<?= e($key) ?>'"><i class="fas <?= e($cat['icon']) ?>"></i><span><strong><?= e($cat['label']) ?></strong><span><?= e($cat['team']) ?> / <?= e(ucwords(str_replace('_', ' ', $cat['module']))) ?></span></span></a>
-        <?php endforeach; ?>
-      </div>
-    </article>
-
-    <article class="panel" id="new-ticket">
-      <div class="head"><h2>New Ticket</h2><span class="badge info"><?= e(support_role_label(support_role_key($user))) ?></span></div>
-      <form method="post">
-        <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-        <input type="hidden" name="action" value="create">
-        <div class="form-grid">
-          <div><label>Name</label><input name="name" value="<?= e((string) ($user['name'] ?? '')) ?>" required></div>
-          <div><label>Email</label><input type="email" name="email" value="<?= e((string) ($user['email'] ?? '')) ?>" required></div>
-          <div><label>Phone</label><input name="phone" value=""></div>
-          <div><label>Category</label><select id="category" name="category"><?php foreach ($categories as $key => $cat): ?><option value="<?= e($key) ?>" <?= $prefillCategory === $key ? 'selected' : '' ?>><?= e($cat['label']) ?></option><?php endforeach; ?></select></div>
-          <div><label>Priority</label><select name="priority"><?php foreach ($priorities as $key => $label): ?><option value="<?= e($key) ?>" <?= $key === 'medium' ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?></select></div>
-          <div><label>Linked Record Type</label><select name="linked_record_type"><option value="">None</option><option value="wallet_transaction">Wallet Transaction</option><option value="course_enrollment">Course Enrollment</option><option value="order">Order</option><option value="certificate">Certificate</option><option value="application">Application</option></select></div>
-          <div class="field-full"><label>Issue Title</label><input name="subject" placeholder="Example: Refund not received for course payment" required></div>
-          <div class="field-full"><label>Description</label><textarea name="description" placeholder="Tell us what happened, the date, amount/reference if any, and the outcome you need." required></textarea></div>
-          <div class="field-full"><label>Linked Record Reference</label><input name="linked_record_ref" placeholder="Transaction ID, certificate ref, order ref, application ref, or course name"></div>
-        </div>
-        <p><button class="btn" type="submit"><i class="fas fa-paper-plane"></i> Submit Ticket</button></p>
-      </form>
-    </article>
-  </section>
-
-  </div></details>
-
-  <details class="support-panel" id="upgrade-panel"><summary>Registration Paths</summary><div class="support-panel-body">
-  <section class="upgrade" id="upgrade">
-    <div class="head">
-      <div>
-        <h2>Need More Than Support?</h2>
-        <p class="muted">A public support ticket does not make someone a platform stakeholder. If the person wants NATCODEV services, send them through the correct registration or onboarding path below.</p>
-      </div>
-      <span class="badge info">Support-to-service upgrade</span>
-    </div>
-    <div class="grid g3">
-      <?php foreach ($upgradePaths as $path): ?>
-        <article class="upgrade-card">
-          <i class="fas <?= e($path['icon']) ?>"></i>
-          <h3><?= e($path['title']) ?></h3>
-          <p class="muted"><?= e($path['text']) ?></p>
-          <a class="btn light" href="<?= e($path['href']) ?>"><?= e($path['label']) ?></a>
-        </article>
-      <?php endforeach; ?>
-    </div>
-  </section>
-
-  </div></details>
-
-  <details class="support-panel" open><summary>Track Ticket And Replies</summary><div class="support-panel-body">
-  <section class="hero" style="margin-top:16px">
-    <article class="panel" id="lookup">
-      <div class="head"><h2><?= $user ? 'My Tickets' : 'Track Public Ticket' ?></h2><span class="badge neutral"><?= (int) count($myTickets) ?> ticket(s)</span></div>
-      <?php if (!$user): ?>
-        <form method="get" class="form-grid">
-          <div><label>Ticket Reference</label><input name="ticket" value="<?= e($lookupRef) ?>" required></div>
-          <div><label>Email Used</label><input type="email" name="email" value="<?= e($lookupEmail) ?>" required></div>
-          <div style="display:flex;align-items:end"><button class="btn light" type="submit">Track Ticket</button></div>
-        </form>
-      <?php endif; ?>
-      <div class="grid" style="margin-top:14px">
-        <?php foreach ($myTickets as $ticket): ?><a class="ticket <?= $selectedTicket && (int) $selectedTicket['id'] === (int) $ticket['id'] ? 'active' : '' ?>" href="index.php?ticket=<?= e((string) $ticket['ticket_ref']) ?>&email=<?= e((string) $ticket['requester_email']) ?>"><strong><?= e((string) $ticket['ticket_ref']) ?></strong><br><span class="muted"><?= e((string) $ticket['subject']) ?></span><br><span class="badge <?= e(support_badge_class((string) $ticket['status'])) ?>"><?= e(support_statuses()[(string) $ticket['status']] ?? (string) $ticket['status']) ?></span></a><?php endforeach; ?>
-        <?php if ($user && !$myTickets): ?><div class="ticket">No ticket yet. Submit a request above.</div><?php endif; ?>
-      </div>
-    </article>
-
-    <article class="panel">
-      <div class="head"><h2>Ticket Detail</h2><?php if ($selectedTicket): ?><span class="badge <?= e(support_badge_class((string) $selectedTicket['priority'])) ?>"><?= e(ucfirst((string) $selectedTicket['priority'])) ?> Priority</span><?php endif; ?></div>
-      <?php if ($selectedTicket): ?>
-        <h3><?= e((string) $selectedTicket['subject']) ?></h3>
-        <p class="muted"><?= e((string) $selectedTicket['ticket_ref']) ?> / <?= e($categories[(string) $selectedTicket['category']]['label'] ?? (string) $selectedTicket['category']) ?> / <?= e((string) $selectedTicket['assigned_team']) ?></p>
-        <div class="conversation">
-          <?php foreach ($conversation as $msg): ?><div class="msg <?= $msg['admin_id'] ? 'agent' : '' ?>"><strong><?= e((string) $msg['author_name']) ?></strong><p><?= nl2br(e((string) $msg['message'])) ?></p><small class="muted"><?= e(date('M j, Y g:i A', strtotime((string) $msg['created_at']))) ?></small></div><?php endforeach; ?>
-        </div>
-        <?php if (!in_array((string) $selectedTicket['status'], ['resolved', 'closed', 'rejected'], true)): ?>
-          <form method="post">
-            <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-            <input type="hidden" name="action" value="reply">
-            <input type="hidden" name="ticket_ref" value="<?= e((string) $selectedTicket['ticket_ref']) ?>">
-            <input type="hidden" name="email" value="<?= e((string) $selectedTicket['requester_email']) ?>">
-            <label>Reply</label><textarea name="reply" required></textarea>
-            <p><button class="btn" type="submit">Send Reply</button></p>
-          </form>
-        <?php endif; ?>
-
-        <?php if ((string) $selectedTicket['status'] === 'resolved' && empty($selectedTicket['rating'])): ?>
-          <div class="rating-box" style="margin-top:20px;padding:20px;background:var(--green-light);border:1px solid rgba(7,95,42,0.2);border-radius:var(--radius-md);">
-            <h4 style="margin:0 0 10px 0;color:var(--deep);font-weight:700;">Rate Your Support Experience</h4>
-            <p class="muted" style="font-size:0.85rem;margin:0 0 16px 0;">Please help us improve our service by rating your representative.</p>
-            <form method="post">
-              <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-              <input type="hidden" name="action" value="rate_ticket">
-              <input type="hidden" name="ticket_ref" value="<?= e((string) $selectedTicket['ticket_ref']) ?>">
-              <input type="hidden" name="email" value="<?= e((string) $selectedTicket['requester_email']) ?>">
-              <div style="margin-bottom:12px;">
-                <label>Rating Score</label>
-                <select name="rating" required style="max-width:240px;">
-                  <option value="5">5 - Excellent</option>
-                  <option value="4">4 - Good</option>
-                  <option value="3">3 - Average</option>
-                  <option value="2">2 - Poor</option>
-                  <option value="1">1 - Terrible</option>
-                </select>
-              </div>
-              <div style="margin-bottom:16px;">
-                <label>Review Comments (Optional)</label>
-                <textarea name="feedback_comment" placeholder="Tell us how we did..."></textarea>
-              </div>
-              <button class="btn" type="submit">Submit Feedback</button>
-            </form>
-          </div>
-        <?php elseif (!empty($selectedTicket['rating'])): ?>
-          <div class="rating-box" style="margin-top:20px;padding:20px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:var(--radius-md);color:#166534;">
-            <strong style="display:block;font-size:1rem;margin-bottom:6px;"><i class="fas fa-circle-check"></i> Thank you!</strong>
-            <p style="margin:0;font-size:0.9rem;line-height:1.5;">You rated this support experience: <strong><?= (int) $selectedTicket['rating'] ?> / 5</strong></p>
-            <?php if (!empty($selectedTicket['feedback_comment'])): ?>
-              <p style="margin:8px 0 0 0;font-size:0.88rem;font-style:italic;color:#15803d;padding-left:10px;border-left:3px solid #bbf7d0;">"<?= e($selectedTicket['feedback_comment']) ?>"</p>
-            <?php endif; ?>
-          </div>
-        <?php endif; ?>
-      <?php else: ?>
-        <p class="muted">Select a ticket or use the lookup form to view the conversation and admin updates.</p>
-      <?php endif; ?>
-    </article>
-  </section>
-
-  </div></details>
-
-  <details class="support-panel" id="knowledge-panel"><summary>Knowledge Base</summary><div class="support-panel-body">
-  <section class="panel" id="knowledge" aria-label="Support knowledge base">
-    <div class="head"><h2>Knowledge Base</h2><span class="badge info">Self-service help</span></div>
-    <div class="grid g3">
-      <article class="ticket"><strong><i class="fas fa-ticket"></i> Ticket Access</strong><p class="muted">Use your ticket reference and requester email to track replies, add updates, or rate a resolved case.</p><a class="btn light" href="#lookup">Track a ticket</a></article>
-      <article class="ticket"><strong><i class="fas fa-user-check"></i> Account & Registration</strong><p class="muted">Choose the correct path for growers, learners, buyers, sellers, providers, and field stakeholders before opening a support issue.</p><a class="btn light" href="#upgrade">View paths</a></article>
-      <article class="ticket"><strong><i class="fas fa-shield-halved"></i> Payments & Certificates</strong><p class="muted">For wallet, certificate access, refunds, or marketplace order questions, include your reference number so support can verify faster.</p><a class="btn light" href="#new-ticket">Open a case</a></article>
-    </div>
-  </section>
-  </div></details>
-
-  <details class="support-panel"><summary>Resolution Flow</summary><div class="support-panel-body">
-  <section class="support-flow" aria-label="Support resolution flow">
     <?php
-    $flowSteps = [
-        ['fa-comments', 'Open Support', '#lookup', 'document.getElementById("lookup").scrollIntoView({behavior: "smooth"});'],
-        ['fa-plus', 'Submit Issue', '#new-ticket', 'document.getElementById("new-ticket").scrollIntoView({behavior: "smooth"});'],
-        ['fa-people-arrows', 'Routed to Team', 'javascript:void(0)', 'alert("Tickets are instantly routed to target departments (Academy, Payments, Registry) based on category. Standard review takes less than 2 hours.");'],
-        ['fa-reply', 'Response / Action', '#lookup', 'document.getElementById("lookup").scrollIntoView({behavior: "smooth"});'],
-        ['fa-circle-check', 'Resolve', '#lookup', 'document.getElementById("lookup").scrollIntoView({behavior: "smooth"});'],
-        ['fa-star', 'Rate & Feedback', 'javascript:void(0)', 'alert("Customer satisfaction and resolution rates are monitored directly inside the coordinator panel to audit representative performance.");'],
-        ['fa-chart-simple', 'Report & Improve', 'javascript:void(0)', 'alert("Support metrics and ticket resolution feedback are audited weekly to improve NATCODEV services.");']
-    ];
-    foreach ($flowSteps as $step):
+    $view = $_GET['view'] ?? 'new-ticket';
+    $allowed = ['new-ticket', 'upgrade', 'lookup', 'knowledge', 'support-flow'];
+    if (!in_array($view, $allowed, true)) {
+        $view = 'new-ticket';
+    }
+    require __DIR__ . '/modules/' . $view . '.php';
     ?>
-      <a class="flow" href="<?= e($step[2]) ?>" onclick="<?= e($step[3]) ?>">
-        <i class="fas <?= e($step[0]) ?>"></i><br>
-        <strong><?= e($step[1]) ?></strong>
-      </a>
-    <?php endforeach; ?>
-  </section>
-    </section>
-  </div></details>
-  <!-- End collapsible support panels -->
     </section>
   </div>
 </main>

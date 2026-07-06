@@ -1,0 +1,20 @@
+<section class="grid g2">
+    <article class="card">
+      <div class="card-h"><h3>Course Detail</h3><a class="link" href="dashboard.php?screen=checkout&course_id=<?= $courseId ?>">Register</a></div>
+      <div style="display:flex;gap:14px;margin-bottom:14px"><div style="width:120px;height:90px;background:linear-gradient(135deg,var(--green-700),var(--green-500));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:38px;color:white;flex-shrink:0"><i class="fas fa-seedling"></i></div><div><h3><?= e((string) $course['title']) ?></h3><p class="muted"><?= e((string) ($course['description'] ?? '')) ?></p><div class="actions"><?= ac_badge((int) $course['is_free'] === 1 ? 'free' : 'paid', (int) $course['is_free'] === 1 ? 'Free Course' : ac_money((float) $course['price'])) ?><?= ac_badge('active', academy_delivery_label((string) ($course['delivery_type'] ?? 'lms'))) ?></div></div></div>
+      <div class="grid g5" style="gap:8px;margin-bottom:14px"><div class="card"><strong>Audience</strong><br><span class="muted"><?= e(academy_role_labels((string) ($course['target_roles'] ?? 'all'))) ?></span></div><div class="card"><strong>Lessons</strong><br><?= (int) ($course['lessons'] ?? count($lessons)) ?></div><div class="card"><strong>Assessments</strong><br><?= (int) ($course['assessments'] ?? ($assessment ? 1 : 0)) ?></div><div class="card"><strong>Duration</strong><br><?= (int) ($course['duration_minutes'] ?? 0) ?> min</div><div class="card"><strong>Certificate</strong><br><?= (int) ($course['certification_required'] ?? 0) === 1 ? 'Yes' : 'Learning only' ?></div></div>
+      <?php if (!empty($course['delivery_instructions'])): ?><div class="empty"><?= nl2br(e((string) $course['delivery_instructions'])) ?></div><?php endif; ?>
+    </article>
+    <article class="card">
+      <div class="card-h"><h3>Enroll</h3><a class="link" href="dashboard.php?screen=catalog">Catalog</a></div>
+      <p class="muted">Free courses unlock immediately. Paid courses can be paid from wallet or directly with Monnify.</p>
+      <?php if (in_array($courseId, $registeredIds, true)): ?>
+        <div class="notice ok">You are already registered for this course.</div><a class="btn btn-p btn-full" href="dashboard.php?screen=learning&course_id=<?= $courseId ?>">Go to My Learning</a>
+      <?php elseif ((int) $course['is_free'] === 1): ?>
+        <form method="post" action="../api/register-webinar.php"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="return_to" value="../academy/dashboard.php?screen=learning&course_id=<?= $courseId ?>"><input type="hidden" name="webinar_id" value="<?= $courseId ?>"><button class="btn-full" type="submit">Enroll Free</button></form>
+      <?php else: ?>
+        <div class="info-row"><span>Course Price</span><strong><?= e(ac_money((float) $course['price'])) ?></strong></div><div class="info-row"><span>Wallet Balance</span><strong><?= e(ac_money($walletBalance)) ?></strong></div>
+        <div class="actions"><form method="post" action="../api/register-webinar.php"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="return_to" value="../academy/dashboard.php?screen=learning&course_id=<?= $courseId ?>"><input type="hidden" name="webinar_id" value="<?= $courseId ?>"><input type="hidden" name="payment_method" value="wallet"><button type="submit" <?= $walletBalance >= (float) $course['price'] ? '' : 'disabled' ?>>Pay From Wallet</button></form><form method="post" action="../api/register-webinar.php"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="return_to" value="../academy/dashboard.php?screen=learning&course_id=<?= $courseId ?>"><input type="hidden" name="webinar_id" value="<?= $courseId ?>"><input type="hidden" name="payment_method" value="monnify_direct"><button type="submit">Pay Direct</button></form><a class="btn btn-o" href="dashboard.php?screen=transactions">Fund Wallet</a></div>
+      <?php endif; ?>
+    </article>
+  </section>
