@@ -108,11 +108,9 @@ function app_public_url(string $path): string
     if ($basePath === '' || $basePath === '.') {
         $basePath = '';
     }
-    if (preg_match('#/(admin|academy|api|buyer|dashboard|field-agent|market|marketplace|provider|support|super-admin)$#', $basePath)) {
-        $basePath = (string) dirname($basePath);
-        if ($basePath === '/' || $basePath === '.') {
-            $basePath = '';
-        }
+    $basePath = preg_replace('#/(admin|academy|api|buyer|dashboard|field-agent|market|marketplace|provider|support|super-admin)(/.*)?$#', '', $basePath);
+    if ($basePath === '/' || $basePath === '.') {
+        $basePath = '';
     }
 
     return ($basePath !== '' ? $basePath . '/' : '') . $path;
