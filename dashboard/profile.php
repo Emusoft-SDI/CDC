@@ -745,12 +745,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             goto profile_post_done;
         }
 
-        if ($action === 'send_profile_otp') {
-            $otp = profile_send_update_otp($pdo, $user);
-            $message = 'OTP ' . profile_otp_delivery_message($otp) . '. It expires in 10 minutes.';
-            goto profile_post_done;
-        }
-
         if ($action === 'save_farm_hand' && ($user['role'] ?? 'grower') === 'grower') {
             $farmHandId = (int) ($_POST['farm_hand_id'] ?? 0);
             $farmId = (int) ($_POST['farm_id'] ?? 0) ?: null;
@@ -1435,13 +1429,6 @@ $verificationStatus = (string) ($primaryGrowerFarm['verification_status'] ?? 'pe
             <p class="muted">Use phone verification for recovery, alerts, and support workflows.</p>
             <a class="button secondary" href="verify-phone.php">Verify Phone</a>
           </div>
-          <div class="panel">
-            <h3>Critical Change OTP</h3>
-            <p class="muted">Changing phone, location, next of kin, or notification channels may require a one-time security code.</p>
-            <label>OTP for Critical Changes</label>
-            <input type="text" name="otp_code" inputmode="numeric" maxlength="6" placeholder="<?= $otpRequired ? 'Enter 6-digit OTP' : 'Required only after OTP is requested' ?>">
-            <button type="submit" form="send-profile-otp-form" class="secondary">Send OTP</button>
-          </div>
         </div>
       </section>
       <?php endif; ?>
@@ -1591,11 +1578,15 @@ $verificationStatus = (string) ($primaryGrowerFarm['verification_status'] ?? 'pe
       <label class="check"><input type="checkbox" name="notify_sms" <?= (int) ($profileForm['notify_sms'] ?? 0) === 1 ? 'checked' : '' ?>> SMS notifications</label><br><br>
       </section>
       <?php endif; ?>
-      <div class="profile-actions" data-profile-save-actions><button type="submit">Save Profile</button></div>
-    </form>
-    <form id="send-profile-otp-form" method="post" hidden>
-      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-      <input type="hidden" name="action" value="send_profile_otp">
+      <div class="profile-actions" data-profile-save-actions>
+        <?php if ($otpRequired): ?>
+            <div style="display:flex; flex-direction:column; gap:6px;">
+                <label>Security Code required</label>
+                <input type="text" name="otp_code" inputmode="numeric" maxlength="6" required placeholder="Enter 6-digit OTP" style="min-width: 250px;">
+            </div>
+        <?php endif; ?>
+        <button type="submit"><?= $otpRequired ? 'Verify & Save Profile' : 'Save Profile' ?></button>
+      </div>
     </form>
     <?php if (in_array('password', $profileAllowedTabs, true)): ?>
     <section class="profile-section profile-tab-panel" data-profile-panel="password" <?= $profileDefaultTab === 'password' ? '' : 'hidden' ?>>
