@@ -7,6 +7,15 @@ ErrorDocument 503 /WIN/404.php?code=503
 <IfModule mod_rewrite.c>
   RewriteEngine On
 
+  # Web Server Level Maintenance Mode Fallback
+  RewriteCond %{DOCUMENT_ROOT}/win/.maintenance -f
+  RewriteCond %{REQUEST_URI} !^/win/maintenance\.html$
+  RewriteCond %{REQUEST_URI} !^/win/assets/
+  RewriteCond %{QUERY_STRING} !admin_bypass=natcodev_rescue
+  RewriteCond %{HTTP_COOKIE} !natcodev_bypass=1
+  # Serve maintenance.html directly, ignoring normal 503 ErrorDocument
+  RewriteRule ^(.*)$ /win/maintenance.html [L]
+
   RewriteRule (^|/)\. - [F,L]
   RewriteRule ^(config\.php|composer\.(json|lock)|package(-lock)?\.json)$ - [F,L,NC]
   RewriteRule ^(test_db\.php|run_schema_update\.php)$ - [F,L,NC]

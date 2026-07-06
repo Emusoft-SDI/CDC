@@ -12,8 +12,10 @@ if (isset($_GET['admin_bypass']) && $_GET['admin_bypass'] === 'natcodev_rescue')
 }
 if (!isset($_COOKIE['natcodev_bypass']) && file_exists(__DIR__ . '/.maintenance')) {
     // Only load maintenance mode if we are not already viewing it to prevent infinite loops
-    if (basename($_SERVER['SCRIPT_NAME'] ?? '') !== 'maintenance.php') {
-        require __DIR__ . '/maintenance.php';
+    if (basename($_SERVER['SCRIPT_NAME'] ?? '') !== 'maintenance.html') {
+        http_response_code(503);
+        header('Retry-After: 3600');
+        require __DIR__ . '/maintenance.html';
         exit;
     }
 }
@@ -169,9 +171,11 @@ function db(): PDO
         );
     } catch (PDOException $e) {
         error_log('Database connection failed: ' . $e->getMessage());
-        if (!isset($_COOKIE['natcodev_bypass']) && basename($_SERVER['SCRIPT_NAME'] ?? '') !== 'maintenance.php') {
+        if (!isset($_COOKIE['natcodev_bypass']) && basename($_SERVER['SCRIPT_NAME'] ?? '') !== 'maintenance.html') {
             // Auto-fallback to maintenance mode if DB is completely down
-            require __DIR__ . '/maintenance.php';
+            http_response_code(503);
+            header('Retry-After: 3600');
+            require __DIR__ . '/maintenance.html';
             exit;
         }
         // If they have bypass cookie, they still get the raw error so they can debug
