@@ -163,7 +163,7 @@ $maxFlow = max(1.0, ...array_map(static fn(array $r): float => max((float) $r['i
 <body>
 <div class="fin-shell">
   <aside class="fin-side">
-    <h4>NATCODEV</h4>
+    <div style="margin-bottom: 1rem;"><img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV" style="max-width: 150px; max-height: 45px; margin-bottom: 10px; display: block;"><h4>NATCODEV</h4></div>
     <p class="small text-white-50">Wallet & Finance Control Room</p>
     <nav class="d-grid gap-1 mt-4">
       <a href="index.php">Overview</a>
