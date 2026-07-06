@@ -1,4 +1,4 @@
-﻿<?php defined('NATCODEV_SUPPORT_WORKSPACE_VIEW') || exit; ?>
+<?php defined('NATCODEV_SUPPORT_WORKSPACE_VIEW') || exit; ?>
 <?php if ($message): ?><div class="notice ok"><?= e($message) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="notice error"><?= e($error) ?></div><?php endif; ?>
 <style>

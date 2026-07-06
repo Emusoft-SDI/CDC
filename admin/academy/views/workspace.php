@@ -1,4 +1,4 @@
-﻿<?php defined('NATCODEV_ACADEMY_WORKSPACE_VIEW') || exit; ?>
+<?php defined('NATCODEV_ACADEMY_WORKSPACE_VIEW') || exit; ?>
 <style>
   html, body { margin:0 !important; padding:0 !important; overflow-x:hidden; }
   .admin-main { width:100vw !important; max-width:none !important; margin:0 !important; padding:0 !important; }
