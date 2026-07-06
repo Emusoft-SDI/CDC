@@ -1026,10 +1026,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $needsOtp = profile_update_needs_otp($user, $profileData);
         $otpCode = preg_replace('/[^0-9]/', '', (string) ($_POST['otp_code'] ?? ''));
 
+        if (!empty($_POST['resend_otp'])) {
+            $otpCode = ''; // Force regeneration if resend is clicked
+        }
+
         if ($needsOtp && $otpCode === '') {
             $otp = profile_send_update_otp($pdo, $user);
             $otpRequired = true;
             $message = 'Security code ' . profile_otp_delivery_message($otp) . '. Enter the OTP to save these profile changes.';
+            $error = ''; // Clear any previous errors on resend
         } elseif ($needsOtp && !profile_verify_update_otp($pdo, $userId, $otpCode)) {
             $otpRequired = true;
             $error = 'Invalid or expired OTP. Request a new code and try again.';
@@ -1584,8 +1589,13 @@ $verificationStatus = (string) ($primaryGrowerFarm['verification_status'] ?? 'pe
                 <label>Security Code required</label>
                 <input type="text" name="otp_code" inputmode="numeric" maxlength="6" required placeholder="Enter 6-digit OTP" style="min-width: 250px;">
             </div>
+            <div style="display:flex; gap:10px; align-items:center;">
+                <button type="submit">Verify & Save Profile</button>
+                <button type="submit" name="resend_otp" value="1" formnovalidate class="button secondary">Resend OTP</button>
+            </div>
+        <?php else: ?>
+            <button type="submit">Save Profile</button>
         <?php endif; ?>
-        <button type="submit"><?= $otpRequired ? 'Verify & Save Profile' : 'Save Profile' ?></button>
       </div>
     </form>
     <?php if (in_array('password', $profileAllowedTabs, true)): ?>
