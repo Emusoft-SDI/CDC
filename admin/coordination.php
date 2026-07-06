@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 declare(strict_types=1);
 
 require_once __DIR__ . '/_auth.php';
@@ -100,7 +100,7 @@ admin_page_start('Admin Operations Outlook', [
 ?>
 <div class="ao-workspace">
   <aside class="ao-rail" aria-label="Admin operations navigation">
-    <div class="ao-brand"><img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV"><div><strong>NATCODEV</strong><small>Admin Operations</small></div></div>
+    <div class="ao-brand"><img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV"><div><strong>NATCODEV</strong><small>Admin Operations</small></div></div>
     <div class="ao-label">Main Navigation</div>
     <nav class="ao-nav">
       <a class="active" href="coordination.php"><span><i class="fa-solid fa-house"></i> Dashboard</span></a>

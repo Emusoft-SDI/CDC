@@ -123,6 +123,16 @@ function app_primary_logo_url(): string
     return app_public_url(app_primary_logo_path());
 }
 
+function app_admin_logo_path(): string
+{
+    return 'assets/logo/natcodev-logo.png';
+}
+
+function app_admin_logo_url(): string
+{
+    return app_public_url(app_admin_logo_path());
+}
+
 function db(): PDO
 {
     static $pdo = null;

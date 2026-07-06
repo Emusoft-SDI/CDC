@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -130,7 +130,7 @@ tr:hover td { background:var(--green-50); }
 <body>
 <aside class="sidebar">
   <div class="sidebar-header">
-    <div class="sidebar-logo"><img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV"></div>
+    <div class="sidebar-logo"><img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV"></div>
     <div class="sidebar-brand">NATCODEV<small>National Coconut Registry</small></div>
   </div>
   <div class="workspace-badge">REGISTRY WORKSPACE</div>

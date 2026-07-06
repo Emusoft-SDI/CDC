@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config.php';
@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
   <main class="card">
-    <div class="brand"><img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV"><span>NATCODEV<br><small>Operator Verification</small></span></div>
+    <div class="brand"><img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV"><span>NATCODEV<br><small>Operator Verification</small></span></div>
     <h1>Enter operator OTP</h1>
     <p>For platform operator access, confirm the 6-digit code sent after the admin password was accepted.</p>
     <?php if ($notice): ?><p class="ok"><?= $notice ?></p><?php endif; ?>

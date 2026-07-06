@@ -1,4 +1,4 @@
-<?php defined('NATCODEV_SUPPORT_WORKSPACE_VIEW') || exit; ?>
+﻿<?php defined('NATCODEV_SUPPORT_WORKSPACE_VIEW') || exit; ?>
 <?php if ($message): ?><div class="notice ok"><?= e($message) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="notice error"><?= e($error) ?></div><?php endif; ?>
 <style>
@@ -84,7 +84,7 @@
 
 <header class="support-topbar" aria-label="Support workspace top bar">
   <a class="support-topbrand" href="index.php">
-    <img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV">
+    <img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV">
     <strong>NATCODEV Support<span>Admin support workspace</span></strong>
   </a>
   <nav class="support-topnav" aria-label="Support quick navigation"><a class="support-toplink primary" href="<?= e(sd_url(['view' => 'overview', 'status' => 'active', 'scope' => 'all'])) ?>">Workspace</a>
@@ -97,7 +97,7 @@
 <div class="support-layout">
   <aside class="support-rail" aria-label="Support workspace side menu">
     <a class="support-rail-brand" href="<?= e(sd_url(['view' => 'overview', 'status' => 'active', 'scope' => 'all'])) ?>">
-      <img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV">
+      <img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV">
       <strong>NATCODEV Support<span>Control center</span></strong>
     </a>
 

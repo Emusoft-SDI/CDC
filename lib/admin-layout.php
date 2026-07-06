@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config.php';
@@ -1326,7 +1326,7 @@ function admin_page_start(string $title, array $options = []): void
   <header class="admin-header">
     <div class="admin-bar">
       <a class="admin-brand" href="index.php">
-        <img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV">
+        <img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV">
         <span><strong>NATCODEV Admin</strong><span>Workspace operations hub</span></span>
       </a>
       <nav class="admin-nav" aria-label="Admin navigation">

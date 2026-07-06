@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 declare(strict_types=1);
 
 require_once __DIR__ . '/../lib/admin-layout.php';
@@ -1262,7 +1262,7 @@ function super_admin_login_screen(string $error): void
 </head>
 <body>
   <form class="box" method="post">
-    <img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV">
+    <img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV">
     <h1>Super Administrator</h1>
     <p>Privileged access for account governance, security controls, audit review, and system-wide configuration.</p>
     <?php if ($error): ?><div class="notice"><?= e($error) ?></div><?php endif; ?>
@@ -1311,7 +1311,7 @@ function super_admin_page_start(string $title, string $description = '', string 
 <body>
   <header class="super-header">
     <div class="bar">
-      <a class="brand" href="index.php"><img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV"><span>NATCODEV Super Admin</span></a>
+      <a class="brand" href="index.php"><img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV"><span>NATCODEV Super Admin</span></a>
       <nav class="super-nav" aria-label="Super Admin menus">
         <?php foreach (super_admin_nav_groups() as $groupLabel => $items): ?>
           <details class="<?= super_admin_nav_group_is_active($items, $activeView) ? 'active' : '' ?>">

@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 declare(strict_types=1);
 
 require_once __DIR__ . '/../lib/admin-layout.php';
@@ -80,7 +80,7 @@ function admin_hub_filter_sections(PDO $pdo, array $sections, bool $isSuperAdmin
         return isset($section[1]) && admin_hub_href_allowed($pdo, (string) $section[1], $isSuperAdmin);
     }));
 }
-$logo = app_primary_logo_url();
+$logo = app_admin_logo_url();
 $avatar = trim((string) ($user['profile_picture'] ?? ''));
 $avatarUrl = $avatar !== '' ? (str_starts_with($avatar, 'http') ? $avatar : '../' . ltrim($avatar, '/')) : '';
 

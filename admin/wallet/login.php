@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 declare(strict_types=1);
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../lib/admin-layout.php';
@@ -56,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
     <main class="login-shell">
-      <div class="brand"><img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV"><span>NATCODEV Registry</span></div>
+      <div class="brand"><img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV"><span>NATCODEV Registry</span></div>
       <form method="post">
         <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
         <h1>Admin Login</h1>

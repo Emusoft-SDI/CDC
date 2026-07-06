@@ -1,4 +1,4 @@
-<?php defined('NATCODEV_ACADEMY_WORKSPACE_VIEW') || exit; ?>
+﻿<?php defined('NATCODEV_ACADEMY_WORKSPACE_VIEW') || exit; ?>
 <style>
   html, body { margin:0 !important; padding:0 !important; overflow-x:hidden; }
   .admin-main { width:100vw !important; max-width:none !important; margin:0 !important; padding:0 !important; }
@@ -18,7 +18,7 @@
 
 <div class="acad-workspace">
   <aside class="acad-rail" aria-label="Academy workspace navigation">
-    <div class="acad-brand"><img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV"><div><strong>NATCODEV</strong><small>Academy Workspace</small></div></div>
+    <div class="acad-brand"><img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV"><div><strong>NATCODEV</strong><small>Academy Workspace</small></div></div>
     <div class="acad-label">Workspace Hub</div>
     <nav class="acad-nav">
       <a href="../index.php"><span><i class="fa-solid fa-house"></i> Workspace Hub</span></a>

@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 declare(strict_types=1);
 
 if (!defined('NATCODEV_WALLET_LEGACY')) {
@@ -144,7 +144,7 @@ admin_page_start('Wallet Workspace', [
 <div class="wa-workspace">
   <aside class="wa-rail" aria-label="Wallet workspace navigation">
     <div class="wa-rail-brand">
-      <img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV">
+      <img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV">
       <div><strong>NATCODEV</strong><small>Wallet Workspace</small></div>
     </div>
     <div class="wa-label">Wallet Workspace</div>
