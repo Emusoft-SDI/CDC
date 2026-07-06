@@ -4,32 +4,18 @@ require_once '../config.php';
 require_once '../lib/dashboard-layout.php';
 
 $pdo = db();
-dashboard_page_start('Apply for Input Loan', ['description' => 'Select an agricultural scheme and repayment structure.']);
+dashboard_page_start('Agricultural Inputs & Loans', ['description' => 'Access farm inputs and cooperative financing.']);
 ?>
 
-<form method="post" class="card">
-    <input type="hidden" name="action" value="apply_loan">
-    <div class="grid">
-        <div>
-            <label>Choose Loan Plan</label>
-            <select name="loan_plan">
-                <option value="coconut_farm_input">Coconut Farm Input Loan &mdash; Max: NGN 5,000.00 @ 10.00% x 12 installment(s)</option>
-            </select>
-        </div>
-        <div>
-            <label>Repayment Option</label>
-            <select name="repayment_option">
-                <option value="weekly">Weekly</option>
-            </select>
-        </div>
-        <div>
-            <label>Request Amount</label>
-            <input type="number" min="1" max="5000" name="amount" required>
-        </div>
-    </div>
-    <div style="margin-top:15px;">
-        <button type="submit" class="button">Apply</button>
-    </div>
-</form>
+<div class="card" style="text-align: center; padding: 40px 20px; max-width: 600px; margin: 0 auto;">
+    <img src="../assets/cfc_logo.png" alt="CFC Logo" style="max-height: 80px; margin-bottom: 20px;">
+    <h2>Coconut Farmers Cooperative</h2>
+    <p class="muted" style="margin-bottom: 30px; font-size: 16px;">
+        All financial services, including farm input loans, grants, and savings, are managed exclusively through our dedicated cooperative platform.
+    </p>
+    <a href="https://www.cfc.natodev.com.ng" target="_blank" class="button" style="display: inline-block; padding: 12px 24px; font-size: 16px;">
+        Go to Cooperative Portal
+    </a>
+</div>
 
 <?php dashboard_page_end(); ?>
