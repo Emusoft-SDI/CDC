@@ -242,6 +242,12 @@ try {
             $sellerStats['sales'] = (float) $salesStmt->fetchColumn();
         }
     }
+    $healthStatus = null;
+    if (app_table_exists($pdo, 'healthcare_applications')) {
+        $healthStmt = $pdo->prepare("SELECT status FROM healthcare_applications WHERE user_id = ? ORDER BY applied_at DESC LIMIT 1");
+        $healthStmt->execute([$userId]);
+        $healthStatus = $healthStmt->fetchColumn() ?: null;
+    }
 } catch (Throwable $e) {
     error_log('Grower dashboard error: ' . $e->getMessage());
     http_response_code(500);
@@ -259,6 +265,12 @@ $certificateRef = $certificateReady ? (string) $certificate['display_ref'] : '';
 $stateName = (string) ($primaryFarm['state_name'] ?? 'State pending');
 $lgaName = (string) ($primaryFarm['lga_name'] ?? 'LGA pending');
 $location = trim($lgaName . ', ' . $stateName, ' ,');
+
+$prodStage = strtolower((string) ($primaryFarm['production_stage'] ?? 'establishment'));
+$y4Active = str_contains($prodStage, 'fruit') || str_contains($prodStage, 'production');
+$y3Active = !$y4Active && (str_contains($prodStage, 'flower') || str_contains($prodStage, 'pre-prod'));
+$y2Active = !$y4Active && !$y3Active && (str_contains($prodStage, 'growth') || str_contains($prodStage, 'vegetative'));
+$y1Active = !$y4Active && !$y3Active && !$y2Active;
 
 dashboard_page_start('Overview', [
     'active' => 'index.php',
@@ -355,10 +367,10 @@ dashboard_page_start('Overview', [
   <article class="card col-span-4">
     <div class="card-h"><h3>3-Year Coconut Bridge <small>(pre-yield planning)</small></h3><a class="link" href="farm-health.php">View plan</a></div>
     <div class="timeline-container">
-      <div class="timeline-stage active"><span class="timeline-ic"><?= gd_icon('seedling') ?></span><div class="yr">Year 1</div><div class="mo">Establishment</div><div class="tree">Y1</div><small>Roots, seedlings, intercrops</small></div>
-      <div class="timeline-stage"><span class="timeline-ic"><?= gd_icon('tree') ?></span><div class="yr">Year 2</div><div class="mo">Growth</div><div class="tree">Y2</div><small>Survival and labor tracking</small></div>
-      <div class="timeline-stage"><span class="timeline-ic"><?= gd_icon('task') ?></span><div class="yr">Year 3</div><div class="mo">Pre-production</div><div class="tree">Y3</div><small>Prepare harvest systems</small></div>
-      <div class="timeline-stage"><span class="timeline-ic"><?= gd_icon('coins') ?></span><div class="yr">Year 4+</div><div class="mo">Production</div><div class="tree">Y4</div><small>Dwarf coconut yield begins</small></div>
+      <div class="timeline-stage <?= $y1Active ? 'active' : '' ?>"><span class="timeline-ic"><?= gd_icon('seedling') ?></span><div class="yr">Year 1</div><div class="mo">Establishment</div><div class="tree">Y1</div><small>Roots, seedlings, intercrops</small></div>
+      <div class="timeline-stage <?= $y2Active ? 'active' : '' ?>"><span class="timeline-ic"><?= gd_icon('tree') ?></span><div class="yr">Year 2</div><div class="mo">Growth</div><div class="tree">Y2</div><small>Survival and labor tracking</small></div>
+      <div class="timeline-stage <?= $y3Active ? 'active' : '' ?>"><span class="timeline-ic"><?= gd_icon('task') ?></span><div class="yr">Year 3</div><div class="mo">Pre-production</div><div class="tree">Y3</div><small>Prepare harvest systems</small></div>
+      <div class="timeline-stage <?= $y4Active ? 'active' : '' ?>"><span class="timeline-ic"><?= gd_icon('coins') ?></span><div class="yr">Year 4+</div><div class="mo">Production</div><div class="tree">Y4</div><small>Dwarf coconut yield begins</small></div>
     </div>
     <div class="sub-cards">
       <div class="mini-card"><div class="v"><?= e((string) ($primaryFarm['intercrops'] ?? 'Not set')) ?></div><div class="l">Current Intercrops</div></div>
@@ -425,7 +437,11 @@ dashboard_page_start('Overview', [
   </article>
   <article class="card">
     <div class="card-h"><h3>Healthcare</h3><a class="link" href="healthcare.php">Open</a></div>
-    <div class="table-lite-row"><div class="task-main"><span class="row-icon"><?= gd_icon('headset') ?></span><div class="act-info"><div class="nm">Health Service Status</div><div class="dt">Enrollment and partner services appear when enabled.</div></div></div><span class="badge-pill bp-orange">Optional</span></div>
+    <?php if ($healthStatus): ?>
+    <div class="table-lite-row"><div class="task-main"><span class="row-icon"><?= gd_icon('headset') ?></span><div class="act-info"><div class="nm">Health Service Status</div><div class="dt">Coverage application is <?= e($healthStatus) ?>.</div></div></div><span class="badge-pill <?= $healthStatus === 'approved' ? 'bp-green' : ($healthStatus === 'pending' ? 'bp-orange' : 'bp-red') ?>"><?= e(ucwords($healthStatus)) ?></span></div>
+    <?php else: ?>
+    <div class="table-lite-row"><div class="task-main"><span class="row-icon"><?= gd_icon('headset') ?></span><div class="act-info"><div class="nm">Health Service Status</div><div class="dt">Apply for partner healthcare services.</div></div></div><span class="badge-pill bp-orange">Unenrolled</span></div>
+    <?php endif; ?>
     <div class="table-lite-row"><div class="task-main"><span class="row-icon"><?= gd_icon('task') ?></span><div class="act-info"><div class="nm">Field worker safety</div><div class="dt">Keep hydration and safety checks visible.</div></div></div><a class="link" href="healthcare.php">Open</a></div>
   </article>
 </div>
