@@ -4,7 +4,7 @@ declare(strict_types=1);
 $registryRequiredFeature = 'certificates';
 require_once __DIR__ . '/inc/init.php';
 require_once __DIR__ . '/inc/common.php';
-require_once __DIR__ . '/../../../lib/academy.php';
+require_once __DIR__ . '/../../lib/academy.php';
 
 $pageTitle = 'Registry Certificate Central - NATCODEV Registry';
 $activeNav = 'certificates';
