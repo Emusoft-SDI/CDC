@@ -13,7 +13,7 @@ dashboard_page_start('Agricultural Inputs & Loans', ['description' => 'Access fa
     <p class="muted" style="margin-bottom: 30px; font-size: 16px;">
         All financial services, including farm input loans, grants, and savings, are managed exclusively through our dedicated cooperative platform.
     </p>
-    <a href="https://www.cfc.natodev.com.ng" target="_blank" class="button" style="display: inline-block; padding: 12px 24px; font-size: 16px;">
+    <a href="https://cfc.natcodev.com.ng" target="_blank" class="button" style="display: inline-block; padding: 12px 24px; font-size: 16px;">
         Go to Cooperative Portal
     </a>
 </div>
