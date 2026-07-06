@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" role="img" aria-labelledby="title desc">
+  <title id="title">Provider accreditation course image</title>
+  <desc id="desc">An illustrated accreditation desk with checklist, service badge, and verification seal.</desc>
+  <rect width="900" height="520" fill="#f7faf5"/>
+  <rect x="0" y="356" width="900" height="164" fill="#e7f2e6"/>
+  <rect x="122" y="92" width="332" height="328" rx="20" fill="#fff" stroke="#dfe8d8" stroke-width="5"/>
+  <rect x="172" y="144" width="164" height="20" rx="10" fill="#0b4f2a"/>
+  <rect x="172" y="194" width="212" height="16" rx="8" fill="#9ab99c"/>
+  <rect x="172" y="238" width="188" height="16" rx="8" fill="#9ab99c"/>
+  <rect x="172" y="282" width="226" height="16" rx="8" fill="#9ab99c"/>
+  <circle cx="142" cy="202" r="14" fill="#c99b22"/>
+  <circle cx="142" cy="246" r="14" fill="#c99b22"/>
+  <circle cx="142" cy="290" r="14" fill="#c99b22"/>
+  <circle cx="642" cy="236" r="126" fill="#fff" stroke="#0b4f2a" stroke-width="16"/>
+  <path d="M576 240l43 43 96-112" fill="none" stroke="#c99b22" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="532" y="374" width="224" height="42" rx="21" fill="#0b4f2a"/>
+  <rect x="579" y="388" width="130" height="14" rx="7" fill="#fff"/>
+</svg>

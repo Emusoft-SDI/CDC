@@ -312,16 +312,7 @@ function admin_import_xlsx_rows(string $path): array
 
 function admin_import_csv_rows(string $path): array
 {
-    $handle = fopen($path, 'rb');
-    if (!$handle) {
-        throw new RuntimeException('Unable to open CSV file.');
-    }
-    $rows = [];
-    while (($row = fgetcsv($handle)) !== false) {
-        $rows[] = array_map(static fn($value) => trim((string) $value), $row);
-    }
-    fclose($handle);
-    return $rows;
+    return app_csv_import_rows($path);
 }
 
 function admin_import_mapped_rows(string $path, string $filename): array
@@ -542,21 +533,19 @@ function admin_import_process(PDO $pdo, string $path, string $filename, string $
                     $summary['skipped']++;
                 } elseif (filter_var($record['email'], FILTER_VALIDATE_EMAIL)) {
                     $applicationId = admin_import_insert_application($pdo, $record, $token);
-                    if ($applicationId !== null && $sendNotifications) {
+                    if ($applicationId !== null) {
                         admin_import_send_confirmation($pdo, $applicationId, true, $record['phone_e164'] !== '', $record['phone_e164'] !== '');
                     }
                     $status = 'pending_engagement';
-                    $note = $sendNotifications ? 'Confirmation link sent by available email/SMS/WhatsApp channels.' : 'Application staged; confirmation not sent yet.';
+                    $note = 'Confirmation link sent by available email/SMS/WhatsApp channels.';
                     if ($record['alternate_email'] !== '' || $record['alternate_phone'] !== '') {
                         $note .= ' Alternate contacts captured.';
                     }
                     $summary['pending']++;
                 } elseif ($record['phone_e164'] !== '') {
-                    if ($sendNotifications) {
-                        admin_import_send_phone_engagement($record, $token);
-                    }
+                    admin_import_send_phone_engagement($record, $token);
                     $status = 'pending_phone_engagement';
-                    $note = $sendNotifications ? 'Phone confirmation link sent by SMS/WhatsApp. User adds email during confirmation.' : 'Phone engagement staged; confirmation not sent yet.';
+                    $note = 'Phone confirmation link sent by SMS/WhatsApp. User adds email during confirmation.';
                     $summary['pending']++;
                 } else {
                     $status = 'needs_contact';

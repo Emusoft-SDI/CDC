@@ -1,0 +1,62 @@
+This Field Agent Operations page is the field officer’s working console. It is used when NATCODEV sends a field agent to physically verify a farmer’s farm, capture field evidence, and report observations back into the platform.
+
+What It Does
+
+The field agent can see assigned farm tasks, like the Test Coconut Farm assigned to Test Grower.
+
+For each farm visit, the agent can:
+
+Capture the real visit GPS coordinates.
+Compare the agent’s location with the farmer’s submitted farm location.
+Mark the farm as Verified on site, Needs admin review, Rejected, or Submit evidence only.
+Add field notes about access, crop condition, boundary evidence, and farmer interview.
+Record agronomy observations like crop symptoms, pest signs, weed pressure, water stress, and soil condition.
+Submit the visit into the system for admin/governance review.
+The Offline Sync Center means the agent can still work in areas with poor network. Visits can be saved offline, queued, and synced later when internet returns.
+
+The Visit Map shows field visit locations.
+
+The Certificate Verification section lets the agent verify certificate/application references while in the field.
+
+The Offline Resources section gives the agent access to training guides or field manuals.
+
+Benefit To The Farmer
+
+It protects the farmer from being wrongly rejected based only on desk review.
+
+A farmer benefits because:
+
+Their farm can be physically verified.
+GPS evidence supports their application.
+Field notes can explain issues that online forms cannot capture.
+Agronomy problems can be reported early.
+The farmer’s documents, farm, and certificate journey become more credible.
+If internet is bad in the farmer’s area, the visit is not wasted because the agent can sync later.
+Benefit To Governance
+
+It gives NATCODEV stronger control, auditability, and fraud prevention.
+
+Governance benefits because:
+
+Admins can verify that a farm actually exists.
+GPS distance helps detect false or inaccurate farm locations.
+Every visit creates an audit trail: agent, farm, result, notes, date, and coordinates.
+Offline sync prevents field-data loss.
+Agronomy observations can trigger advisory or follow-up cases.
+Certificates and approvals become evidence-backed, not just form-based.
+State coordinators and admins can monitor field activity and verification progress.
+In simple terms: this page turns NATCODEV from “people filled a form online” into “we verified the farm, saw the conditions, captured location evidence, and created a record government/admin can trust.”
+The agent captures GPS coordinates by clicking “Use Current GPS” on the assigned field task.
+
+What happens:
+
+The browser asks the device for its current location.
+The phone/laptop GPS provides the agent’s latitude and longitude.
+The system fills these two fields automatically:
+Visit latitude
+Visit longitude
+The agent then clicks Submit Visit.
+NATCODEV saves those coordinates with the field visit record.
+So the agent should do this while physically standing at or near the farmer’s farm.
+
+Important: the browser/device must allow location access. On a phone, GPS/location services must be turned on. On desktop, the browser may use Wi-Fi/network location, which is less accurate than phone GPS.

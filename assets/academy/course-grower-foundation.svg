@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" role="img" aria-labelledby="title desc">
+  <title id="title">Grower foundation course image</title>
+  <desc id="desc">An illustrated outdoor lesson with coconut seedlings, farm records, and a learner workbook.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e9f7ec"/>
+      <stop offset="0.55" stop-color="#fdf7df"/>
+      <stop offset="1" stop-color="#d9efe3"/>
+    </linearGradient>
+  </defs>
+  <rect width="900" height="520" fill="url(#bg)"/>
+  <rect x="0" y="332" width="900" height="188" fill="#5aa060"/>
+  <path d="M0 344c130-62 252-65 366-12s226 54 334 0c76-38 142-47 200-29v217H0z" fill="#2f7f43"/>
+  <circle cx="710" cy="86" r="56" fill="#f4c247"/>
+  <path d="M119 322c48-118 107-194 176-229-13 64-13 125 0 184-43 6-101 21-176 45z" fill="#0d6b39"/>
+  <path d="M308 325c-5-128 31-223 110-286 7 78 28 150 62 217-50 15-107 38-172 69z" fill="#16864b"/>
+  <path d="M444 322c57-124 132-199 225-224-23 75-28 143-13 205-61 0-132 7-212 19z" fill="#0e6f3e"/>
+  <rect x="132" y="278" width="210" height="126" rx="18" fill="#fff" stroke="#d3dfd0" stroke-width="5"/>
+  <rect x="166" y="306" width="142" height="14" rx="7" fill="#0b4f2a"/>
+  <rect x="166" y="334" width="112" height="12" rx="6" fill="#c99b22"/>
+  <rect x="166" y="360" width="150" height="12" rx="6" fill="#8cbf95"/>
+  <path d="M600 386c-9-78 24-136 98-173 15 63 10 121-15 173z" fill="#0b4f2a"/>
+  <path d="M662 388c24-66 73-105 147-117-8 59-37 101-88 127z" fill="#16864b"/>
+  <rect x="572" y="388" width="178" height="34" rx="17" fill="#8b5d22"/>
+</svg>

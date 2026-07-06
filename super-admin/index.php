@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../lib/admin-layout.php';
 require_once __DIR__ . '/../lib/disaster-recovery.php';
+require_once __DIR__ . '/../lib/otp-delivery.php';
+require_once __DIR__ . '/../lib/workspace-account.php';
 
 const SUPER_ADMIN_SCHEMA_VERSION = '20260513-3';
 
@@ -12,6 +14,14 @@ $message = '';
 $error = '';
 $roles = super_admin_roles();
 $statuses = super_admin_statuses();
+$pdo = db();
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'logout') {
+    if (verify_csrf($_POST['_csrf'] ?? null)) {
+        super_admin_logout();
+    }
+    $error = 'Invalid security token.';
+}
 
 if (isset($_GET['logout'])) {
     unset(
@@ -26,10 +36,21 @@ if (isset($_GET['logout'])) {
 if (empty($_SESSION['super_admin_authenticated']) && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'login') {
     if (!verify_csrf($_POST['_csrf'] ?? null)) {
         $error = 'Invalid security token.';
+    } elseif (!app_check_rate_limit('super_admin_login', 5, 900)) {
+        $error = 'Too many Super Admin login attempts. Please try again in 15 minutes.';
     } elseif (super_admin_password_is_valid((string) ($_POST['password'] ?? ''))) {
-        session_regenerate_id(true);
-        $_SESSION['super_admin_authenticated'] = true;
-        redirect_to('index.php');
+        unset($_SESSION['super_admin_authenticated'], $_SESSION['super_admin_user_id'], $_SESSION['super_admin_login_audited']);
+        $stmt = $pdo->query("SELECT id, name, email, password, role, platform_role, account_status, email_verified_at FROM users WHERE is_super_admin = 1 AND account_status = 'active' AND email <> '' AND email_verified_at IS NOT NULL ORDER BY id LIMIT 1");
+        $superUser = $stmt ? $stmt->fetch() : null;
+        if (is_array($superUser)) {
+            $otpStart = otp_begin_email_login_challenge($pdo, $superUser, 'admin/admin.php');
+            if ($otpStart['ok']) {
+                redirect_to('../verify-otp.php');
+            }
+            $error = (string) $otpStart['message'];
+        } else {
+            $error = 'Create an active, email-verified user-backed super admin account before entering the Super Admin console.';
+        }
     } else {
         $error = 'Invalid super administrator password.';
     }
@@ -58,17 +79,27 @@ if (empty($_SESSION['super_admin_login_audited'])) {
     $_SESSION['super_admin_login_audited'] = true;
 }
 
-if (isset($_GET['export']) && $_GET['export'] === 'users') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'export_users') {
+    if (!verify_csrf($_POST['_csrf'] ?? null)) {
+        http_response_code(403);
+        exit('Invalid security token.');
+    }
     super_admin_export_users($pdo);
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'login') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array((string) ($_POST['action'] ?? ''), ['login', 'logout'], true)) {
     if (!verify_csrf($_POST['_csrf'] ?? null)) {
         $error = 'Invalid security token.';
     } else {
         try {
             $action = (string) ($_POST['action'] ?? '');
-            if ($action === 'create_user') {
+            if ($action === 'super_profile') {
+                super_admin_save_self_profile($pdo);
+                $message = 'Super admin profile updated.';
+            } elseif ($action === 'super_password') {
+                super_admin_change_self_password($pdo);
+                $message = 'Super admin password changed.';
+            } elseif ($action === 'create_user') {
                 super_admin_create_user($pdo, $roles);
                 $message = 'Privileged user account created and onboarding email recorded/sent.';
             } elseif ($action === 'update_user') {
@@ -86,6 +117,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'login
             } elseif ($action === 'save_controls') {
                 super_admin_save_controls($pdo);
                 $message = 'System announcement and security controls saved.';
+            } elseif ($action === 'review_certificate_revocation') {
+                $message = super_admin_review_certificate_revocation($pdo);
             } elseif ($action === 'save_access_controls') {
                 super_admin_save_access_controls($pdo, $roles);
                 $message = 'Role access control matrix saved.';
@@ -151,6 +184,8 @@ $users = $usersStmt->fetchAll();
 
 $stats = super_admin_stats($pdo);
 $roleSummary = super_admin_role_summary($pdo, $roles);
+admin_ensure_action_request_schema($pdo);
+$pendingRevocationRequests = $pdo->query("SELECT ar.*, c.certificate_ref, c.status certificate_status, u.name requester_name, u.email requester_email FROM admin_action_requests ar LEFT JOIN certificates c ON c.id = ar.target_id LEFT JOIN users u ON u.id = ar.requested_by WHERE ar.request_type = 'revoke_certificate' AND ar.target_table = 'certificates' AND ar.status = 'pending' ORDER BY ar.created_at DESC LIMIT 25")->fetchAll();
 $settings = super_admin_control_settings($pdo);
 $accessMatrix = super_admin_access_matrix($pdo, $roles);
 $moduleSettings = super_admin_module_settings($pdo);
@@ -178,517 +213,68 @@ super_admin_page_start($pageMeta['title'], $pageMeta['description'], $view);
   <div class="stat"><span>Archived</span><strong><?= (int) $stats['archived'] ?></strong></div>
 </section>
 
-<?php if ($view === 'disaster'): ?>
-<section class="panel">
-  <div class="section-head">
-    <div>
-      <h2>Disaster Recovery and Multisite</h2>
-      <p>Define backup policy, register secondary sites, monitor sync events, and keep restore evidence in one Super Admin control plane.</p>
-    </div>
-    <form method="post">
-      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-      <input type="hidden" name="action" value="create_backup_manifest">
-      <button type="submit" data-busy-text="Creating backup manifest...">Create Backup Manifest</button>
-    </form>
-  </div>
-  <div class="dr-grid">
-    <form method="post" class="dr-card">
-      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-      <input type="hidden" name="action" value="save_dr_settings">
-      <h3>Recovery Policy</h3>
-      <label>Site ID<input name="dr_site_id" value="<?= e($drSettings['dr_site_id']) ?>" required></label>
-      <label>Site Role
-        <select name="dr_site_role">
-          <?php foreach (['primary' => 'Primary', 'replica' => 'Replica', 'standby' => 'Standby'] as $key => $label): ?>
-            <option value="<?= e($key) ?>" <?= $drSettings['dr_site_role'] === $key ? 'selected' : '' ?>><?= e($label) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </label>
-      <label>Sync Enabled
-        <select name="dr_sync_enabled">
-          <option value="1" <?= $drSettings['dr_sync_enabled'] === '1' ? 'selected' : '' ?>>Enabled</option>
-          <option value="0" <?= $drSettings['dr_sync_enabled'] === '0' ? 'selected' : '' ?>>Disabled</option>
-        </select>
-      </label>
-      <label>Sync Mode
-        <select name="dr_sync_mode">
-          <?php foreach (['manual_review' => 'Manual review', 'near_realtime' => 'Near realtime', 'scheduled_batch' => 'Scheduled batch'] as $key => $label): ?>
-            <option value="<?= e($key) ?>" <?= $drSettings['dr_sync_mode'] === $key ? 'selected' : '' ?>><?= e($label) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </label>
-      <label>Backup Frequency
-        <select name="dr_backup_frequency">
-          <?php foreach (['hourly' => 'Hourly', 'daily' => 'Daily', 'weekly' => 'Weekly'] as $key => $label): ?>
-            <option value="<?= e($key) ?>" <?= $drSettings['dr_backup_frequency'] === $key ? 'selected' : '' ?>><?= e($label) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </label>
-      <label>Retention Days<input type="number" name="dr_backup_retention_days" min="1" max="3650" value="<?= e($drSettings['dr_backup_retention_days']) ?>"></label>
-      <label>Private Backup Path<input name="dr_backup_storage_path" value="<?= e($drSettings['dr_backup_storage_path']) ?>"></label>
-      <label>Recovery Contact<input name="dr_recovery_contact" value="<?= e($drSettings['dr_recovery_contact']) ?>"></label>
-      <label>Last Restore Test<input name="dr_last_restore_test_at" value="<?= e($drSettings['dr_last_restore_test_at']) ?>" placeholder="YYYY-MM-DD"></label>
-      <button type="submit" data-busy-text="Saving recovery policy...">Save Recovery Policy</button>
-    </form>
-
-    <form method="post" class="dr-card">
-      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-      <input type="hidden" name="action" value="add_site_node">
-      <h3>Add or Rotate Site Node</h3>
-      <label>Node Key<input name="node_key" placeholder="lagos-replica" required></label>
-      <label>Display Name<input name="name" placeholder="Lagos Standby Site" required></label>
-      <label>Base URL<input name="base_url" placeholder="https://replica.example.com/CDC" required></label>
-      <label>Node Role
-        <select name="node_role">
-          <option value="replica">Replica</option>
-          <option value="standby">Standby</option>
-          <option value="reporting">Reporting</option>
-          <option value="primary">Primary</option>
-        </select>
-      </label>
-      <button type="submit" data-busy-text="Saving node...">Save Node and Generate Token</button>
-      <p class="meta">The sync token is shown once after save. Store it in the other site's secure environment/config.</p>
-    </form>
-  </div>
-
-  <div class="dr-grid">
-    <section class="dr-card">
-      <h3>Registered Sites</h3>
-      <div class="compact-list">
-        <?php foreach ($siteNodes as $node): ?>
-          <article>
-            <strong><?= e($node['name']) ?></strong>
-            <span><?= e($node['node_key']) ?> | <?= e($node['node_role']) ?> | <?= e($node['status']) ?></span>
-            <small><?= e($node['base_url']) ?><?= $node['last_seen_at'] ? ' | Last seen ' . e(date('M j, g:i A', strtotime((string) $node['last_seen_at']))) : '' ?></small>
-            <?php if ($node['last_error']): ?><small class="danger-text"><?= e($node['last_error']) ?></small><?php endif; ?>
-            <form method="post" class="node-actions">
-              <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-              <input type="hidden" name="action" value="update_site_node">
-              <input type="hidden" name="node_id" value="<?= (int) $node['id'] ?>">
-              <select name="status"><option value="active" <?= $node['status'] === 'active' ? 'selected' : '' ?>>Active</option><option value="paused" <?= $node['status'] === 'paused' ? 'selected' : '' ?>>Paused</option><option value="disabled" <?= $node['status'] === 'disabled' ? 'selected' : '' ?>>Disabled</option></select>
-              <label><input type="checkbox" name="sync_enabled" value="1" <?= (int) $node['sync_enabled'] === 1 ? 'checked' : '' ?>> Sync</label>
-              <button type="submit" class="secondary" data-busy-text="Updating node...">Update</button>
-            </form>
-            <form method="post" class="node-actions">
-              <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-              <input type="hidden" name="action" value="queue_sync_ping">
-              <input type="hidden" name="target_node" value="<?= e($node['node_key']) ?>">
-              <button type="submit" class="secondary" data-busy-text="Queueing ping...">Queue Ping</button>
-            </form>
-          </article>
-        <?php endforeach; ?>
-        <?php if (!$siteNodes): ?><p class="empty">No replica or standby sites registered yet.</p><?php endif; ?>
-      </div>
-    </section>
-
-    <section class="dr-card">
-      <h3>Backup and Sync Evidence</h3>
-      <div class="compact-list">
-        <?php foreach ($backups as $backup): ?>
-          <article>
-            <strong><?= e($backup['backup_ref']) ?></strong>
-            <span><?= e($backup['status']) ?> | <?= number_format((int) $backup['file_size']) ?> bytes</span>
-            <small><?= e((string) $backup['storage_path']) ?></small>
-          </article>
-        <?php endforeach; ?>
-        <?php if (!$backups): ?><p class="empty">No backup manifests recorded yet.</p><?php endif; ?>
-      </div>
-      <h3>Recent Sync Events</h3>
-      <div class="compact-list">
-        <?php foreach ($syncEvents as $event): ?>
-          <article>
-            <strong><?= e($event['event_type']) ?></strong>
-            <span><?= e($event['direction']) ?> | <?= e($event['status']) ?> | <?= e($event['event_uuid']) ?></span>
-            <small><?= e((string) ($event['source_node'] ?: 'local')) ?> to <?= e((string) ($event['target_node'] ?: 'all')) ?> | <?= e(date('M j, g:i A', strtotime((string) $event['created_at']))) ?></small>
-            <?php if ($event['error_message']): ?><small class="danger-text"><?= e($event['error_message']) ?></small><?php endif; ?>
-          </article>
-        <?php endforeach; ?>
-        <?php if (!$syncEvents): ?><p class="empty">No multisite sync events yet.</p><?php endif; ?>
-      </div>
-    </section>
-  </div>
-</section>
-<?php endif; ?>
-
-<?php if ($view === 'overview'): ?>
-<section class="super-dashboard">
-  <a class="command-card" href="index.php?view=users">
-    <span>User Governance</span>
-    <strong><?= (int) $stats['privileged'] ?> privileged profiles</strong>
-    <small>Promote, suspend, restore, reset passwords, and control root access.</small>
-  </a>
-  <a class="command-card" href="index.php?view=controls">
-    <span>Access & Policy</span>
-    <strong><?= count(super_admin_feature_catalog()) ?> controlled features</strong>
-    <small>Define what each platform role can see and do inside operations.</small>
-  </a>
-  <a class="command-card" href="index.php?view=disaster">
-    <span>Recovery</span>
-    <strong><?= count($siteNodes) ?> site nodes</strong>
-    <small>Backups, standby sites, sync health, and restore evidence.</small>
-  </a>
-  <a class="command-card operations" href="../admin/admin.php">
-    <span>Operational Handoff</span>
-    <strong>Open Admin Console</strong>
-    <small>Applications, verification, support, field network, and daily registry work live there.</small>
-  </a>
-</section>
-
-<section class="readiness-grid">
-  <article>
-    <span>Permission Boundary</span>
-    <strong>Enforced</strong>
-    <small>Admin pages now check the Super Admin access matrix before showing menus or allowing direct URL access.</small>
-  </article>
-  <article>
-    <span>Audit Trail</span>
-    <strong><?= count($auditRows) ?> recent events</strong>
-    <small>Privileged actions are recorded for review from Access & Policy.</small>
-  </article>
-  <article>
-    <span>Account Recovery</span>
-    <strong><?= (int) $stats['archived'] ?> archived</strong>
-    <small>Deleted users are archived and can be restored through User Governance.</small>
-  </article>
-</section>
-
-<section class="panel">
-  <div class="section-head">
-    <div>
-      <h2>User Governance Snapshot</h2>
-      <p>Quick role and account-health summary. Open the full review only when you need to edit, reset passwords, suspend, archive, or delete users.</p>
-    </div>
-    <div class="actions">
-      <a class="button" href="index.php?view=users">Open User Governance</a>
-      <a class="button secondary" href="index.php?export=users">Export CSV</a>
-    </div>
-  </div>
-  <div class="role-summary">
-    <?php foreach ($roleSummary as $roleKey => $summary): ?>
-      <a href="index.php?view=users&role=<?= e($roleKey) ?>">
-        <span><?= e($summary['label']) ?></span>
-        <strong><?= (int) $summary['total'] ?></strong>
-      </a>
-    <?php endforeach; ?>
-  </div>
-</section>
-<?php elseif ($view === 'users'): ?>
-<section class="panel">
-  <div class="section-head">
-    <div>
-      <h2>User Governance</h2>
-      <p>Manage users in small pages with compact rows. Open a row only when you need to edit profile, role, security, reset password, or delete access.</p>
-    </div>
-    <div class="actions">
-      <details class="create-user-panel">
-        <summary class="button">New User</summary>
-        <form method="post">
-          <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-          <input type="hidden" name="action" value="create_user">
-          <h3>Create Privileged Account</h3>
-          <label>Name</label>
-          <input name="name" required>
-          <label>Email</label>
-          <input type="email" name="email" required>
-          <label>Phone</label>
-          <input name="phone">
-          <label>Platform Role</label>
-          <select name="platform_role">
-            <?php foreach ($roles as $key => $label): ?>
-              <option value="<?= e($key) ?>"><?= e($label) ?></option>
-            <?php endforeach; ?>
-          </select>
-          <label>Temporary Password</label>
-          <input name="password" value="<?= e(super_admin_temp_password()) ?>" required>
-          <label>State or Role Scope</label>
-          <input name="location" placeholder="National, State name, investor group, etc.">
-          <div class="check-row compact-checks">
-            <label><input type="checkbox" name="profile_verified" value="1"> Verified profile</label>
-            <label><input type="checkbox" name="two_factor_required" value="1"> Require 2FA/OTP</label>
-          </div>
-          <button type="submit" data-busy-text="Creating account...">Create Account</button>
-        </form>
-      </details>
-      <a class="button secondary" href="index.php">Back to Snapshot</a>
-      <a class="button secondary" href="index.php?export=users">Export CSV</a>
-    </div>
-  </div>
-
-  <form class="filters" method="get">
-    <input type="hidden" name="view" value="users">
-    <input name="q" value="<?= e($search) ?>" placeholder="Search name, email, phone">
-    <select name="role">
-      <option value="">All roles</option>
-      <?php foreach ($roles as $key => $label): ?>
-        <option value="<?= e($key) ?>" <?= $roleFilter === $key ? 'selected' : '' ?>><?= e($label) ?></option>
-      <?php endforeach; ?>
-    </select>
-    <select name="status">
-      <option value="">All statuses</option>
-      <?php foreach ($statuses as $key => $label): ?>
-        <option value="<?= e($key) ?>" <?= $statusFilter === $key ? 'selected' : '' ?>><?= e($label) ?></option>
-      <?php endforeach; ?>
-    </select>
-    <select name="per_page">
-      <?php foreach (super_admin_per_page_options() as $size): ?>
-        <option value="<?= $size ?>" <?= $perPage === $size ? 'selected' : '' ?>><?= $size ?> rows</option>
-      <?php endforeach; ?>
-    </select>
-    <button type="submit" data-busy-text="Filtering...">Filter</button>
-  </form>
-
-  <?= super_admin_pagination_controls($totalUsers, $page, $perPage, ['view' => 'users', 'q' => $search, 'role' => $roleFilter, 'status' => $statusFilter]) ?>
-
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr><th>User</th><th>Role</th><th>Status</th><th>Security</th><th>Review</th></tr>
-      </thead>
-      <tbody>
-      <?php foreach ($users as $user): ?>
-        <?php
-          $editFormId = 'user-edit-' . (int) $user['id'];
-          $platformRole = (string) ($user['platform_role'] ?: super_admin_platform_role_from_user($user));
-          $roleLabel = $roles[$platformRole] ?? ucwords(str_replace('_', ' ', $platformRole));
-          $status = (string) ($user['account_status'] ?: 'active');
-        ?>
-        <tr>
-          <td>
-            <form id="<?= e($editFormId) ?>" method="post"></form>
-            <strong><?= e($user['name']) ?></strong>
-            <small><?= e($user['email']) ?></small>
-            <?php if (!empty($user['phone'])): ?><small><?= e((string) $user['phone']) ?></small><?php endif; ?>
-          </td>
-          <td>
-            <span class="role-pill"><?= e($roleLabel) ?></span>
-            <small>Auth: <?= e((string) $user['role']) ?></small>
-          </td>
-          <td>
-            <span class="badge <?= $status === 'active' ? 'ok-badge' : 'warning' ?>"><?= e($statuses[$status] ?? $status) ?></span>
-            <small>Created <?= e(date('M j, Y', strtotime((string) $user['created_at']))) ?></small>
-            <?php if (!empty($user['suspended_until'])): ?><small>Suspended until <?= e(date('M j, Y', strtotime((string) $user['suspended_until']))) ?></small><?php endif; ?>
-            <?php if (!empty($user['archived_at'])): ?><small>Archived <?= e(date('M j, Y', strtotime((string) $user['archived_at']))) ?></small><?php endif; ?>
-          </td>
-          <td>
-            <?php if ((int) $user['is_super_admin'] === 1): ?><span class="badge root-badge">Super Admin</span><?php endif; ?>
-            <?php if ((int) $user['profile_verified'] === 1): ?><span class="badge ok-badge">Verified</span><?php endif; ?>
-            <?php if ((int) $user['two_factor_required'] === 1): ?><span class="badge muted-badge">2FA</span><?php endif; ?>
-            <?php if ((int) $user['is_super_admin'] !== 1 && (int) $user['profile_verified'] !== 1 && (int) $user['two_factor_required'] !== 1): ?><small>No elevated flags</small><?php endif; ?>
-          </td>
-          <td>
-            <details class="row-review">
-              <summary>Edit</summary>
-              <div class="inline-edit">
-                <input form="<?= e($editFormId) ?>" type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                <input form="<?= e($editFormId) ?>" type="hidden" name="action" value="update_user">
-                <input form="<?= e($editFormId) ?>" type="hidden" name="user_id" value="<?= (int) $user['id'] ?>">
-                <label>Name<input form="<?= e($editFormId) ?>" name="name" value="<?= e($user['name']) ?>" required></label>
-                <label>Email<input form="<?= e($editFormId) ?>" type="email" name="email" value="<?= e($user['email']) ?>" required></label>
-                <label>Phone<input form="<?= e($editFormId) ?>" name="phone" value="<?= e((string) $user['phone']) ?>"></label>
-                <label>Platform Role
-                  <select form="<?= e($editFormId) ?>" name="platform_role">
-                    <?php foreach ($roles as $key => $label): ?>
-                      <option value="<?= e($key) ?>" <?= $platformRole === $key ? 'selected' : '' ?>><?= e($label) ?></option>
-                    <?php endforeach; ?>
-                  </select>
-                </label>
-                <small class="meta">Choosing Super Administrator here grants root console access. Other roles keep their normal scoped access.</small>
-                <label>Status
-                  <select form="<?= e($editFormId) ?>" name="account_status">
-                    <?php foreach ($statuses as $key => $label): ?>
-                      <option value="<?= e($key) ?>" <?= $status === $key ? 'selected' : '' ?>><?= e($label) ?></option>
-                    <?php endforeach; ?>
-                  </select>
-                </label>
-                <label><input form="<?= e($editFormId) ?>" type="checkbox" name="profile_verified" value="1" <?= (int) $user['profile_verified'] === 1 ? 'checked' : '' ?>> Profile verified</label>
-                <label><input form="<?= e($editFormId) ?>" type="checkbox" name="two_factor_required" value="1" <?= (int) $user['two_factor_required'] === 1 ? 'checked' : '' ?>> Require 2FA/OTP</label>
-                <button form="<?= e($editFormId) ?>" type="submit" data-busy-text="Saving user...">Save Changes</button>
-              </div>
-              <div class="row-actions">
-                <form method="post" class="mini-form">
-                  <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                  <input type="hidden" name="action" value="reset_password">
-                  <input type="hidden" name="user_id" value="<?= (int) $user['id'] ?>">
-                  <button type="submit" class="secondary" data-busy-text="Resetting...">Reset Password</button>
-                </form>
-                <form method="post" class="mini-form danger-zone">
-                  <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                  <input type="hidden" name="action" value="delete_user">
-                  <input type="hidden" name="user_id" value="<?= (int) $user['id'] ?>">
-                  <input name="confirm_delete" placeholder="Type DELETE">
-                  <button type="submit" class="danger" data-busy-text="Archiving...">Archive User</button>
-                </form>
-                <?php if ($status === 'archived'): ?>
-                <form method="post" class="mini-form">
-                  <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                  <input type="hidden" name="action" value="restore_user">
-                  <input type="hidden" name="user_id" value="<?= (int) $user['id'] ?>">
-                  <button type="submit" class="secondary" data-busy-text="Restoring...">Restore User</button>
-                </form>
-                <?php endif; ?>
-              </div>
-            </details>
-          </td>
-        </tr>
-      <?php endforeach; ?>
-      <?php if (!$users): ?><tr><td colspan="5" class="empty">No users match this review.</td></tr><?php endif; ?>
-      </tbody>
-    </table>
-  </div>
-
-  <?= super_admin_pagination_controls($totalUsers, $page, $perPage, ['view' => 'users', 'q' => $search, 'role' => $roleFilter, 'status' => $statusFilter]) ?>
-</section>
-<?php endif; ?>
-
-<?php if ($view === 'controls'): ?>
-<section class="panel">
-  <div class="section-head">
-    <div>
-      <h2>Module Setup and Entry Points</h2>
-      <p>Define where each module lives, who owns it operationally, and how it should behave. Access Control below still decides which roles can use each module.</p>
-    </div>
-    <a class="button secondary" href="../admin/admin.php">Open Admin Console</a>
-  </div>
-  <form method="post">
-    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-    <input type="hidden" name="action" value="save_module_settings">
-    <div class="module-grid">
-      <?php foreach (super_admin_module_catalog() as $feature => $module): ?>
-        <?php $moduleState = $moduleSettings[$feature] ?? []; ?>
-        <article class="module-card">
-          <div class="section-head compact">
-            <div>
-              <h3><?= e($module['label']) ?></h3>
-              <p><?= e($module['purpose']) ?></p>
-            </div>
-            <a class="button secondary" href="<?= e($module['entry']) ?>">Open</a>
-          </div>
-          <input type="hidden" name="modules[<?= e($feature) ?>][feature]" value="<?= e($feature) ?>">
-          <div class="settings-grid">
-            <label>Operating Mode
-              <select name="modules[<?= e($feature) ?>][mode]">
-                <?php foreach (['active' => 'Active', 'pilot' => 'Pilot', 'setup' => 'Setup Required', 'paused' => 'Paused'] as $key => $label): ?>
-                  <option value="<?= e($key) ?>" <?= ($moduleState['mode'] ?? $module['mode']) === $key ? 'selected' : '' ?>><?= e($label) ?></option>
-                <?php endforeach; ?>
-              </select>
-            </label>
-            <label>Owner
-              <input name="modules[<?= e($feature) ?>][owner]" value="<?= e($moduleState['owner'] ?? $module['owner']) ?>">
-            </label>
-          </div>
-          <label>Setup Notes
-            <textarea name="modules[<?= e($feature) ?>][notes]" placeholder="<?= e($module['setup']) ?>"><?= e($moduleState['notes'] ?? $module['setup']) ?></textarea>
-          </label>
-          <small class="meta">Entry: <?= e($module['entry']) ?> / Applies to: <?= e($module['surface']) ?></small>
-        </article>
-      <?php endforeach; ?>
-    </div>
-    <button type="submit" data-busy-text="Saving module setup...">Save Module Setup</button>
-  </form>
-</section>
-
-<section class="console-grid">
-  <form class="panel" method="post">
-    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-    <input type="hidden" name="action" value="save_access_controls">
-    <h2>Access Control Management</h2>
-    <p>Universal role permissions. Admins operate inside these boundaries; Super Admin defines them.</p>
-    <div class="access-matrix">
-      <?php foreach ($roles as $role => $label): ?>
-        <fieldset>
-          <legend><?= e($label) ?></legend>
-          <input type="hidden" name="access_roles[]" value="<?= e($role) ?>">
-          <?php foreach (super_admin_feature_catalog() as $feature => $featureLabel): ?>
-            <label><input type="checkbox" name="access[<?= e($role) ?>][]" value="<?= e($feature) ?>" <?= in_array($feature, $accessMatrix[$role] ?? [], true) ? 'checked' : '' ?>> <?= e($featureLabel) ?></label>
-          <?php endforeach; ?>
-        </fieldset>
-      <?php endforeach; ?>
-    </div>
-    <button type="submit" data-busy-text="Saving access controls...">Save Access Controls</button>
-  </form>
-
-  <form class="panel" method="post">
-    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-    <input type="hidden" name="action" value="save_training_onboarding">
-    <h2>User Training and Onboarding</h2>
-    <label>Default Onboarding Message</label>
-    <textarea name="onboarding_default_message"><?= e($trainingSettings['onboarding_default_message']) ?></textarea>
-    <label>Training Curriculum</label>
-    <textarea name="training_curriculum"><?= e($trainingSettings['training_curriculum']) ?></textarea>
-    <div class="settings-grid">
-      <label><span>Certification Required</span><select name="training_certification_required"><option value="1" <?= $trainingSettings['training_certification_required'] === '1' ? 'selected' : '' ?>>Required</option><option value="0" <?= $trainingSettings['training_certification_required'] === '0' ? 'selected' : '' ?>>Optional</option></select></label>
-      <label><span>Paid Certification Service</span><select name="training_paid_certification_enabled"><option value="1" <?= $trainingSettings['training_paid_certification_enabled'] === '1' ? 'selected' : '' ?>>Enabled</option><option value="0" <?= $trainingSettings['training_paid_certification_enabled'] === '0' ? 'selected' : '' ?>>Disabled</option></select></label>
-    </div>
-    <button type="submit" data-busy-text="Saving onboarding...">Save Onboarding Policy</button>
-  </form>
-</section>
-
-<section class="console-grid">
-  <form class="panel" method="post">
-    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-    <input type="hidden" name="action" value="create_announcement">
-    <h2>System Announcement Management</h2>
-    <label>Title</label>
-    <input name="title" maxlength="180" required>
-    <label>Audience</label>
-    <select name="audience_role">
-      <option value="all">All users</option>
-      <?php foreach ($roles as $role => $label): ?>
-        <option value="<?= e($role) ?>"><?= e($label) ?></option>
-      <?php endforeach; ?>
-    </select>
-    <label>Message</label>
-    <textarea name="body" required></textarea>
-    <label><input type="checkbox" name="is_active" value="1" checked> Active announcement</label>
-    <button type="submit" data-busy-text="Publishing announcement...">Create Announcement</button>
-  </form>
-
-  <section class="panel">
-    <h2>Active and Recent Announcements</h2>
-    <div class="announcement-list">
-      <?php foreach ($announcements as $announcement): ?>
-        <article>
-          <div class="section-head compact">
-            <div>
-              <strong><?= e($announcement['title']) ?></strong>
-              <small><?= e($announcement['audience_role'] === 'all' ? 'All users' : ($roles[$announcement['audience_role']] ?? $announcement['audience_role'])) ?> | <?= e(date('M j, Y g:i A', strtotime((string) $announcement['created_at']))) ?></small>
-            </div>
-            <form method="post">
-              <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-              <input type="hidden" name="action" value="toggle_announcement">
-              <input type="hidden" name="announcement_id" value="<?= (int) $announcement['id'] ?>">
-              <button type="submit" class="<?= (int) $announcement['is_active'] === 1 ? 'secondary' : '' ?>" data-busy-text="Updating..."><?= (int) $announcement['is_active'] === 1 ? 'Deactivate' : 'Activate' ?></button>
-            </form>
-          </div>
-          <p><?= e($announcement['body']) ?></p>
-        </article>
-      <?php endforeach; ?>
-      <?php if (!$announcements): ?><p class="empty">No announcements created yet.</p><?php endif; ?>
-    </div>
-  </section>
-</section>
-
-<section class="console-grid">
-  <section class="panel">
-    <h2>Recent Audit Trail</h2>
-    <div class="audit-list">
-      <?php foreach ($auditRows as $row): ?>
-        <div>
-          <strong><?= e($row['action']) ?></strong>
-          <span><?= e((string) $row['description']) ?></span>
-          <small><?= e(date('M j, Y g:i A', strtotime((string) $row['created_at']))) ?> <?= $row['ip_address'] ? ' | ' . e((string) $row['ip_address']) : '' ?></small>
-        </div>
-      <?php endforeach; ?>
-      <?php if (!$auditRows): ?><p class="empty">No audit activity recorded yet.</p><?php endif; ?>
-    </div>
-  </section>
-</section>
-
-<?php endif; ?>
+<?php
+define('NATCODEV_SUPER_ADMIN', true);
+if (in_array($view, ['disaster', 'profile', 'overview', 'users', 'controls'], true)) {
+    require __DIR__ . '/views/' . $view . '.php';
+}
+?>
 
 <?php super_admin_page_end(); ?>
 
 <?php
+function super_admin_logout(): void
+{
+    unset(
+        $_SESSION['super_admin_authenticated'],
+        $_SESSION['super_admin_user_id'],
+        $_SESSION['super_admin_login_audited'],
+        $_SESSION['super_admin_schema_version'],
+        $_SESSION['login_otp_pending'],
+        $_SESSION['login_otp_user_id'],
+        $_SESSION['login_otp_email'],
+        $_SESSION['otp_next_destination']
+    );
+    redirect_to('index.php');
+}
+
+function super_admin_current_user(PDO $pdo): ?array
+{
+    $userId = (int) ($_SESSION['super_admin_user_id'] ?? $_SESSION['user_id'] ?? 0);
+    if ($userId <= 0) {
+        return null;
+    }
+    $stmt = $pdo->prepare('SELECT * FROM users WHERE id = ? AND is_super_admin = 1 LIMIT 1');
+    $stmt->execute([$userId]);
+    $user = $stmt->fetch();
+    return is_array($user) ? $user : null;
+}
+
+function super_admin_save_self_profile(PDO $pdo): void
+{
+    $user = super_admin_current_user($pdo);
+    if (!$user) {
+        throw new RuntimeException('A user-backed super admin account is required to update this profile.');
+    }
+    workspace_account_update_profile($pdo, (int) $user['id'], $_POST);
+    super_admin_audit($pdo, 'super_admin_profile_updated', 'Updated own super admin profile.');
+}
+
+function super_admin_change_self_password(PDO $pdo): void
+{
+    $user = super_admin_current_user($pdo);
+    if (!$user) {
+        throw new RuntimeException('A user-backed super admin account is required to change this password.');
+    }
+    workspace_account_change_password(
+        $pdo,
+        (int) $user['id'],
+        (string) ($_POST['current_password'] ?? ''),
+        (string) ($_POST['new_password'] ?? ''),
+        (string) ($_POST['confirm_password'] ?? '')
+    );
+    super_admin_audit($pdo, 'super_admin_password_changed', 'Changed own super admin password.');
+}
 function super_admin_roles(): array
 {
     return [
@@ -714,6 +300,10 @@ function super_admin_views(): array
         'users' => [
             'label' => 'User Governance',
             'hint' => 'Create, review, reset, and recover privileged access',
+        ],
+        'profile' => [
+            'label' => 'My Profile',
+            'hint' => 'Own profile, password, and secure exit',
         ],
         'disaster' => [
             'label' => 'Disaster Recovery',
@@ -743,6 +333,12 @@ function super_admin_nav_groups(): array
                 'hint' => 'Accounts, roles, password resets, and recovery',
                 'href' => 'index.php?view=users',
                 'view' => 'users',
+            ],
+            [
+                'label' => 'My Profile',
+                'hint' => 'Profile, password, and secure logout',
+                'href' => 'index.php?view=profile',
+                'view' => 'profile',
             ],
         ],
         'Governance' => [
@@ -781,6 +377,10 @@ function super_admin_page_meta(string $view): array
         'users' => [
             'title' => 'User Governance',
             'description' => 'Manage privileged accounts, role assignments, access status, password resets, and recovery actions.',
+        ],
+        'profile' => [
+            'title' => 'My Profile',
+            'description' => 'Manage your own super admin profile, password, and secure exit.',
         ],
         'disaster' => [
             'title' => 'Recovery',
@@ -1078,29 +678,38 @@ function super_admin_password_is_valid(string $password): bool
         return password_verify($password, $hash);
     }
 
-    $plain = app_env('SUPER_ADMIN_PASSWORD', app_is_production() ? '' : app_env('ADMIN_PASSWORD', ''));
+    if (app_is_production()) {
+        error_log('SUPER_ADMIN_PASSWORD_HASH is required for production super admin login.');
+        return false;
+    }
+
+    $plain = app_env('SUPER_ADMIN_PASSWORD', app_env('ADMIN_PASSWORD', ''));
     return $plain !== null && $plain !== '' && hash_equals($plain, $password);
 }
 
 function super_admin_is_authorized(PDO $pdo): bool
 {
-    if (!empty($_SESSION['super_admin_authenticated'])) {
-        return true;
-    }
-
-    $userId = (int) ($_SESSION['user_id'] ?? 0);
-    if ($userId <= 0 || !app_column_exists($pdo, 'users', 'is_super_admin')) {
+    if (empty($_SESSION['super_admin_authenticated']) || !app_column_exists($pdo, 'users', 'is_super_admin')) {
+        unset($_SESSION['super_admin_authenticated'], $_SESSION['super_admin_user_id']);
         return false;
     }
 
-    $stmt = $pdo->prepare("SELECT is_super_admin, account_status FROM users WHERE id = ? LIMIT 1");
+    $userId = (int) ($_SESSION['super_admin_user_id'] ?? $_SESSION['user_id'] ?? 0);
+    if ($userId <= 0) {
+        unset($_SESSION['super_admin_authenticated'], $_SESSION['super_admin_user_id']);
+        return false;
+    }
+
+    $stmt = $pdo->prepare("SELECT id, is_super_admin, account_status FROM users WHERE id = ? LIMIT 1");
     $stmt->execute([$userId]);
     $user = $stmt->fetch();
-    if ($user && (int) $user['is_super_admin'] === 1 && (string) ($user['account_status'] ?? 'active') === 'active') {
+    if ($user && (int) $user['is_super_admin'] === 1 && strtolower((string) ($user['account_status'] ?? 'active')) === 'active') {
+        $_SESSION['user_id'] = $userId;
         $_SESSION['super_admin_user_id'] = $userId;
         return true;
     }
 
+    unset($_SESSION['super_admin_authenticated'], $_SESSION['super_admin_user_id']);
     return false;
 }
 
@@ -1316,6 +925,53 @@ function super_admin_save_controls(PDO $pdo): void
         $stmt->execute([$key, trim((string) ($_POST[$key] ?? ''))]);
     }
     super_admin_audit($pdo, 'system_controls_updated', 'Updated system announcement/security/access controls.');
+}
+
+function super_admin_review_certificate_revocation(PDO $pdo): string
+{
+    admin_ensure_action_request_schema($pdo);
+    $requestId = (int) ($_POST['request_id'] ?? 0);
+    $decision = (string) ($_POST['decision'] ?? '');
+    $note = trim((string) ($_POST['review_note'] ?? ''));
+    if ($requestId <= 0 || !in_array($decision, ['approve', 'reject'], true)) {
+        throw new RuntimeException('Select a valid revocation request and decision.');
+    }
+
+    $stmt = $pdo->prepare("SELECT ar.*, c.certificate_ref, c.status certificate_status FROM admin_action_requests ar LEFT JOIN certificates c ON c.id = ar.target_id WHERE ar.id = ? AND ar.request_type = 'revoke_certificate' AND ar.target_table = 'certificates' AND ar.status = 'pending' LIMIT 1");
+    $stmt->execute([$requestId]);
+    $request = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$request) {
+        throw new RuntimeException('Revocation request was not found or has already been reviewed.');
+    }
+
+    $reviewedBy = $_SESSION['super_admin_user_id'] ?? admin_current_user_id($pdo);
+    if ($decision === 'reject') {
+        $pdo->prepare("UPDATE admin_action_requests SET status = 'rejected', reviewed_by = ?, reviewed_at = NOW(), review_note = ? WHERE id = ?")
+            ->execute([$reviewedBy, $note !== '' ? $note : 'Rejected by Super Admin.', $requestId]);
+        super_admin_audit($pdo, 'certificate_revocation_rejected', 'Rejected certificate revocation request for ' . (string) ($request['certificate_ref'] ?? ('#' . $request['target_id'])) . '.');
+        return 'Certificate revocation request rejected.';
+    }
+
+    $payload = json_decode((string) ($request['payload_json'] ?? ''), true);
+    $reason = trim((string) ($payload['reason'] ?? $request['reason'] ?? 'Super Admin approved certificate revocation.'));
+
+    $pdo->beginTransaction();
+    try {
+        $update = $pdo->prepare("UPDATE certificates SET status = 'revoked', revoked_at = NOW(), revoked_reason = ? WHERE id = ? AND status = 'issued'");
+        $update->execute([$reason, (int) $request['target_id']]);
+        if ($update->rowCount() !== 1) {
+            throw new RuntimeException('Certificate is no longer issued or could not be revoked.');
+        }
+        $pdo->prepare("UPDATE admin_action_requests SET status = 'approved', reviewed_by = ?, reviewed_at = NOW(), review_note = ? WHERE id = ?")
+            ->execute([$reviewedBy, $note !== '' ? $note : 'Approved by Super Admin.', $requestId]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+
+    super_admin_audit($pdo, 'certificate_revoked', 'Approved and revoked certificate ' . (string) ($request['certificate_ref'] ?? ('#' . $request['target_id'])) . '.');
+    return 'Certificate revoked after Super Admin approval.';
 }
 
 function super_admin_save_access_controls(PDO $pdo, array $roles): void
@@ -1552,6 +1208,10 @@ function super_admin_role_summary(PDO $pdo, array $roles): array
 
 function super_admin_audit(PDO $pdo, string $action, string $description): void
 {
+    if (function_exists('admin_audit')) {
+        admin_audit($pdo, $action, $description);
+        return;
+    }
     if (!app_table_exists($pdo, 'audit_log')) {
         return;
     }
@@ -1570,11 +1230,12 @@ function super_admin_export_users(PDO $pdo): void
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="natcodev-users-' . date('Ymd-His') . '.csv"');
     $out = fopen('php://output', 'w');
-    fputcsv($out, ['id', 'name', 'email', 'phone', 'role', 'platform_role', 'account_status', 'is_super_admin', 'profile_verified', 'two_factor_required', 'created_at']);
+    fputcsv($out, app_csv_row(['id', 'name', 'email', 'phone', 'role', 'platform_role', 'account_status', 'is_super_admin', 'profile_verified', 'two_factor_required', 'created_at']));
     $rows = $pdo->query("SELECT id, name, email, phone, role, platform_role, account_status, is_super_admin, profile_verified, two_factor_required, created_at FROM users ORDER BY id");
-    foreach ($rows as $row) {
-        fputcsv($out, $row);
+    foreach ($rows ?: [] as $row) {
+        fputcsv($out, app_csv_row(array_values($row)));
     }
+    super_admin_audit($pdo, 'users_exported', 'Exported users CSV from Super Admin console.');
     fclose($out);
     exit;
 }
@@ -1666,7 +1327,7 @@ function super_admin_page_start(string $title, string $description = '', string 
           </details>
         <?php endforeach; ?>
       </nav>
-      <nav class="header-actions"><a href="../admin/admin.php">Admin Console</a><a href="index.php?logout=1">Logout</a></nav>
+      <nav class="header-actions"><a href="../admin/admin.php">Admin Console</a><a href="index.php?view=profile">My Profile</a><form method="post"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="action" value="logout"><button class="secondary" type="submit">Logout</button></form></nav>
     </div>
   </header>
   <main>

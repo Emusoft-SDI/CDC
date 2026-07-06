@@ -2,9 +2,18 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/lib/certificates.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     json_response(['success' => false, 'message' => 'POST method required'], 405);
+}
+
+if (!verify_csrf($_POST['_csrf'] ?? null)) {
+    json_response(['success' => false, 'message' => 'Invalid or expired session. Please refresh the page.'], 403);
+}
+
+if (!app_check_rate_limit('registration', 12, 3600)) {
+    json_response(['success' => false, 'message' => 'Too many registration attempts. Please try again in an hour.'], 429);
 }
 
 $name = trim((string) ($_POST['name'] ?? ''));
@@ -16,9 +25,28 @@ $phone = preg_replace('/[^0-9]/', '', (string) ($_POST['phone'] ?? ''));
 $whatsapp = preg_replace('/[^0-9]/', '', (string) ($_POST['whatsapp'] ?? $phone));
 $email = filter_var(trim((string) ($_POST['email'] ?? '')), FILTER_VALIDATE_EMAIL);
 $commitments = trim((string) ($_POST['commitments'] ?? ''));
+$password = (string) ($_POST['password'] ?? '');
+$memberType = grower_member_type_normalize((string) ($_POST['member_type'] ?? 'individual'));
+$businessName = trim((string) ($_POST['business_name'] ?? ''));
+$businessRegNo = trim((string) ($_POST['business_registration_number'] ?? ''));
+$businessAddress = trim((string) ($_POST['business_address'] ?? ''));
+$representativeName = trim((string) ($_POST['representative_name'] ?? ''));
+if ($representativeName === '') {
+    $representativeName = trim((string) ($_POST['cooperative_representative_name'] ?? ''));
+}
+$cooperativeName = trim((string) ($_POST['cooperative_name'] ?? ''));
+$cooperativeRegNo = trim((string) ($_POST['cooperative_registration_number'] ?? ''));
+$cooperativeMembers = filter_var($_POST['cooperative_members_count'] ?? null, FILTER_VALIDATE_INT) ?: null;
 
 if ($name === '' || $location === '' || $farmSize === false || $phone === '' || !$email || $commitments === '') {
     json_response(['success' => false, 'message' => 'All fields are required'], 422);
+}
+
+if ($memberType === 'corporate' && ($businessName === '' || $businessRegNo === '' || $representativeName === '')) {
+    json_response(['success' => false, 'message' => 'Corporate farms must provide business name, registration number, and representative name.'], 422);
+}
+if ($memberType === 'cooperative' && ($cooperativeName === '' || $cooperativeRegNo === '' || ($cooperativeMembers !== null && $cooperativeMembers < 1))) {
+    json_response(['success' => false, 'message' => 'Cooperatives must provide cooperative name, registration number, and valid member count.'], 422);
 }
 
 if ($farmSize < 1 || $farmSize > 1000) {
@@ -32,6 +60,7 @@ if (!preg_match('/^0[7-9][01][0-9]{8}$/', $phone)) {
 try {
     $pdo = db();
     app_ensure_core_schema($pdo);
+    grower_registration_ensure_member_schema($pdo);
 
     $stmt = $pdo->prepare("SELECT id, app_ref, name, email, confirmed, confirmation_token FROM applications WHERE email = ? OR phone = ? LIMIT 1");
     $stmt->execute([$email, $phone]);
@@ -45,14 +74,16 @@ try {
         ], 409);
     }
 
+    $applicationId = 0;
     if ($existing) {
+        $applicationId = (int) $existing['id'];
         $appRef = $existing['app_ref'];
         $token = $existing['confirmation_token'] ?: bin2hex(random_bytes(32));
         $pdo->prepare("
             UPDATE applications
-            SET name = ?, location = ?, state_id = ?, lga_id = ?, farm_size = ?, whatsapp = ?, commitments = ?, confirmation_token = ?, created_at = NOW()
+            SET name = ?, location = ?, state_id = ?, lga_id = ?, farm_size = ?, whatsapp = ?, commitments = ?, confirmation_token = ?, member_type = ?, business_name = ?, business_registration_number = ?, business_address = ?, representative_name = ?, cooperative_name = ?, cooperative_registration_number = ?, cooperative_members_count = ?, created_at = NOW()
             WHERE id = ?
-        ")->execute([$name, $location, $stateId, $lgaId, $farmSize, $whatsapp, $commitments, $token, $existing['id']]);
+        ")->execute([$name, $location, $stateId, $lgaId, $farmSize, $whatsapp, $commitments, $token, $memberType, $businessName ?: null, $businessRegNo ?: null, $businessAddress ?: null, $representativeName ?: null, $cooperativeName ?: null, $cooperativeRegNo ?: null, $cooperativeMembers, $existing['id']]);
         $action = 'resent';
     } else {
         $appRef = generate_application_ref();
@@ -60,8 +91,8 @@ try {
         $stmt = $pdo->prepare("
             INSERT INTO applications (
                 app_ref, name, location, state_id, lga_id, farm_size, phone, whatsapp, email, commitments,
-                confirmation_token, ip_address
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                member_type, business_name, business_registration_number, business_address, representative_name, cooperative_name, cooperative_registration_number, cooperative_members_count, confirmation_token, ip_address
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         $stmt->execute([
             $appRef,
@@ -74,10 +105,32 @@ try {
             $whatsapp ?: null,
             $email,
             $commitments,
+            $memberType,
+            $businessName ?: null,
+            $businessRegNo ?: null,
+            $businessAddress ?: null,
+            $representativeName ?: null,
+            $cooperativeName ?: null,
+            $cooperativeRegNo ?: null,
+            $cooperativeMembers,
             $token,
             $_SERVER['REMOTE_ADDR'] ?? null,
         ]);
+        $applicationId = (int) $pdo->lastInsertId();
         $action = 'submitted';
+    }
+
+    if ($password !== '' && strlen($password) >= 6 && $applicationId > 0) {
+        app_add_column_if_missing($pdo, 'users', 'platform_role', "VARCHAR(60) NULL");
+        app_add_column_if_missing($pdo, 'users', 'account_status', "VARCHAR(40) NOT NULL DEFAULT 'active'");
+        app_add_column_if_missing($pdo, 'users', 'email_verified_at', 'DATETIME NULL');
+        $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+        $stmt = $pdo->prepare("
+            INSERT INTO users (email, password, application_id, name, phone, location, role, platform_role, account_status)
+            VALUES (?, ?, ?, ?, ?, ?, 'grower', 'grower', 'needs_confirmation')
+            ON DUPLICATE KEY UPDATE application_id = VALUES(application_id), name = VALUES(name), phone = VALUES(phone), location = VALUES(location), platform_role = COALESCE(platform_role, VALUES(platform_role)), account_status = 'needs_confirmation', email_verified_at = NULL
+        ");
+        $stmt->execute([(string) $email, $passwordHash, $applicationId, $name, $phone, $location]);
     }
 
     $confirmUrl = app_base_url() . '/confirm_email.php?token=' . urlencode($token);

@@ -1,20 +1,21 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/_user_auth.php';
 require_once __DIR__ . '/../lib/certificates.php';
-
-if (session_status() !== PHP_SESSION_ACTIVE) {
-    session_start();
-}
-
-if (empty($_SESSION['user_id'])) {
-    redirect_to('login.php');
-}
+require_once __DIR__ . '/../lib/dashboard-layout.php';
 
 $pdo = db();
 app_ensure_certificate_schema($pdo);
+grower_registration_ensure_member_schema($pdo);
 
 $userId = (int) $_SESSION['user_id'];
+$currentUser = current_user($pdo);
+if (!$currentUser) {
+    session_destroy();
+    redirect_to('login.php');
+}
+dashboard_redirect_learner_only($pdo, $currentUser);
 $ref = trim((string) ($_GET['ref'] ?? ''));
 
 if ($ref === '') {
@@ -23,15 +24,17 @@ if ($ref === '') {
 }
 
 $stmt = $pdo->prepare("
-    SELECT COALESCE(c.certificate_ref, c.qr_code_hash, a.app_ref) display_ref,
+    SELECT c.id certificate_id, c.application_id, COALESCE(c.certificate_ref, c.qr_code_hash, a.app_ref) display_ref,
            COALESCE(c.status, 'issued') status,
            c.issued_at,
+           c.expires_at,
            c.verification_url,
            c.certificate_pdf_path,
            a.app_ref,
            a.name,
            a.location,
-           a.farm_size
+           a.farm_size,
+           a.member_type
     FROM certificates c
     JOIN applications a ON a.id = c.application_id
     WHERE c.user_id = ?
@@ -48,22 +51,26 @@ if (!$certificate) {
     exit('Certificate not found.');
 }
 
-$pdfPath = ltrim((string) ($certificate['certificate_pdf_path'] ?? ''), '/');
-$absolutePdf = $pdfPath !== '' ? dirname(__DIR__) . '/' . $pdfPath : '';
-
-if ($absolutePdf !== '' && is_file($absolutePdf)) {
-    $pdf = (string) file_get_contents($absolutePdf);
-} else {
-    $pdf = certificate_pdf_document($certificate);
-    $pdfPath = 'certificates/' . strtolower(preg_replace('/[^a-zA-Z0-9-]+/', '-', (string) $certificate['display_ref'])) . '.pdf';
-    $absolutePdf = dirname(__DIR__) . '/' . $pdfPath;
-    if (!is_dir(dirname($absolutePdf))) {
-        mkdir(dirname($absolutePdf), 0775, true);
-    }
-    file_put_contents($absolutePdf, $pdf, LOCK_EX);
-    $pdo->prepare("UPDATE certificates SET certificate_pdf_path = ? WHERE user_id = ? AND (certificate_ref = ? OR qr_code_hash = ?)")
-        ->execute([$pdfPath, $userId, $ref, $ref]);
+if (!empty($certificate['expires_at']) && strtotime((string) $certificate['expires_at']) < time()) {
+    http_response_code(410);
+    exit('Certificate has expired.');
 }
+
+$accessRequired = grower_certificate_access_required($pdo, $certificate);
+$accessStatus = grower_certificate_access_status($pdo, $userId, (int) $certificate['application_id'], (int) $certificate['certificate_id']);
+if ($accessRequired && !$accessStatus['paid']) {
+    redirect_to('certificates.php?error=' . urlencode('Pay the certificate access or renewal fee before downloading.'));
+}
+
+$pdf = certificate_pdf_document($certificate);
+$pdfPath = 'certificates/' . strtolower(preg_replace('/[^a-zA-Z0-9-]+/', '-', (string) $certificate['display_ref'])) . '.pdf';
+$absolutePdf = dirname(__DIR__) . '/' . $pdfPath;
+if (!is_dir(dirname($absolutePdf))) {
+    mkdir(dirname($absolutePdf), 0775, true);
+}
+file_put_contents($absolutePdf, $pdf, LOCK_EX);
+$pdo->prepare("UPDATE certificates SET certificate_pdf_path = ? WHERE user_id = ? AND (certificate_ref = ? OR qr_code_hash = ?)")
+    ->execute([$pdfPath, $userId, $ref, $ref]);
 
 $fileName = strtolower(preg_replace('/[^a-zA-Z0-9-]+/', '-', (string) $certificate['display_ref'])) . '.pdf';
 

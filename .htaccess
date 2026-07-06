@@ -1,12 +1,18 @@
 Options -Indexes
+ErrorDocument 403 /WIN/404.php?code=403
+ErrorDocument 404 /WIN/404.php?code=404
+ErrorDocument 500 /WIN/404.php?code=500
+ErrorDocument 503 /WIN/404.php?code=503
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
 
   RewriteRule (^|/)\. - [F,L]
   RewriteRule ^(config\.php|composer\.(json|lock)|package(-lock)?\.json)$ - [F,L,NC]
-  RewriteRule ^(lib|cron|tests|private_backups)(/|$) - [F,L,NC]
-  RewriteRule \.(env|log|bak|backup|old|sql|sqlite|ini|ps1|sh|txt)$ - [F,L,NC]
+  RewriteRule ^(test_db\.php|run_schema_update\.php)$ - [F,L,NC]
+  RewriteRule ^(lib|cron|tests|tools|private_backups|database|resources|prototype-handoff|cocopay-ui-visuals|Microsoft|CDC)(/|$) - [F,L,NC]
+  RewriteRule ^documents(/|$) - [F,L,NC]
+  RewriteRule \.(env|log|bak|backup|old|orig|save|sql|sqlite|ini|ps1|sh|bat|cmd|txt|md|zip|rar|7z|tar|gz|codex-bak)$ - [F,L,NC]
 </IfModule>
 
 <IfModule mod_headers.c>
@@ -14,4 +20,6 @@ Options -Indexes
   Header always set X-Frame-Options "SAMEORIGIN"
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
   Header always set Permissions-Policy "geolocation=(self), camera=(self), microphone=()"
+  Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" "expr=%{HTTPS} == 'on'"
+  Header always set Content-Security-Policy "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; connect-src 'self' https:; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
 </IfModule>

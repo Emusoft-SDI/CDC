@@ -1,7 +1,10 @@
 <?php
 // lib/weather.php
 function getWeatherForecast($lat = 9.0820, $lng = 8.6753) {
-    $apiKey = 'YOUR_OPENWEATHER_API_KEY';
+    $apiKey = (string) app_env('OPENWEATHER_API_KEY', '');
+    if ($apiKey === '') {
+        return null;
+    }
     $url = "https://api.openweathermap.org/data/2.5/forecast?lat={$lat}&lon={$lng}&appid={$apiKey}&units=metric";
     
     $ch = curl_init();
@@ -24,7 +27,7 @@ function getWeatherForecastSummary() {
     $highTemp = 0;
     $lowTemp = 40;
     
-    foreach (array_slice($forecast['list'], 0, 40) as $item) { // 8 items per day × 5 days
+    foreach (array_slice($forecast['list'], 0, 40) as $item) { // 8 items per day x 5 days
         if (isset($item['rain']['3h']) && $item['rain']['3h'] > 5) {
             $rainDays++;
         }
@@ -35,6 +38,6 @@ function getWeatherForecastSummary() {
     $rainImpact = $rainDays > 2 ? "Heavy rain expected - may impact field visits." : 
                   ($rainDays > 0 ? "Light rain possible." : "Clear conditions expected.");
     
-    return "Temperature: {$lowTemp}°C - {$highTemp}°C. {$rainImpact}";
+    return "Temperature: {$lowTemp}C - {$highTemp}C. {$rainImpact}";
 }
 ?>

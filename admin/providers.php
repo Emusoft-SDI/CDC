@@ -1,10 +1,11 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/_auth.php';
 require_once __DIR__ . '/../lib/platform-governance.php';
+require_once __DIR__ . '/../provider/_provider.php';
 
-session_start();
-$pdo = db();
+$pdo = provider_boot();
 admin_ensure_schema($pdo);
 admin_require($pdo);
 pg_ensure_schema($pdo);
@@ -43,9 +44,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $status = in_array((string) ($_POST['status'] ?? 'pending_review'), ['pending_review', 'approved', 'verified', 'suspended', 'rejected'], true)
                     ? (string) $_POST['status']
                     : 'pending_review';
+                $providerId = (int) ($_POST['provider_id'] ?? 0);
+                if (in_array($status, ['approved', 'verified'], true)) {
+                    $stmt = $pdo->prepare("SELECT COUNT(*) FROM provider_accreditation_documents WHERE provider_id=? AND status='approved'");
+                    $stmt->execute([$providerId]);
+                    if ((int) $stmt->fetchColumn() < count(provider_accreditation_types())) {
+                        throw new RuntimeException('Approve every required accreditation document before approving or verifying this provider.');
+                    }
+                }
                 $pdo->prepare("UPDATE provider_registry SET status = ?, verified_by = ?, verified_at = IF(? IN ('approved','verified'), NOW(), verified_at) WHERE id = ?")
-                    ->execute([$status, (int) ($user['id'] ?? 0), $status, (int) ($_POST['provider_id'] ?? 0)]);
+                    ->execute([$status, (int) ($user['id'] ?? 0), $status, $providerId]);
                 $message = 'Provider status updated.';
+            } elseif ($action === 'review_accreditation_document') {
+                $decision = in_array((string) ($_POST['decision'] ?? ''), ['approved', 'rejected'], true) ? (string) $_POST['decision'] : '';
+                if ($decision === '') {
+                    throw new RuntimeException('Select a valid document decision.');
+                }
+                $pdo->prepare("UPDATE provider_accreditation_documents SET status=?, reviewer_id=?, reviewer_notes=?, reviewed_at=NOW() WHERE id=?")
+                    ->execute([$decision, (int) ($user['id'] ?? 0), trim((string) ($_POST['reviewer_notes'] ?? '')), (int) ($_POST['document_id'] ?? 0)]);
+                $message = 'Accreditation evidence reviewed.';
             } elseif ($action === 'add_offering') {
                 $pdo->prepare("
                     INSERT INTO provider_offerings (provider_id, offering_type, category, name, description, price, availability, certifications)
@@ -69,13 +86,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $providers = $pdo->query("
-    SELECT pr.*, COUNT(po.id) offerings
+    SELECT pr.*, COALESCE(offering_counts.offerings, 0) offerings
     FROM provider_registry pr
-    LEFT JOIN provider_offerings po ON po.provider_id = pr.id
-    GROUP BY pr.id
+    LEFT JOIN (
+        SELECT provider_id, COUNT(*) offerings
+        FROM provider_offerings
+        GROUP BY provider_id
+    ) offering_counts ON offering_counts.provider_id = pr.id
     ORDER BY FIELD(pr.status,'pending_review','approved','verified','suspended','rejected'), pr.created_at DESC
     LIMIT 80
 ")->fetchAll();
+$providerDocuments = [];
+foreach ($pdo->query("SELECT d.*, u.name reviewer_name FROM provider_accreditation_documents d LEFT JOIN users u ON u.id=d.reviewer_id ORDER BY d.uploaded_at DESC")->fetchAll() as $document) {
+    $providerDocuments[(int) $document['provider_id']][] = $document;
+}
 
 $categories = [
     'Crop Cultivation', 'Pest and Disease Management', 'Soil Testing', 'Irrigation and Water',
@@ -102,6 +126,7 @@ admin_page_start('Service & Input Providers', [
 <section class="panel provider-hero">
   <h2>Provider Registry</h2>
   <p class="muted">Covers input suppliers, agronomy consultants, soil labs, irrigation vendors, training providers, finance, agri-tech, logistics, and other agricultural services.</p>
+  <p><a class="button secondary" href="../provider/dashboard.php">Open Provider Dashboard</a> <a class="button secondary" href="../provider/index.php">Official Provider Registration</a></p>
 </section>
 
 <section class="layout provider-grid">
@@ -144,6 +169,26 @@ admin_page_start('Service & Input Providers', [
           </select>
           <button type="submit">Update Status</button>
         </form>
+        <details style="margin-top:12px">
+          <summary><strong>Accreditation Evidence (<?= count($providerDocuments[(int) $provider['id']] ?? []) ?>/<?= count(provider_accreditation_types()) ?>)</strong></summary>
+          <?php foreach (provider_accreditation_types() as $type => $label): $document = null; foreach ($providerDocuments[(int) $provider['id']] ?? [] as $candidate) { if ((string) $candidate['document_type'] === $type) { $document = $candidate; break; } } ?>
+            <div class="card" style="box-shadow:none;margin:10px 0;padding:12px">
+              <strong><?= e($label) ?></strong>
+              <?php if ($document): ?>
+                <p class="muted"><?= e((string) $document['original_name']) ?> / <?= number_format((int) $document['file_size'] / 1024, 1) ?> KB / <?= e(ucwords((string) $document['status'])) ?></p>
+                <p><a class="button secondary" target="_blank" href="../provider/document.php?id=<?= (int) $document['id'] ?>">Open Evidence</a></p>
+                <form method="post" class="toolbar">
+                  <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+                  <input type="hidden" name="action" value="review_accreditation_document">
+                  <input type="hidden" name="document_id" value="<?= (int) $document['id'] ?>">
+                  <select name="decision"><option value="approved">Approve</option><option value="rejected">Reject</option></select>
+                  <input name="reviewer_notes" value="<?= e((string) $document['reviewer_notes']) ?>" placeholder="Review notes or rejection reason">
+                  <button type="submit">Record Review</button>
+                </form>
+              <?php else: ?><p class="muted">Not uploaded.</p><?php endif; ?>
+            </div>
+          <?php endforeach; ?>
+        </details>
         <details>
           <summary><strong>Add Product/Service</strong></summary>
           <form method="post" class="grid">

@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../lib/dashboard-layout.php';
-require_once __DIR__ . '/../lib/twilio.php';
+require_once __DIR__ . '/../lib/otp-delivery.php';
 
 session_start();
 $pdo = db();
@@ -11,6 +11,7 @@ $user = current_user($pdo);
 if (!$user) {
     redirect_to('login.php');
 }
+dashboard_redirect_learner_only($pdo, $user);
 $profilePhone = '';
 if (app_column_exists($pdo, 'users', 'phone')) {
     $phoneStmt = $pdo->prepare("SELECT phone FROM users WHERE id = ? LIMIT 1");
@@ -24,25 +25,28 @@ app_add_column_if_missing($pdo, 'users', 'phone_verification_expires', 'DATETIME
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['send_code'])) {
-        // Generate verification code
-        $code = rand(100000, 999999);
+        $code = (string) random_int(100000, 999999);
         $expires = date('Y-m-d H:i:s', strtotime('+5 minutes'));
-        
-        // Save to database
-        $pdo->prepare("
-            UPDATE users SET 
-                phone_verification_code = ?, 
-                phone_verification_expires = ?
-            WHERE id = ?
-        ")->execute([$code, $expires, $_SESSION['user_id']]);
-        
-        // Send SMS via Twilio
-        if ($profilePhone !== '') {
-            sendSMSMessage($profilePhone, "Your NATCODEV verification code is: {$code}. Valid for 5 minutes.");
+
+        if ($profilePhone === '') {
+            $error = 'Add a phone number on your profile before requesting a code.';
+        } else {
+            $delivery = otp_send_code($pdo, (int) $user['id'], $code, 'phone_verification', $profilePhone, (string) ($user['email'] ?? ''));
+            if (!$delivery['ok']) {
+                $error = 'Verification code could not be delivered. ' . implode(' ', $delivery['errors'] ?: ['Check WhatsApp/SMS settings and try again.']);
+            } else {
+                $pdo->prepare("
+                    UPDATE users SET
+                        phone_verification_code = ?,
+                        phone_verification_expires = ?
+                    WHERE id = ?
+                ")->execute([$code, $expires, $_SESSION['user_id']]);
+                $message = 'Verification code ' . otp_delivery_message($delivery) . '.';
+                if (!app_is_production()) {
+                    $message .= ' Local test code: ' . $code;
+                }
+            }
         }
-        
-        $message = "Verification code sent to your phone.";
-        
     } elseif (isset($_POST['verify_code'])) {
         $enteredCode = $_POST['verification_code'] ?? '';
         

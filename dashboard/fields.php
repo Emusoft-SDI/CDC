@@ -1,17 +1,20 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/_user_auth.php';
 require_once __DIR__ . '/../lib/dashboard-layout.php';
 require_once __DIR__ . '/../lib/field-management.php';
 
-session_start();
 $pdo = db();
-if (empty($_SESSION['user_id'])) {
-    redirect_to('login.php');
-}
 fm_ensure_schema($pdo);
 
 $userId = (int) $_SESSION['user_id'];
+$currentUser = current_user($pdo);
+if (!$currentUser) {
+    session_destroy();
+    redirect_to('login.php');
+}
+dashboard_redirect_learner_only($pdo, $currentUser);
 $stmt = $pdo->prepare("
     SELECT gf.*, s.state_name, l.lga_name,
            COALESCE(fv.status, 'pending') verification_status,

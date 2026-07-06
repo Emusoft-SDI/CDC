@@ -15,12 +15,16 @@ $user = require_user_role($pdo, ['field_agent', 'admin']);
   <title>Biometric Enrollment - NATCODEV</title>
   <style>
     body { font-family: "Segoe UI", Arial, sans-serif; max-width:680px; margin:32px auto; padding:0 16px; color:#172211; }
+    .brand { display:flex; align-items:center; gap:12px; margin-bottom:18px; color:#245317; font-weight:900; }
+    .brand img { width:58px; height:58px; object-fit:contain; border-radius:50%; border:1px solid #dfe8d8; background:#fff; }
     .panel { background:#fff; border:1px solid #dfe8d8; border-radius:8px; padding:24px; box-shadow:0 14px 34px rgba(24,43,18,.08); }
     button { background:#14733a; color:#fff; border:0; border-radius:6px; padding:12px 16px; font-weight:800; cursor:pointer; }
     a { color:#14733a; font-weight:800; }
   </style>
+  <link rel="stylesheet" href="../assets/css/natcodev-ui.css?v=20260530">
 </head>
 <body>
+  <div class="brand"><img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV"><span>NATCODEV Field Agent</span></div>
   <main class="panel">
     <p><a href="index.php">Back to Field Agent</a></p>
     <h1>Biometric Enrollment</h1>

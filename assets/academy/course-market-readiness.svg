@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" role="img" aria-labelledby="title desc">
+  <title id="title">Market readiness course image</title>
+  <desc id="desc">An illustrated marketplace lesson with product cards, coconut goods, and order readiness.</desc>
+  <rect width="900" height="520" fill="#f5fbf7"/>
+  <rect x="0" y="0" width="900" height="180" fill="#0b4f2a"/>
+  <path d="M0 180h900v92c-118 34-238 23-360-34-168-78-348-63-540 45z" fill="#147646"/>
+  <rect x="84" y="150" width="230" height="270" rx="18" fill="#fff" stroke="#dfe8d8" stroke-width="5"/>
+  <rect x="126" y="194" width="146" height="92" rx="14" fill="#f7efe2"/>
+  <circle cx="174" cy="240" r="28" fill="#8a5a25"/>
+  <circle cx="217" cy="240" r="28" fill="#b88234"/>
+  <rect x="126" y="316" width="142" height="14" rx="7" fill="#0b4f2a"/>
+  <rect x="126" y="346" width="92" height="12" rx="6" fill="#c99b22"/>
+  <rect x="368" y="104" width="448" height="318" rx="22" fill="#fff" stroke="#dfe8d8" stroke-width="5"/>
+  <rect x="412" y="154" width="158" height="98" rx="14" fill="#e8f2ff"/>
+  <rect x="602" y="154" width="158" height="98" rx="14" fill="#fff5d6"/>
+  <rect x="412" y="288" width="348" height="18" rx="9" fill="#0b4f2a"/>
+  <rect x="412" y="326" width="234" height="14" rx="7" fill="#8cbf95"/>
+  <rect x="412" y="358" width="286" height="14" rx="7" fill="#d5b15a"/>
+  <path d="M625 211c30-46 70-70 120-72-17 42-45 69-84 82z" fill="#13834b"/>
+  <path d="M465 214c15-52 45-86 90-102-3 45-22 80-57 105z" fill="#0b4f2a"/>
+</svg>

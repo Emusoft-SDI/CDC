@@ -1,0 +1,131 @@
+NATCODEV Academy Module - Full Functional Scope
+
+Purpose
+NATCODEV Academy is the platform learning, onboarding, certification, and workforce readiness module. It supports growers, farm hands, providers, sellers, field agents, state coordinators, national coordinators, admins, and super admins with role-aware training and certificate pathways.
+
+Core Structure
+1. Programs
+- Back office can create Academy programs.
+- Programs have title, description, audience roles, status, and sort order.
+- Seeded programs include Grower Onboarding, Farm Hand Safety, Provider Accreditation, Field Agent Certification, State Coordinator Operations, Marketplace Seller Certification, and broader Academy families.
+
+2. Courses
+- Back office can create and manage courses.
+- Courses support free or paid access.
+- Courses can be orientation, course, webinar, workshop, or certification.
+- Courses can target specific RBAC roles.
+- Courses support prerequisites, pass score, instructor name, delivery type, delivery URL, and delivery instructions.
+- Delivery types include live Zoom/class, video, PDF/document, LMS/self-paced page, WhatsApp/Telegram class, in-person venue, and mixed delivery.
+
+3. Lessons and Materials
+- Back office can add lessons under courses.
+- Lessons support text content, summaries, required flags, material URLs, delivery type, duration, sort order, and status.
+- Materials can include PDF handouts, video briefs, external links, self-paced pages, live links, and venue instructions.
+- Six starter courses have seeded PDF handouts and one-minute browser video briefs.
+
+4. Enrollment and Payment
+- Learners can enroll once per course.
+- Free courses enroll directly.
+- Paid courses support wallet payment, wallet funding prompt, or Monnify direct payment.
+- Duplicate course registration is blocked.
+- Training wallet transactions are visible to the learner.
+- Refund request is available for eligible training payments.
+- Back office can review refund requests as pending, approved, rejected, paid, or closed.
+
+5. Learner Progress
+- Learners see My Learning.
+- Learners can open delivery links and lesson material links.
+- Learners can mark lessons complete.
+- Course progress updates from lesson completion.
+- Completed courses become eligible for certificate request when certification rules are met.
+
+6. Assessments
+- Back office can create assessments per course.
+- Back office can add quiz/exam questions.
+- Questions support four options, correct option, points, sort order, and status.
+- Learners submit assessments inside Academy.
+- Score is calculated automatically.
+- Pass/fail is based on the course assessment pass score.
+- Passing assessment marks the learner certificate-eligible.
+
+7. Certificates
+- Course certificates can be requested after completion of certification courses.
+- Certificates may auto-issue or require admin approval.
+- Issued Academy certificates are permanent and cannot be revoked or deleted.
+- Certificate PDFs are generated on download.
+- Academy certificates use NATCODEV Academy certificate design, Chief of Party signature, QR verification, and public online verification.
+
+8. Grouped Certificate Pathways
+- Back office can create certificate groups/pathways from multiple required courses.
+- Learners must complete all required pathway courses before requesting the grouped certificate.
+- Seeded grouped pathways:
+  - Certified NATCODEV Provider Pathway: Provider Accreditation + Marketplace Seller Certification.
+  - Certified NATCODEV Field Agent Pathway: Grower Onboarding + Farm Hand Safety + Field Agent Certification.
+  - Certified State Coordinator Operations Pathway: Grower Onboarding + Field Agent Certification + Provider Accreditation + State Coordinator Operations.
+  - Certified National Coordinator Governance Pathway: Grower Onboarding + Farm Hand Safety + Field Agent Certification + Provider Accreditation + Marketplace Seller Certification + State Coordinator Operations.
+- Grouped certificates support admin approval and public verification.
+
+9. Calendar and Cohorts
+- Back office can create cohort/calendar sessions for courses.
+- Cohorts store course, instructor, title, start date, end date, venue, meeting link, capacity, status, and notes.
+- Learners see upcoming cohort/live sessions for their enrolled courses in the Academy Calendar tab.
+
+10. Instructor and Facilitator Management
+- Back office can add instructors/facilitators.
+- Instructor records include name, email, phone, specialty, bio, and status.
+- Cohorts can be assigned to instructors.
+
+11. Attendance
+- Back office can mark attendance for cohort sessions.
+- Attendance supports present, late, absent, and excused.
+- Attendance stores cohort, course, learner, marker, timestamp, and notes.
+- Attendance can be updated per learner/cohort without duplicate records.
+
+12. Reminders
+- Back office can create Academy reminders.
+- Reminders can target courses, cohorts, or role audiences.
+- Supported reminder channels are dashboard, email, SMS, and WhatsApp.
+- Reminder status supports draft, scheduled, sent, and cancelled.
+- Learners see scheduled/sent Academy reminders relevant to their role.
+- Background worker exists at cron/academy-reminders.php.
+- The worker processes due scheduled reminders, dispatches email/SMS/WhatsApp/dashboard notifications, writes notification logs, and marks reminders sent.
+
+13. Feedback and Ratings
+- Learners can rate enrolled courses from 1 to 5.
+- Learners can add comments.
+- Feedback is stored once per learner/course and can be updated.
+- Back office can view all learner feedback and ratings.
+
+14. Reports and Intelligence
+- Back office overview shows programs, courses, lessons, enrollments, completions, certificates, cohorts, attendance, and feedback.
+- Reports show program course counts.
+- Reports show completion by role.
+- Reports show course intelligence: enrollments, paid enrollments, completions, assessment attempts, average score, and average rating.
+- Back office can inspect enrollments, certificates, refunds, attendance, reminders, and feedback.
+
+15. Back Office Workspace UX
+- Academy is treated as its own module environment.
+- Academy navigation is grouped into Overview, Content, Delivery, and Learners instead of one long row of unrelated menu items.
+- Creation tools are collapsed by default behind "Open..." panels.
+- Admin users can review data first and only open create/edit forms when they intentionally want to create a program, course, cohort, instructor, attendance record, reminder, or assessment.
+
+Seeded Starter Content
+- Grower Onboarding Program: free certification track.
+- Farm Hand Safety Program: free certification track.
+- Provider Accreditation Program: paid certification track.
+- Field Agent Certification Program: paid certification track.
+- State Coordinator Operations Program: paid certification track.
+- Marketplace Seller Certification Program: paid certification track.
+
+Each starter course includes:
+- 3 lessons.
+- 2 materials: PDF handout and one-minute video brief.
+- 1 assessment.
+- 5 quiz/exam questions.
+- Certificate eligibility after completion and passing rules.
+
+Current Remaining Enhancement Ideas
+- Rich file upload UI for lesson materials instead of URL/path entry only.
+- Dedicated cohort enrollment assignment if a course has multiple cohort options.
+- More advanced analytics filters by state, LGA, provider type, marketplace role, and date range.
+- Instructor dashboard for facilitators to mark attendance directly.

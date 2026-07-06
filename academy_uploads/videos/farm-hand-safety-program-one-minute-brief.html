@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Farm Hand Safety Program - One Minute Brief</title>
+  <style>
+    body{margin:0;font-family:Arial,sans-serif;background:#102516;color:#fff;display:grid;min-height:100vh;place-items:center}
+    main{width:min(920px,92vw);border:1px solid rgba(255,255,255,.2);background:linear-gradient(135deg,#163b24,#245c34);box-shadow:0 24px 70px rgba(0,0,0,.35);padding:42px;border-radius:10px}
+    .brand{color:#d7b246;font-weight:800;letter-spacing:3px;text-transform:uppercase}
+    h1{font-family:Georgia,serif;font-size:46px;line-height:1.05;margin:18px 0}
+    p{font-size:22px;line-height:1.45;color:#edf7ee}
+    .bar{height:12px;background:rgba(255,255,255,.18);border-radius:99px;overflow:hidden;margin-top:30px}
+    .bar span{display:block;height:100%;width:0;background:#d7b246;animation:fill 60s linear forwards}
+    .timer{margin-top:12px;color:#d8e8d8;font-size:14px}
+    @keyframes fill{to{width:100%}}
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand">NATCODEV Academy Video Brief</div>
+    <h1 id="title">Farm Hand Safety Program</h1>
+    <p id="slide"></p>
+    <div class="bar"><span></span></div>
+    <div class="timer"><span id="time">00:00</span> / 01:00</div>
+  </main>
+  <script>
+    const slides = ["Welcome to Farm Hand Safety Program","Recognize safe work practices for coconut farm activities.","Report hazards, incidents, and completed tasks clearly.","Work under assigned grower/farm supervision.","Complete the PDF, finish lessons, pass the assessment, then request your certificate."];
+    const slide = document.getElementById('slide');
+    const time = document.getElementById('time');
+    const started = Date.now();
+    function tick(){
+      const elapsed = Math.min(60, Math.floor((Date.now() - started) / 1000));
+      const index = Math.min(slides.length - 1, Math.floor(elapsed / Math.max(1, Math.ceil(60 / slides.length))));
+      slide.textContent = slides[index];
+      time.textContent = '00:' + String(elapsed).padStart(2,'0');
+      if (elapsed < 60) requestAnimationFrame(tick);
+    }
+    tick();
+  </script>
+</body>
+</html>

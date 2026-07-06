@@ -2,6 +2,13 @@
 // cron/fetch-satellite.php - Fetch Sentinel-2 data for farms
 require_once '../config.php';
 
+$pdo = db();
+$sentinelInstanceId = (string) app_env('SENTINEL_HUB_INSTANCE_ID', '');
+if ($sentinelInstanceId === '') {
+    error_log('Satellite imagery fetch skipped: SENTINEL_HUB_INSTANCE_ID is not configured.');
+    return;
+}
+
 // Get farms with coordinates (you'll need to add lat/lng to applications table)
 $stmt = $pdo->prepare("
     SELECT id, farm_lat, farm_lng 
@@ -13,7 +20,7 @@ $farms = $stmt->fetchAll();
 
 foreach ($farms as $farm) {
     // Fetch Sentinel-2 data (example using free API)
-    $url = "https://services.sentinel-hub.com/ogc/wms/YOUR_INSTANCE_ID?" . http_build_query([
+    $url = "https://services.sentinel-hub.com/ogc/wms/{$sentinelInstanceId}?" . http_build_query([
         'REQUEST' => 'GetMap',
         'BBOX' => ($farm['farm_lng'] - 0.01) . ',' . ($farm['farm_lat'] - 0.01) . ',' . ($farm['farm_lng'] + 0.01) . ',' . ($farm['farm_lat'] + 0.01),
         'WIDTH' => 512,

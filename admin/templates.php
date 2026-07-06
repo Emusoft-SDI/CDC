@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/_auth.php';
 require_once __DIR__ . '/../lib/admin-layout.php';
 
-session_start();
 $pdo = db();
 admin_ensure_schema($pdo);
 admin_require($pdo);
@@ -95,18 +95,21 @@ function admin_template_library(): array
             'category' => 'Certificate',
             'sms' => 'NATCODEV: Your certificate {certificate_ref} is ready. Download: {certificate_url}',
             'whatsapp' => '*Certificate Ready*' . "\n\n" . 'Your certificate *{certificate_ref}* is ready.' . "\n" . 'Download: {certificate_url}',
+            'email' => 'Hello {name},\n\nYour accreditation certificate {certificate_ref} is ready for download.\nDownload: {certificate_url}\n\nRegards,\nNATCODEV',
         ],
         'certificate_issued' => [
             'label' => 'Certificate Issued',
             'category' => 'Certificate',
             'sms' => 'NATCODEV: Certificate {certificate_ref} has been issued to {name}. Verify: {verification_url}',
             'whatsapp' => '*Certificate Issued*' . "\n\n" . 'Certificate *{certificate_ref}* has been issued to {name}.' . "\n" . 'Verify: {verification_url}',
+            'email' => 'Hello {name},\n\nYour accreditation certificate {certificate_ref} has been issued.\nVerify: {verification_url}\n\nRegards,\nNATCODEV',
         ],
         'certificate_revoked' => [
             'label' => 'Certificate Revoked',
             'category' => 'Certificate',
             'sms' => 'NATCODEV: Certificate {certificate_ref} has been revoked. Reason: {reason}. Contact support for help.',
             'whatsapp' => '*Certificate Revoked*' . "\n\n" . 'Certificate *{certificate_ref}* has been revoked.' . "\n" . 'Reason: {reason}' . "\n" . 'Contact support for help.',
+            'email' => 'Hello {name},\n\nYour accreditation certificate {certificate_ref} has been revoked.\nReason: {reason}\n\nIf you believe this is an error contact support.\n\nRegards,\nNATCODEV',
         ],
         'support_ticket_opened' => [
             'label' => 'Support Ticket Opened',

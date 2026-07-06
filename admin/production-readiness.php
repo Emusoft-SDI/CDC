@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/_auth.php';
 require_once __DIR__ . '/../lib/admin-layout.php';
 require_once __DIR__ . '/../lib/production-readiness.php';
 
-session_start();
 $pdo = db();
 admin_ensure_schema($pdo);
 admin_require($pdo);
@@ -83,11 +83,11 @@ admin_page_start('Production Readiness', [
     </form>
 
     <h2>Backup Drill</h2>
-    <p class="muted">Creates a DR manifest and records restore evidence. It is not a full SQL dump.</p>
+    <p class="muted">Creates a DR manifest for readiness evidence. Use Backup & Disaster Recovery for full SQL/site backup bundles.</p>
     <form method="post">
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
       <input type="hidden" name="action" value="backup_drill">
-      <button type="submit">Create Backup Manifest</button>
+      <button type="submit">Create DR Manifest</button>
     </form>
   </aside>
 

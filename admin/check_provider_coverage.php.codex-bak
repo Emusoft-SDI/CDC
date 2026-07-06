@@ -1,0 +1,56 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../provider/_provider.php';
+header('Content-Type: text/plain; charset=utf-8');
+
+$email = $argv[1] ?? 'dehgracy@gmail.com';
+$pdo = provider_boot();
+
+echo "Checking provider coverage for email: {$email}\n\n";
+
+$stmt = $pdo->prepare('SELECT * FROM users WHERE email = ? LIMIT 1');
+$stmt->execute([$email]);
+$user = $stmt->fetch();
+if (!$user) {
+    echo "User not found.\n";
+    exit(1);
+}
+
+echo "User: id={$user['id']}, name={$user['name']}\n";
+
+$stmt = $pdo->prepare('SELECT * FROM provider_registry WHERE user_id = ? OR email = ? LIMIT 1');
+$stmt->execute([(int) $user['id'], $email]);
+$provider = $stmt->fetch();
+if (!$provider) {
+    echo "Provider record not found for this user.\n";
+    exit(1);
+}
+
+echo "Provider: id={$provider['id']}, company_name={$provider['company_name']}\n";
+echo "  state_ids: " . ($provider['state_ids'] ?? '') . "\n";
+echo "  lga_ids: " . ($provider['lga_ids'] ?? '') . "\n";
+echo "  nationwide: " . ($provider['nationwide'] ?? '0') . "\n";
+echo "  states_served: " . ($provider['states_served'] ?? '') . "\n\n";
+
+// Counts via provider_counts
+$counts = provider_counts($pdo, $provider, $user);
+echo "provider_counts():\n";
+foreach ($counts as $k => $v) {
+    echo "  {$k}: {$v}\n";
+}
+
+// Compute coverage LGA count
+$selectedStates = array_filter(array_map('trim', explode(',', (string) $provider['state_ids'])));
+$coverageLgas = 0;
+if (((int) ($provider['nationwide'] ?? 0)) === 1) {
+    $coverageLgas = (int) $pdo->query('SELECT COUNT(*) FROM nigeria_lgas')->fetchColumn();
+} elseif ($selectedStates) {
+    $ids = implode(',', array_map('intval', $selectedStates));
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM nigeria_lgas WHERE state_id IN ({$ids})");
+    $stmt->execute();
+    $coverageLgas = (int) $stmt->fetchColumn();
+}
+echo "\nComputed coverage LGAs: {$coverageLgas}\n";
+
+exit(0);

@@ -1,0 +1,22 @@
+Options -Indexes
+ErrorDocument 403 /WIN/404.php?code=403
+ErrorDocument 404 /WIN/404.php?code=404
+ErrorDocument 500 /WIN/404.php?code=500
+ErrorDocument 503 /WIN/404.php?code=503
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  RewriteRule (^|/)\. - [F,L]
+  RewriteRule ^(config\.php|composer\.(json|lock)|package(-lock)?\.json)$ - [F,L,NC]
+  RewriteRule ^(lib|cron|tests|tools|private_backups|database|resources|prototype-handoff|cocopay-ui-visuals|Microsoft|CDC)(/|$) - [F,L,NC]
+  RewriteRule ^documents(/|$) - [F,L,NC]
+  RewriteRule \.(env|log|bak|backup|old|orig|save|sql|sqlite|ini|ps1|sh|bat|cmd|txt|md)$ - [F,L,NC]
+</IfModule>
+
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "geolocation=(self), camera=(self), microphone=()"
+</IfModule>

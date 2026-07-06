@@ -1,0 +1,6 @@
+# Generated NATCODEV credential files are served through authenticated PHP routes.
+<FilesMatch "\.(html|pdf)$">
+    Require all denied
+    Order allow,deny
+    Deny from all
+</FilesMatch>

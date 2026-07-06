@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/_auth.php';
 require_once __DIR__ . '/../lib/admin-layout.php';
 
-session_start();
 $pdo = db();
 admin_ensure_schema($pdo);
 admin_require($pdo);
@@ -20,24 +20,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $category = trim((string) ($_POST['category'] ?? 'Guides'));
         $offline = isset($_POST['offline_available']) ? 1 : 0;
 
-        if ($title === '' || empty($_FILES['file']['name'])) {
+        if ($title === '') {
             $error = 'Title and file are required.';
         } else {
-            $allowed = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png'];
-            $original = (string) $_FILES['file']['name'];
-            $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
-
-            if (!in_array($ext, $allowed, true)) {
-                $error = 'Unsupported file type.';
-            } else {
+            try {
+                $upload = app_uploaded_file_info((array) ($_FILES['file'] ?? []), ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png'], 20 * 1024 * 1024, 'Resource file');
                 $uploadDir = dirname(__DIR__) . '/resources';
                 if (!is_dir($uploadDir)) {
                     mkdir($uploadDir, 0755, true);
                 }
-                $safeName = time() . '_' . preg_replace('/[^a-z0-9._-]/i', '_', basename($original));
+                $safeName = app_safe_upload_name('resource', $upload['name'], $upload['extension']);
                 $target = $uploadDir . '/' . $safeName;
 
-                if (move_uploaded_file((string) $_FILES['file']['tmp_name'], $target)) {
+                if (move_uploaded_file($upload['tmp_name'], $target)) {
                     $stmt = $pdo->prepare("
                         INSERT INTO resources (title, description, file_path, category, offline_available)
                         VALUES (?, ?, ?, ?, ?)
@@ -49,6 +44,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     $error = 'Upload failed. Check the resources folder permissions.';
                 }
+            } catch (Throwable $e) {
+                $error = $e->getMessage();
             }
         }
     }
@@ -60,9 +57,9 @@ $offset = admin_pagination_offset($page, $perPage);
 $totalResources = (int) $pdo->query("SELECT COUNT(*) FROM resources")->fetchColumn();
 $resources = $pdo->query("SELECT * FROM resources ORDER BY created_at DESC LIMIT {$perPage} OFFSET {$offset}")->fetchAll();
 
-admin_page_start('Resources', [
+admin_page_start('Learning Resources', [
     'active' => 'resources.php',
-    'description' => 'Upload training files, guides, and offline resources for the field agent app.',
+    'description' => 'Upload training files, farmer guides, field materials, and offline resources as an independent learning area.',
     'wide' => true,
 ]);
 ?>

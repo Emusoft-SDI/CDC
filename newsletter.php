@@ -12,6 +12,11 @@ if (!$email) {
     die('Invalid email address.');
 }
 
+if (!app_check_rate_limit('newsletter_optin', 5, 3600)) {
+    http_response_code(429);
+    die('Too many subscription attempts. Please try again later.');
+}
+
 // Prevent abuse: require email to already exist in applications (optional but recommended)
 try {
     $pdo = db();

@@ -79,7 +79,7 @@ function dr_default_settings(): array
         'dr_sync_mode' => 'manual_review',
         'dr_backup_frequency' => 'daily',
         'dr_backup_retention_days' => '30',
-        'dr_backup_storage_path' => 'private_backups',
+        'dr_backup_storage_path' => '../win-private/backups',
         'dr_recovery_contact' => '',
         'dr_last_restore_test_at' => '',
     ];
@@ -110,13 +110,7 @@ function dr_generate_shared_secret(): string
 
 function dr_create_backup_manifest(PDO $pdo, ?int $userId = null): array
 {
-    $settings = dr_settings($pdo);
-    $relativeDir = trim($settings['dr_backup_storage_path'] ?: 'private_backups', "/\\");
-    $relativeDir = preg_replace('/[^a-zA-Z0-9_\/.-]/', '', $relativeDir) ?: 'private_backups';
-    $absoluteDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $relativeDir);
-    if (!is_dir($absoluteDir)) {
-        mkdir($absoluteDir, 0750, true);
-    }
+    [$relativeDir, $absoluteDir] = dr_backup_root($pdo);
 
     $backupRef = 'DR-' . date('ymd-His') . '-' . strtoupper(bin2hex(random_bytes(2)));
     $tables = $pdo->query("
@@ -145,6 +139,7 @@ function dr_create_backup_manifest(PDO $pdo, ?int $userId = null): array
         'database' => app_env('DB_DATABASE', ''),
         'table_counts' => $tableCounts,
         'restore_note' => 'Use this manifest to verify a cPanel/mysql backup set. It is not a full SQL dump.',
+        'operational_restore_rule' => 'Super Admin can trigger backup and verify restore evidence. Actual production restore requires Super Admin approval plus hosting/database operator execution unless a dedicated restore database user is granted.',
     ];
 
     $path = $absoluteDir . DIRECTORY_SEPARATOR . strtolower($backupRef) . '.json';
@@ -191,4 +186,344 @@ function dr_verify_node_token(PDO $pdo, string $nodeKey, string $token): bool
         && (string) $node['status'] === 'active'
         && is_string($node['shared_secret_hash'])
         && password_verify($token, (string) $node['shared_secret_hash']);
+}
+
+function dr_safe_relative_path(string $path, string $fallback = '../win-private/backups'): string
+{
+    $path = trim(str_replace('\\', '/', $path), "/ ");
+    $path = preg_replace('/[^a-zA-Z0-9_\/.-]/', '', $path) ?: $fallback;
+    $segments = [];
+    foreach (explode('/', $path) as $segment) {
+        if ($segment === '' || $segment === '.') {
+            continue;
+        }
+        if ($segment === '..') {
+            if (!$segments || end($segments) === '..') {
+                $segments[] = '..';
+            } else {
+                array_pop($segments);
+            }
+            continue;
+        }
+        $segments[] = $segment;
+    }
+    $path = implode('/', $segments) ?: $fallback;
+    return in_array($path, ['.', '..'], true) ? $fallback : $path;
+}
+
+function dr_project_root(): string
+{
+    return dirname(__DIR__);
+}
+
+function dr_backup_root(PDO $pdo): array
+{
+    $settings = dr_settings($pdo);
+    $relative = dr_safe_relative_path((string) ($settings['dr_backup_storage_path'] ?? '../win-private/backups'));
+    $base = realpath(dr_project_root());
+    if ($base === false) {
+        throw new RuntimeException('Project root could not be resolved.');
+    }
+    $candidate = $base . DIRECTORY_SEPARATOR . str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $relative);
+    if (!is_dir($candidate)) {
+        mkdir($candidate, 0750, true);
+    }
+    $absolute = realpath($candidate);
+    if ($absolute === false) {
+        throw new RuntimeException('Backup path could not be resolved.');
+    }
+    $privateBase = realpath(app_private_storage_path());
+    if ($privateBase !== false && !str_starts_with($absolute, $privateBase . DIRECTORY_SEPARATOR) && $absolute !== $privateBase) {
+        $relative = '../win-private/backups';
+        $absolute = app_private_storage_path('backups');
+        if (!is_dir($absolute)) {
+            mkdir($absolute, 0750, true);
+        }
+    }
+    return [$relative, $absolute];
+}
+
+function dr_quote_sql_identifier(string $name): string
+{
+    return '`' . str_replace('`', '``', $name) . '`';
+}
+
+function dr_sql_value($value): string
+{
+    if ($value === null) {
+        return 'NULL';
+    }
+    if (is_int($value) || is_float($value)) {
+        return (string) $value;
+    }
+    return "'" . str_replace(["\\", "'", "\r", "\n"], ["\\\\", "\\'", "\\r", "\\n"], (string) $value) . "'";
+}
+
+function dr_create_database_dump(PDO $pdo, string $targetPath): array
+{
+    $tables = $pdo->query("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE='BASE TABLE' ORDER BY TABLE_NAME")->fetchAll(PDO::FETCH_COLUMN);
+    $handle = fopen($targetPath, 'wb');
+    if (!$handle) {
+        throw new RuntimeException('Unable to open SQL dump target.');
+    }
+    fwrite($handle, "-- NATCODEV database backup\n-- Created: " . date('c') . "\n-- Database: " . app_env('DB_DATABASE', '') . "\n\nSET FOREIGN_KEY_CHECKS=0;\n\n");
+    $tableCounts = [];
+    foreach ($tables as $table) {
+        $table = (string) $table;
+        $quoted = dr_quote_sql_identifier($table);
+        $create = $pdo->query("SHOW CREATE TABLE {$quoted}")->fetch(PDO::FETCH_ASSOC);
+        $createSql = (string) ($create['Create Table'] ?? array_values($create)[1] ?? '');
+        fwrite($handle, "\nDROP TABLE IF EXISTS {$quoted};\n{$createSql};\n\n");
+        $count = 0;
+        $stmt = $pdo->query("SELECT * FROM {$quoted}", PDO::FETCH_ASSOC);
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $columns = array_map('dr_quote_sql_identifier', array_keys($row));
+            $values = array_map('dr_sql_value', array_values($row));
+            fwrite($handle, 'INSERT INTO ' . $quoted . ' (' . implode(',', $columns) . ') VALUES (' . implode(',', $values) . ");\n");
+            $count++;
+        }
+        $tableCounts[$table] = $count;
+    }
+    fwrite($handle, "\nSET FOREIGN_KEY_CHECKS=1;\n");
+    fclose($handle);
+    return ['path' => $targetPath, 'size' => is_file($targetPath) ? filesize($targetPath) : 0, 'checksum' => is_file($targetPath) ? hash_file('sha256', $targetPath) : null, 'table_counts' => $tableCounts];
+}
+
+function dr_create_site_archive(string $targetPath, array $excludeDirs = []): array
+{
+    if (!class_exists('ZipArchive')) {
+        return ['created' => false, 'path' => '', 'size' => 0, 'checksum' => null, 'error' => 'PHP ZipArchive extension is not enabled.'];
+    }
+    $root = dr_project_root();
+    $exclude = array_map(static fn(string $item): string => str_replace(['/', '\\'], DIRECTORY_SEPARATOR, trim($item, "/\\")), $excludeDirs);
+    $zip = new ZipArchive();
+    if ($zip->open($targetPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+        throw new RuntimeException('Unable to create site archive.');
+    }
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
+    $count = 0;
+    foreach ($iterator as $file) {
+        if (!$file instanceof SplFileInfo || !$file->isFile()) {
+            continue;
+        }
+        $full = $file->getPathname();
+        if (preg_match('/\.(env|log|zip|rar|sql|sqlite|bak|backup|7z|tar|gz)$/i', basename($full))) {
+            continue;
+        }
+        $relative = ltrim(str_replace($root, '', $full), DIRECTORY_SEPARATOR);
+        $normalized = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $relative);
+        $skip = false;
+        foreach ($exclude as $dir) {
+            if ($dir !== '' && (str_starts_with($normalized, $dir . DIRECTORY_SEPARATOR) || $normalized === $dir)) {
+                $skip = true;
+                break;
+            }
+        }
+        if ($skip) {
+            continue;
+        }
+        $zip->addFile($full, str_replace(DIRECTORY_SEPARATOR, '/', $relative));
+        $count++;
+    }
+    $zip->close();
+    return ['created' => true, 'path' => $targetPath, 'files' => $count, 'size' => is_file($targetPath) ? filesize($targetPath) : 0, 'checksum' => is_file($targetPath) ? hash_file('sha256', $targetPath) : null];
+}
+
+function dr_copy_directory(string $source, string $target): void
+{
+    if (!is_dir($source)) {
+        throw new RuntimeException('Backup source folder does not exist.');
+    }
+    if (!is_dir($target)) {
+        mkdir($target, 0750, true);
+    }
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($source, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST);
+    foreach ($iterator as $item) {
+        $dest = $target . DIRECTORY_SEPARATOR . $iterator->getSubPathName();
+        if ($item->isDir()) {
+            if (!is_dir($dest)) {
+                mkdir($dest, 0750, true);
+            }
+        } else {
+            copy($item->getPathname(), $dest);
+        }
+    }
+}
+
+function dr_create_backup_bundle(PDO $pdo, ?int $userId, array $options = []): array
+{
+    dr_ensure_schema($pdo);
+    [$relativeRoot, $absoluteRoot] = dr_backup_root($pdo);
+    $settings = dr_settings($pdo);
+    $backupRef = 'BK-' . date('ymd-His') . '-' . strtoupper(bin2hex(random_bytes(2)));
+    $bundleDir = $absoluteRoot . DIRECTORY_SEPARATOR . strtolower($backupRef);
+    mkdir($bundleDir, 0750, true);
+
+    $includeDb = !empty($options['include_database']);
+    $includeSite = !empty($options['include_site']);
+    $targets = [];
+    $files = [];
+    $notes = [];
+
+    $db = null;
+    if ($includeDb) {
+        $db = dr_create_database_dump($pdo, $bundleDir . DIRECTORY_SEPARATOR . strtolower($backupRef) . '-database.sql');
+        $files[] = ['type' => 'database_sql', 'path' => basename((string) $db['path']), 'size' => (int) $db['size'], 'checksum' => $db['checksum']];
+    }
+
+    $site = null;
+    if ($includeSite) {
+        $site = dr_create_site_archive($bundleDir . DIRECTORY_SEPARATOR . strtolower($backupRef) . '-site.zip', ['private_backups', '../win-private', '.git', '.mrcoder', '.vscode', 'documents', 'uploads', 'provider_uploads', 'recruitment_uploads', 'academy_uploads', 'certificates', 'resources']);
+        if (!empty($site['created'])) {
+            $files[] = ['type' => 'site_archive', 'path' => basename((string) $site['path']), 'size' => (int) $site['size'], 'checksum' => $site['checksum'], 'files' => $site['files'] ?? 0];
+        } else {
+            $notes[] = (string) ($site['error'] ?? 'Site archive was not created.');
+        }
+    }
+
+    $gitHead = trim((string) @shell_exec('git rev-parse --short HEAD 2>NUL'));
+    $gitBranch = trim((string) @shell_exec('git branch --show-current 2>NUL'));
+
+    foreach (['google_drive' => 'dr_google_drive_path', 'external_drive' => 'dr_external_drive_path'] as $targetName => $settingKey) {
+        if (empty($options['copy_' . $targetName])) {
+            continue;
+        }
+        $targetPath = trim((string) ($settings[$settingKey] ?? ''));
+        if ($targetPath === '') {
+            $targets[$targetName] = ['status' => 'not_configured', 'path' => ''];
+            continue;
+        }
+        try {
+            $targetDir = rtrim($targetPath, "/\\") . DIRECTORY_SEPARATOR . strtolower($backupRef);
+            dr_copy_directory($bundleDir, $targetDir);
+            $targets[$targetName] = ['status' => 'copied', 'path' => $targetDir];
+        } catch (Throwable $e) {
+            $targets[$targetName] = ['status' => 'failed', 'path' => $targetPath, 'error' => $e->getMessage()];
+        }
+    }
+
+    $manifest = [
+        'backup_ref' => $backupRef,
+        'created_at' => date('c'),
+        'site_id' => $settings['dr_site_id'] ?? '',
+        'app_url' => app_base_url(),
+        'database' => app_env('DB_DATABASE', ''),
+        'bundle_path' => $relativeRoot . '/' . strtolower($backupRef),
+        'files' => $files,
+        'targets' => $targets,
+        'git' => ['branch' => $gitBranch, 'head' => $gitHead, 'remote' => (string) ($settings['dr_git_remote'] ?? '')],
+        'notes' => $notes,
+        'operational_restore_rule' => 'Super Admin can trigger backup and verify restore evidence. Actual production restore requires Super Admin approval plus hosting/database operator execution unless a dedicated restore database user is granted.',
+        'restore_order' => ['1. Obtain Super Admin approval and assign a hosting/database operator for execution.', '2. Put site files back in the web root.', '3. Import the SQL dump into the selected database using approved database credentials.', '4. Restore .env/config values and verify APP_URL/payment/email credentials.', '5. Run production readiness checks and a test login.'],
+    ];
+    $manifestPath = $bundleDir . DIRECTORY_SEPARATOR . 'manifest.json';
+    file_put_contents($manifestPath, json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
+    $files[] = ['type' => 'manifest', 'path' => 'manifest.json', 'size' => filesize($manifestPath), 'checksum' => hash_file('sha256', $manifestPath)];
+
+    $size = 0;
+    foreach ($files as $file) {
+        $size += (int) ($file['size'] ?? 0);
+    }
+    $status = $notes ? 'completed_with_warnings' : 'completed';
+    $stmt = $pdo->prepare("INSERT INTO dr_backups (backup_ref, backup_type, status, storage_path, file_size, checksum, notes, created_by, started_at, completed_at) VALUES (?, 'bundle', ?, ?, ?, ?, ?, ?, NOW(), NOW())");
+    $stmt->execute([$backupRef, $status, $relativeRoot . '/' . strtolower($backupRef) . '/manifest.json', $size, hash_file('sha256', $manifestPath), json_encode(['targets' => $targets, 'notes' => $notes], JSON_UNESCAPED_SLASHES), $userId]);
+
+    return $manifest + ['status' => $status, 'size' => $size, 'manifest_path' => $relativeRoot . '/' . strtolower($backupRef) . '/manifest.json'];
+}
+function dr_integrity_time_column(PDO $pdo, string $table): string
+{
+    foreach (['updated_at', 'created_at', 'requested_at', 'submitted_at', 'issued_at', 'completed_at', 'reviewed_at'] as $column) {
+        if (app_column_exists($pdo, $table, $column)) {
+            return $column;
+        }
+    }
+    return '';
+}
+
+function dr_integrity_activity_summary(PDO $pdo, array $settings): array
+{
+    $tables = array_values(array_unique(array_filter(array_map(static function (string $table): string {
+        return preg_replace('/[^a-zA-Z0-9_]/', '', trim($table));
+    }, explode(',', (string) ($settings['dr_auto_backup_critical_tables'] ?? ''))))));
+    $window = max(30, min(86400, (int) ($settings['dr_auto_backup_activity_window_seconds'] ?? 3600)));
+    $since = date('Y-m-d H:i:s', time() - $window);
+    $active = [];
+    $total = 0;
+
+    foreach ($tables as $table) {
+        if ($table === '' || !app_table_exists($pdo, $table)) {
+            continue;
+        }
+        $column = dr_integrity_time_column($pdo, $table);
+        if ($column === '') {
+            continue;
+        }
+        try {
+            $quotedTable = '`' . str_replace('`', '``', $table) . '`';
+            $quotedColumn = '`' . str_replace('`', '``', $column) . '`';
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM {$quotedTable} WHERE {$quotedColumn} >= ?");
+            $stmt->execute([$since]);
+            $count = (int) $stmt->fetchColumn();
+            if ($count > 0) {
+                $active[] = ['table' => $table, 'column' => $column, 'count' => $count];
+                $total += $count;
+            }
+        } catch (Throwable $e) {
+            $active[] = ['table' => $table, 'column' => $column, 'count' => 0, 'error' => $e->getMessage()];
+        }
+    }
+
+    return ['since' => $since, 'window_seconds' => $window, 'total' => $total, 'active' => $active];
+}
+
+function dr_run_integrity_backup(PDO $pdo, ?int $userId = null, bool $force = false): array
+{
+    dr_ensure_schema($pdo);
+    $settings = dr_settings($pdo);
+    $now = time();
+    dr_save_setting($pdo, 'dr_auto_backup_last_checked_at', date('Y-m-d H:i:s', $now));
+
+    if (($settings['dr_auto_backup_enabled'] ?? '0') !== '1' && !$force) {
+        $result = ['status' => 'skipped', 'reason' => 'auto_backup_disabled'];
+        dr_save_setting($pdo, 'dr_auto_backup_last_result', json_encode($result, JSON_UNESCAPED_SLASHES));
+        return $result;
+    }
+
+    $interval = max(30, min(86400, (int) ($settings['dr_auto_backup_interval_seconds'] ?? 3600)));
+    $lastBackupAt = strtotime((string) ($settings['dr_auto_backup_last_backup_at'] ?? '')) ?: 0;
+    if (!$force && $lastBackupAt > 0 && ($now - $lastBackupAt) < $interval) {
+        $result = ['status' => 'skipped', 'reason' => 'interval_not_due', 'next_due_at' => date('Y-m-d H:i:s', $lastBackupAt + $interval)];
+        dr_save_setting($pdo, 'dr_auto_backup_last_result', json_encode($result, JSON_UNESCAPED_SLASHES));
+        return $result;
+    }
+
+    $activity = dr_integrity_activity_summary($pdo, $settings);
+    if (!$force && (int) $activity['total'] <= 0) {
+        $result = ['status' => 'skipped', 'reason' => 'no_critical_activity', 'activity' => $activity];
+        dr_save_setting($pdo, 'dr_auto_backup_last_result', json_encode($result, JSON_UNESCAPED_SLASHES));
+        return $result;
+    }
+
+    $bundle = dr_create_backup_bundle($pdo, $userId, [
+        'include_database' => true,
+        'include_site' => false,
+        'copy_google_drive' => ($settings['dr_auto_backup_copy_google_drive'] ?? '0') === '1',
+        'copy_external_drive' => ($settings['dr_auto_backup_copy_external_drive'] ?? '0') === '1',
+    ]);
+    dr_save_setting($pdo, 'dr_auto_backup_last_backup_at', date('Y-m-d H:i:s', $now));
+
+    $email = filter_var((string) ($settings['dr_auto_backup_email_to'] ?? ''), FILTER_VALIDATE_EMAIL);
+    $emailStatus = 'not_configured';
+    if ($email) {
+        $lines = [];
+        foreach ($activity['active'] as $row) {
+            $lines[] = $row['table'] . ': ' . (int) $row['count'] . ' change(s) via ' . $row['column'];
+        }
+        $body = "NATCODEV data-integrity SQL backup completed.\n\nReference: " . $bundle['backup_ref'] . "\nStatus: " . $bundle['status'] . "\nManifest: " . $bundle['manifest_path'] . "\nActivity since: " . $activity['since'] . "\nCritical activity: " . ($lines ? implode("\n", $lines) : 'Forced/no activity summary') . "\n\nKeep the SQL file in private backup storage; do not forward database dumps casually.";
+        $emailStatus = app_send_mail($email, 'NATCODEV data integrity backup ' . $bundle['backup_ref'], $body) ? 'sent' : 'failed';
+    }
+
+    $result = ['status' => 'completed', 'backup_ref' => $bundle['backup_ref'], 'manifest_path' => $bundle['manifest_path'], 'activity' => $activity, 'email' => $emailStatus];
+    dr_save_setting($pdo, 'dr_auto_backup_last_result', json_encode($result, JSON_UNESCAPED_SLASHES));
+    return $result;
 }

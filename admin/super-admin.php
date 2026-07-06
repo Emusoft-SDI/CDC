@@ -3,4 +3,4 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../config.php';
 
-redirect_to('../super-admin/');
+redirect_to('admin.php');

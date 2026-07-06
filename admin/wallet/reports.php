@@ -1,0 +1,234 @@
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../_auth.php';
+require_once __DIR__ . '/../../lib/admin-layout.php';
+require_once __DIR__ . '/../../lib/admin-operator-strip.php';
+require_once __DIR__ . '/../../lib/monnify.php';
+require_once __DIR__ . '/../../lib/wallet-reporting.php';
+
+$pdo = db();
+admin_ensure_schema($pdo);
+wallet_ensure_schema($pdo);
+wallet_reporting_ensure_schema($pdo);
+admin_require($pdo, 'wallet');
+$admin = current_user($pdo) ?: [];
+
+function wr_e($value): string { return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8'); }
+function wr_valid_date(string $value, string $fallback): string
+{
+    return preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) ? $value : $fallback;
+}
+
+$from = wr_valid_date((string) ($_GET['from'] ?? ''), date('Y-m-d', strtotime('-29 days')));
+$to = wr_valid_date((string) ($_GET['to'] ?? ''), date('Y-m-d'));
+$fromDt = DateTime::createFromFormat('Y-m-d', $from) ?: new DateTime('-29 days');
+$toDt = DateTime::createFromFormat('Y-m-d', $to) ?: new DateTime();
+if ($fromDt > $toDt) {
+    [$fromDt, $toDt] = [$toDt, $fromDt];
+}
+if ((int) $fromDt->diff($toDt)->days > 93) {
+    $fromDt = (clone $toDt)->modify('-93 days');
+}
+$from = $fromDt->format('Y-m-d');
+$to = $toDt->format('Y-m-d');
+$notice = '';
+$error = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    try {
+        if (!verify_csrf($_POST['_csrf'] ?? null)) {
+            throw new RuntimeException('Invalid security token.');
+        }
+        $action = (string) ($_POST['action'] ?? '');
+        if ($action === 'refresh_summary') {
+            wallet_reporting_refresh($pdo, $from, $to);
+            $notice = 'Wallet report summaries refreshed for ' . $from . ' to ' . $to . '.';
+        } elseif ($action === 'generate_export') {
+            $rows = wallet_reporting_rows($pdo, "
+                SELECT report_date, provider, status, stakeholder_role, transactions, inflow, outflow, failed_count
+                FROM wallet_report_daily_summary
+                WHERE report_date BETWEEN ? AND ?
+                ORDER BY report_date ASC, provider ASC, status ASC, stakeholder_role ASC
+            ", [$from, $to]);
+            $dir = app_private_storage_path('exports');
+            if (!is_dir($dir)) {
+                mkdir($dir, 0775, true);
+            }
+            $jobRef = 'WALLET-REPORT-' . date('ymdHis') . '-' . strtoupper(bin2hex(random_bytes(2)));
+            $fileName = strtolower($jobRef) . '.csv';
+            $filePath = $dir . '/' . $fileName;
+            $fh = fopen($filePath, 'wb');
+            fputcsv($fh, app_csv_row(['date', 'provider', 'status', 'stakeholder_role', 'transactions', 'inflow', 'outflow', 'failed_count']));
+            foreach ($rows as $row) {
+                fputcsv($fh, app_csv_row([$row['report_date'], $row['provider'], $row['status'], $row['stakeholder_role'], $row['transactions'], $row['inflow'], $row['outflow'], $row['failed_count']]));
+            }
+            fclose($fh);
+            $pdo->prepare("
+                INSERT INTO wallet_report_export_jobs
+                    (job_ref, report_type, from_date, to_date, status, file_path, requested_by, completed_at)
+                VALUES (?, 'wallet_report', ?, ?, 'ready', ?, ?, NOW())
+            ")->execute([$jobRef, $from, $to, 'exports/' . $fileName, (int) ($admin['id'] ?? 0)]);
+            $notice = 'Export generated: ' . $jobRef . '.';
+        }
+    } catch (Throwable $e) {
+        $error = $e->getMessage();
+    }
+}
+
+if (isset($_GET['download'])) {
+    $id = (int) $_GET['download'];
+    $stmt = $pdo->prepare("SELECT * FROM wallet_report_export_jobs WHERE id = ? AND status = 'ready' LIMIT 1");
+    $stmt->execute([$id]);
+    $job = $stmt->fetch(PDO::FETCH_ASSOC);
+    $path = $job ? app_private_storage_path((string) $job['file_path']) : '';
+    $realPath = $path !== '' ? realpath($path) : false;
+    $exportRoot = realpath(app_private_storage_path('exports'));
+    if (!$job || !$realPath || !$exportRoot || !str_starts_with($realPath, $exportRoot . DIRECTORY_SEPARATOR) || !is_file($realPath)) {
+        http_response_code(404);
+        exit('Export not found.');
+    }
+    header('Content-Type: text/csv');
+    header('Content-Disposition: attachment; filename="' . basename($realPath) . '"');
+    readfile($realPath);
+    exit;
+}
+
+$rangeParams = [$from, $to];
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM wallet_report_daily_summary WHERE report_date BETWEEN ? AND ?");
+$stmt->execute($rangeParams);
+$summaryCount = (int) $stmt->fetchColumn();
+
+$reportDaily = wallet_reporting_rows($pdo, "
+    SELECT report_date day, SUM(transactions) transactions, SUM(inflow) inflow, SUM(outflow) outflow, SUM(failed_count) failed_count
+    FROM wallet_report_daily_summary
+    WHERE report_date BETWEEN ? AND ?
+    GROUP BY report_date
+    ORDER BY report_date ASC
+", $rangeParams);
+$reportStatus = wallet_reporting_rows($pdo, "
+    SELECT status, SUM(transactions) count, SUM(inflow + outflow) amount
+    FROM wallet_report_daily_summary
+    WHERE report_date BETWEEN ? AND ?
+    GROUP BY status
+    ORDER BY amount DESC
+", $rangeParams);
+$reportProviders = wallet_reporting_rows($pdo, "
+    SELECT provider, SUM(transactions) count, SUM(inflow) inflow, SUM(outflow) outflow
+    FROM wallet_report_daily_summary
+    WHERE report_date BETWEEN ? AND ?
+    GROUP BY provider
+    ORDER BY (SUM(inflow) + SUM(outflow)) DESC
+", $rangeParams);
+$reportStakeholders = wallet_reporting_rows($pdo, "
+    SELECT stakeholder_role, COUNT(DISTINCT report_date) active_days, SUM(transactions) transactions, SUM(inflow) inflow, SUM(outflow) outflow, SUM(failed_count) failed_count
+    FROM wallet_report_daily_summary
+    WHERE report_date BETWEEN ? AND ?
+    GROUP BY stakeholder_role
+    ORDER BY (SUM(inflow) + SUM(outflow)) DESC
+", $rangeParams);
+$reportWithdrawals = wallet_reporting_rows($pdo, "
+    SELECT COALESCE(NULLIF(status,''),'unknown') status, COALESCE(NULLIF(provider,''),'not_selected') provider, COUNT(*) count, COALESCE(SUM(amount),0) amount,
+           SUM(CASE WHEN review_required=1 THEN 1 ELSE 0 END) manual_reviews
+    FROM wallet_withdrawals
+    GROUP BY COALESCE(NULLIF(status,''),'unknown'), COALESCE(NULLIF(provider,''),'not_selected')
+    ORDER BY amount DESC
+");
+$exports = wallet_reporting_rows($pdo, "SELECT * FROM wallet_report_export_jobs ORDER BY requested_at DESC LIMIT 10");
+$topWallets = wallet_reporting_rows($pdo, "
+    SELECT u.name, u.email, w.balance, w.hold_balance, w.status
+    FROM wallets w
+    JOIN users u ON u.id = w.user_id
+    ORDER BY w.balance DESC
+    LIMIT 12
+");
+
+$totalInflow = array_sum(array_map(static fn(array $r): float => (float) $r['inflow'], $reportDaily));
+$totalOutflow = array_sum(array_map(static fn(array $r): float => (float) $r['outflow'], $reportDaily));
+$totalTransactions = array_sum(array_map(static fn(array $r): int => (int) $r['transactions'], $reportDaily));
+$maxFlow = max(1.0, ...array_map(static fn(array $r): float => max((float) $r['inflow'], (float) $r['outflow']), $reportDaily ?: [['inflow' => 1, 'outflow' => 1]]));
+?>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NATCODEV Wallet Reports</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../../assets/css/admin-workspaces.css">
+  <style>
+    body{background:#f4f7f5}.fin-shell{display:grid;grid-template-columns:275px 1fr;min-height:100vh}.fin-side{background:#092f22;color:#fff;padding:24px 18px}.fin-side a{color:#d8eee2;text-decoration:none;padding:11px 12px;border-radius:8px}.fin-side a.active,.fin-side a:hover{background:#17603f;color:#fff}.fin-main{padding:28px}.money{font-variant-numeric:tabular-nums}.fin-chart{display:flex;align-items:end;gap:8px;height:220px;padding:14px 8px 0;border-bottom:1px solid #d8dee6}.fin-bar{flex:1;min-width:16px;border-radius:8px 8px 0 0;background:linear-gradient(180deg,#198754,#9bd6ae);position:relative}.fin-bar.out{background:linear-gradient(180deg,#f59e0b,#fde68a)}.fin-bar span{position:absolute;left:50%;bottom:100%;transform:translateX(-50%);font-size:.68rem;color:#475467;white-space:nowrap}.fin-report-grid{display:grid;grid-template-columns:1.25fr .85fr;gap:16px}@media(max-width:1100px){.fin-report-grid{grid-template-columns:1fr}}@media(max-width:900px){.fin-shell{grid-template-columns:1fr}.fin-main{padding:16px}}
+  </style>
+</head>
+<body>
+<div class="fin-shell">
+  <aside class="fin-side">
+    <h4>NATCODEV</h4>
+    <p class="small text-white-50">Wallet & Finance Control Room</p>
+    <nav class="d-grid gap-1 mt-4">
+      <a href="index.php">Overview</a>
+      <a href="index.php?page=transactions">Transactions</a>
+      <a href="index.php?page=wallets">Wallet Users</a>
+      <a href="index.php?page=withdrawals">Withdrawals</a>
+      <a href="index.php?page=reconciliation">Reconciliation</a>
+      <a class="active" href="reports.php">Reports & Intelligence</a>
+      <a href="index.php?page=rules">Withdrawal Rules</a>
+      <a href="../index.php">Workspace Hub</a>
+    </nav>
+  </aside>
+  <main class="fin-main">
+    <?= admin_workspace_operator_strip($pdo, ['asset_prefix' => '../../', 'profile_href' => '../profile.php', 'password_href' => '../profile.php#password', 'logout_action' => '../admin.php', 'title' => 'Wallet reports workspace', 'placeholder' => 'Search wallet reports...']) ?>
+    <div class="d-flex justify-content-between gap-3 flex-wrap mb-4">
+      <div>
+        <span class="text-success fw-bold small text-uppercase">Cached finance intelligence</span>
+        <h1 class="h3 mb-1">Wallet Reports</h1>
+        <p class="text-secondary">Reports read from daily summaries. Refresh summaries for the date range before exporting.</p>
+      </div>
+      <a class="btn btn-outline-success" href="index.php">Back to Wallet Control</a>
+    </div>
+    <?php if ($notice): ?><div class="alert alert-success"><?= wr_e($notice) ?></div><?php endif; ?>
+    <?php if ($error): ?><div class="alert alert-danger"><?= wr_e($error) ?></div><?php endif; ?>
+    <?php if ($summaryCount === 0): ?><div class="alert alert-warning">No cached summary exists for this range yet. Use <strong>Refresh Summaries</strong> to build it.</div><?php endif; ?>
+
+    <form class="card card-body mb-3" method="get">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3"><label class="form-label">From</label><input class="form-control" type="date" name="from" value="<?= wr_e($from) ?>"></div>
+        <div class="col-md-3"><label class="form-label">To</label><input class="form-control" type="date" name="to" value="<?= wr_e($to) ?>"></div>
+        <div class="col-md-3"><button class="btn btn-success w-100">Apply Range</button></div>
+        <div class="col-md-3"><a class="btn btn-outline-success w-100" href="reports.php">Last 30 Days</a></div>
+      </div>
+    </form>
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-3"><div class="card h-100"><div class="card-body"><small class="text-secondary">Cached rows</small><div class="h4 mb-0"><?= number_format($summaryCount) ?></div></div></div></div>
+      <div class="col-md-3"><div class="card h-100"><div class="card-body"><small class="text-secondary">Transactions</small><div class="h4 mb-0"><?= number_format($totalTransactions) ?></div></div></div></div>
+      <div class="col-md-3"><div class="card h-100"><div class="card-body"><small class="text-secondary">Inflow</small><div class="h4 mb-0 money"><?= wr_e(wallet_reporting_money($totalInflow)) ?></div></div></div></div>
+      <div class="col-md-3"><div class="card h-100"><div class="card-body"><small class="text-secondary">Outflow</small><div class="h4 mb-0 money"><?= wr_e(wallet_reporting_money($totalOutflow)) ?></div></div></div></div>
+    </div>
+
+    <div class="card card-body mb-3">
+      <div class="d-flex gap-2 flex-wrap">
+        <form method="post"><input type="hidden" name="_csrf" value="<?= wr_e(csrf_token()) ?>"><input type="hidden" name="action" value="refresh_summary"><button class="btn btn-success">Refresh Summaries</button></form>
+        <form method="post"><input type="hidden" name="_csrf" value="<?= wr_e(csrf_token()) ?>"><input type="hidden" name="action" value="generate_export"><button class="btn btn-outline-success">Generate CSV Export</button></form>
+      </div>
+    </div>
+
+    <div class="fin-report-grid mb-3">
+      <div class="card"><div class="card-header bg-white fw-bold">Cash Flow Trend</div><div class="card-body"><div class="fin-chart"><?php foreach (array_slice($reportDaily, -14) as $row): ?><div class="fin-bar" style="height:<?= max(8, (int) (((float) $row['inflow'] / $maxFlow) * 200)) ?>px"><span><?= wr_e(date('M j', strtotime((string) $row['day']))) ?></span></div><div class="fin-bar out" style="height:<?= max(8, (int) (((float) $row['outflow'] / $maxFlow) * 200)) ?>px"></div><?php endforeach; ?></div><div class="d-flex gap-3 small text-secondary mt-2"><span>Inflow</span><span>Outflow</span></div></div></div>
+      <div class="card"><div class="card-header bg-white fw-bold">Gateway Mix</div><div class="table-responsive"><table class="table mb-0"><tr><th>Gateway</th><th>Count</th><th>Inflow</th><th>Outflow</th></tr><?php foreach ($reportProviders as $row): ?><tr><td><?= wr_e($row['provider']) ?></td><td><?= number_format((int) $row['count']) ?></td><td><?= wr_e(wallet_reporting_money((float) $row['inflow'])) ?></td><td><?= wr_e(wallet_reporting_money((float) $row['outflow'])) ?></td></tr><?php endforeach; ?></table></div></div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-xl-4"><div class="card h-100"><div class="card-header bg-white fw-bold">Transaction Status</div><div class="table-responsive"><table class="table mb-0"><tr><th>Status</th><th>Count</th><th>Amount</th></tr><?php foreach ($reportStatus as $row): ?><tr><td><?= wr_e($row['status']) ?></td><td><?= number_format((int) $row['count']) ?></td><td><?= wr_e(wallet_reporting_money((float) $row['amount'])) ?></td></tr><?php endforeach; ?></table></div></div></div>
+      <div class="col-xl-4"><div class="card h-100"><div class="card-header bg-white fw-bold">Stakeholder Activity</div><div class="table-responsive"><table class="table mb-0"><tr><th>User Group</th><th>Txn</th><th>Inflow</th><th>Outflow</th></tr><?php foreach ($reportStakeholders as $row): ?><tr><td><?= wr_e(ucwords(str_replace('_', ' ', preg_replace('/^(marketplace_|provider_)/', '', (string) $row['stakeholder_role'])))) ?></td><td><?= number_format((int) $row['transactions']) ?></td><td><?= wr_e(wallet_reporting_money((float) $row['inflow'])) ?></td><td><?= wr_e(wallet_reporting_money((float) $row['outflow'])) ?></td></tr><?php endforeach; ?></table></div></div></div>
+      <div class="col-xl-4"><div class="card h-100"><div class="card-header bg-white fw-bold">Withdrawal Intelligence</div><div class="table-responsive"><table class="table mb-0"><tr><th>Status</th><th>Provider</th><th>Amount</th><th>Manual</th></tr><?php foreach ($reportWithdrawals as $row): ?><tr><td><?= wr_e($row['status']) ?></td><td><?= wr_e($row['provider']) ?></td><td><?= wr_e(wallet_reporting_money((float) $row['amount'])) ?></td><td><?= number_format((int) $row['manual_reviews']) ?></td></tr><?php endforeach; ?></table></div></div></div>
+    </div>
+
+    <div class="row g-3 mt-1">
+      <div class="col-xl-6"><div class="card h-100"><div class="card-header bg-white fw-bold">Top Wallet Exposure</div><div class="table-responsive"><table class="table mb-0"><tr><th>User</th><th>Balance</th><th>Hold</th><th>Status</th></tr><?php foreach ($topWallets as $row): ?><tr><td><strong><?= wr_e($row['name']) ?></strong><br><small><?= wr_e($row['email']) ?></small></td><td><?= wr_e(wallet_reporting_money((float) $row['balance'])) ?></td><td><?= wr_e(wallet_reporting_money((float) $row['hold_balance'])) ?></td><td><?= wr_e($row['status']) ?></td></tr><?php endforeach; ?></table></div></div></div>
+      <div class="col-xl-6"><div class="card h-100"><div class="card-header bg-white fw-bold">Recent Export Jobs</div><div class="table-responsive"><table class="table mb-0"><tr><th>Reference</th><th>Range</th><th>Status</th><th></th></tr><?php foreach ($exports as $job): ?><tr><td><?= wr_e($job['job_ref']) ?></td><td><?= wr_e($job['from_date'] . ' to ' . $job['to_date']) ?></td><td><?= wr_e($job['status']) ?></td><td><a class="btn btn-sm btn-outline-success" href="?download=<?= (int) $job['id'] ?>">Download</a></td></tr><?php endforeach; ?></table></div></div></div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

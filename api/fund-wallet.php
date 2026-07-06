@@ -2,44 +2,42 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../lib/monnify.php';
 
 session_start();
 $pdo = db();
-$user = require_user_role($pdo, ['grower', 'admin']);
-
-$amount = floatval($_POST['amount'] ?? 0);
-if ($amount <= 0) {
-    json_response(['success' => false, 'error' => 'Invalid amount'], 422);
+$user = current_user($pdo);
+if (!$user) {
+    json_response(['success' => false, 'error' => 'Login required'], 401);
 }
 
-// In production: integrate with Paystack/Flutterwave
-// For now: simulate payment
-$reference = 'REF_' . time() . '_' . rand(1000, 9999);
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    json_response(['success' => false, 'error' => 'POST method required'], 405);
+}
+
+if (!verify_csrf($_POST['_csrf'] ?? null)) {
+    json_response(['success' => false, 'error' => 'Invalid request token'], 403);
+}
+
+$userId = (int) ($user['id'] ?? 0);
+if (!app_check_rate_limit('wallet_fund_' . $userId, 10, 600)) {
+    json_response(['success' => false, 'error' => 'Too many funding attempts. Please wait and try again.'], 429);
+}
+
+$amount = round((float) ($_POST['amount'] ?? 0), 2);
+$maxFundingAmount = max(1000, (float) app_env('WALLET_FUNDING_MAX_AMOUNT', '5000000'));
+if ($amount < 100) {
+    json_response(['success' => false, 'error' => 'Minimum wallet funding amount is NGN 100.'], 422);
+}
+if ($amount > $maxFundingAmount) {
+    json_response(['success' => false, 'error' => 'Amount exceeds the platform wallet funding limit.'], 422);
+}
+
+$returnUrl = !empty($_POST['return_url']) ? (string) $_POST['return_url'] : null;
 
 try {
-    app_ensure_farmer_engagement_schema($pdo);
-
-    // Get wallet ID
-    $stmt = $pdo->prepare("SELECT id FROM wallets WHERE user_id = ?");
-    $stmt->execute([(int) $user['id']]);
-    $walletId = $stmt->fetchColumn();
-
-    if (!$walletId) {
-        $pdo->prepare("INSERT INTO wallets (user_id) VALUES (?)")->execute([(int) $user['id']]);
-        $walletId = $pdo->lastInsertId();
-    }
-
-    // Create pending transaction
-    $pdo->prepare("
-        INSERT INTO wallet_transactions (wallet_id, amount, type, description, reference, status)
-        VALUES (?, ?, 'credit', 'Wallet funding', ?, 'pending')
-    ")->execute([$walletId, $amount, $reference]);
-
-    json_response([
-        'success' => true,
-        'reference' => $reference,
-        'payment_url' => '/payment-gateway?ref=' . $reference // Your payment gateway
-    ]);
+    $result = monnify_initialize_wallet_funding($pdo, $user, $amount, $returnUrl);
+    json_response($result, $result['success'] ? 200 : 422);
 } catch (Throwable $e) {
     error_log('Wallet error: ' . $e->getMessage());
     json_response(['success' => false, 'error' => 'System error'], 500);

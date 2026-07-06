@@ -1,0 +1,72 @@
+:root {
+  --workspace-green-950: #052e22;
+  --workspace-green-800: #12633f;
+  --workspace-green-600: #198754;
+  --workspace-surface: #f4f7f5;
+  --workspace-border: #dfe7e2;
+}
+
+html { scroll-behavior: smooth; }
+body { background: var(--workspace-surface); }
+.workspace-shell, .admin-shell { min-height: 100vh; }
+.workspace-sidebar, .sidebar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, .25) transparent;
+}
+.workspace-sidebar .nav-link, .sidebar .nav-item {
+  border-radius: .55rem;
+  transition: background-color .15s ease, color .15s ease;
+}
+.workspace-sidebar .nav-link.active, .sidebar .nav-item.active {
+  box-shadow: inset 3px 0 0 #34d399;
+}
+.card, .panel, .stat-card {
+  border-color: var(--workspace-border);
+  box-shadow: 0 .35rem 1.25rem rgba(15, 55, 35, .06);
+}
+.table-responsive { border-radius: .75rem; }
+.btn { font-weight: 600; }
+:focus-visible {
+  outline: 3px solid rgba(25, 135, 84, .3);
+  outline-offset: 2px;
+}
+
+/* Keep legacy server-rendered overlays functional when Bootstrap is present. */
+.modal-overlay { pointer-events: none; }
+.modal-overlay.active {
+  display: flex !important;
+  pointer-events: auto !important;
+  z-index: 2055 !important;
+}
+.modal-overlay.active > .modal {
+  display: block !important;
+  position: relative !important;
+  inset: auto !important;
+  opacity: 1 !important;
+  transform: none !important;
+  pointer-events: auto !important;
+  z-index: 2056 !important;
+}
+.modal-overlay button, .modal-overlay input, .modal-overlay select, .modal-overlay textarea {
+  pointer-events: auto;
+}
+
+/* High-contrast selected states for dark admin side rails. */
+.workspace-sidebar .nav-link.active,
+.workspace-sidebar .nav-link[aria-current="page"],
+.sidebar .nav-item.active,
+.sidebar a.active,
+.fin-side a.active,
+.merchant-side a.active {
+  background: #198754 !important;
+  color: #ffffff !important;
+  box-shadow: inset 3px 0 0 #a7f3d0 !important;
+}
+.workspace-sidebar .nav-link.active *,
+.workspace-sidebar .nav-link[aria-current="page"] *,
+.sidebar .nav-item.active *,
+.sidebar a.active *,
+.fin-side a.active *,
+.merchant-side a.active * {
+  color: #ffffff !important;
+}
