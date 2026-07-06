@@ -123,7 +123,7 @@ function app_primary_logo_url(): string
 
 function app_admin_logo_path(): string
 {
-    return 'assets/logo/natcodev-logo.png';
+    return 'assets/logo/natcodev-logo.svg';
 }
 
 function app_admin_logo_url(): string
