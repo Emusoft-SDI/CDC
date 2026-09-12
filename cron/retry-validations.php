@@ -23,7 +23,7 @@ $stmt = $pdo->prepare("
 $stmt->execute([$maxRetries, $retryHours]);
 $failedDocs = $stmt->fetchAll();
 
-require_once '../lib/identity-validation.php';
+require_once __DIR__ . '/../lib/identity-validation.php';
 $validator = new IdentityValidator($pdo);
 
 foreach ($failedDocs as $doc) {

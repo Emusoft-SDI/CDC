@@ -596,3 +596,24 @@ function identity_validate_requirement(PDO $pdo, int $requirementId): array
 
     return $result;
 }
+
+class IdentityValidator
+{
+    private PDO $pdo;
+
+    public function __construct(PDO $pdo)
+    {
+        $this->pdo = $pdo;
+    }
+
+    public function validateBVN(string $bvn, string $firstName = '', string $lastName = '', ?string $dob = null): array
+    {
+        return identity_verify_multi_provider($this->pdo, 0, 'bvn', $bvn);
+    }
+
+    public function validateNIN(string $nin, string $firstName = '', string $lastName = '', ?string $dob = null): array
+    {
+        return identity_verify_multi_provider($this->pdo, 0, 'nin', $nin);
+    }
+}
+

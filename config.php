@@ -761,6 +761,25 @@ function app_setting(string $key, string $default = ''): string
     return app_setting_value($key, $default);
 }
 
+function app_contact_office(): array
+{
+    $address = app_setting_value('contact_office_address', "Plot 12, Commercial District\nCentral Business District, Abuja, Nigeria");
+    $lines = array_values(array_filter(array_map('trim', explode("\n", str_replace("\r", "", $address)))));
+    if (!$lines) {
+        $lines = ['Plot 12, Commercial District', 'Central Business District, Abuja, Nigeria'];
+    }
+    $phoneDisplay = app_setting_value('contact_office_phone', '+234 800 6282 6338');
+    $phoneTel = preg_replace('/[^\d+]/', '', $phoneDisplay) ?: '+23480062826338';
+    $email = app_setting_value('contact_office_email', 'info@natcodev.com.ng');
+
+    return [
+        'address_lines' => $lines,
+        'phone_display' => $phoneDisplay,
+        'phone_tel' => $phoneTel,
+        'email' => $email,
+    ];
+}
+
 function app_social_login_enabled(?string $driver = null): bool
 {
     if (app_setting_value('social_login_enabled', '0') !== '1') {
