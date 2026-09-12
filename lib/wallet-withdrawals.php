@@ -227,9 +227,34 @@ function wallet_request_withdrawal(PDO $pdo, array $user, array $data): array
             throw new RuntimeException('Insufficient wallet balance.');
         }
 
+        $idempotencyKey = trim((string) ($data['idempotency_key'] ?? ''));
+        if ($idempotencyKey !== '') {
+            $checkDup = $pdo->prepare("SELECT * FROM wallet_withdrawals WHERE user_id = ? AND reference = ? LIMIT 1");
+            $checkDup->execute([$userId, $idempotencyKey]);
+            $dup = $checkDup->fetch();
+            if ($dup) {
+                $pdo->commit();
+                return ['success' => true, 'withdrawal_id' => (int) $dup['id'], 'reference' => (string) $dup['reference'], 'withdrawal' => $dup, 'duplicate' => true];
+            }
+        }
+
+        // Prevent rapid double-clicks within 15 seconds for identical pending withdrawal
+        $recentStmt = $pdo->prepare("
+            SELECT * FROM wallet_withdrawals
+            WHERE user_id = ? AND amount = ? AND account_number = ? AND status = 'pending'
+              AND requested_at >= DATE_SUB(NOW(), INTERVAL 15 SECOND)
+            ORDER BY id DESC LIMIT 1
+        ");
+        $recentStmt->execute([$userId, $amount, $accountNumber]);
+        $recentDup = $recentStmt->fetch();
+        if ($recentDup) {
+            $pdo->commit();
+            return ['success' => true, 'withdrawal_id' => (int) $recentDup['id'], 'reference' => (string) $recentDup['reference'], 'withdrawal' => $recentDup, 'duplicate' => true];
+        }
+
         $after = $before - $amount;
         $holdAfter = (float) ($wallet['hold_balance'] ?? 0) + $amount;
-        $reference = wallet_withdrawal_reference($userId);
+        $reference = $idempotencyKey !== '' ? $idempotencyKey : wallet_withdrawal_reference($userId);
         $policyDecision = wallet_evaluate_withdrawal_policy($pdo, $userId, $amount, $provider, $accountName);
         $pdo->prepare("UPDATE wallets SET balance = ?, hold_balance = ?, last_activity_at = NOW() WHERE id = ?")
             ->execute([$after, $holdAfter, (int) $wallet['id']]);
@@ -276,6 +301,7 @@ function wallet_request_withdrawal(PDO $pdo, array $user, array $data): array
         $pdo->commit();
         $result = [
             'success' => true,
+            'withdrawal_id' => $withdrawalId,
             'reference' => $reference,
             'final_amount' => $finalAmount,
             'charge' => $charge,

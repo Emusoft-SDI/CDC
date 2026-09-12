@@ -23,12 +23,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf($_POST['_csrf'] ?? null
     $subtitle = trim((string) ($_POST['subtitle'] ?? 'Sponsored NATCODEV marketplace placement.'));
     $paymentMethod = (string) ($_POST['payment_method'] ?? 'wallet');
     try {
-        $wallet = wallet_get_or_create($pdo, (int) $user['id']);
-        $promoRef = marketplace_promo_ref();
-        $imageIndex = random_int(1, 10);
-        $imagePath = 'assets/market/featured/vendor-ad-' . str_pad((string) $imageIndex, 2, '0', STR_PAD_LEFT) . '.png';
-        $targetUrl = $listingId ? 'product.php?id=' . $listingId : 'store.php?seller=' . rawurlencode((string) $seller['slug']);
-        if ($paymentMethod === 'wallet') {
+        $recentStmt = $pdo->prepare("
+            SELECT * FROM marketplace_promotions
+            WHERE seller_id = ? AND placement = ? AND amount = ? AND title = ?
+              AND created_at >= DATE_SUB(NOW(), INTERVAL 15 SECOND)
+            ORDER BY id DESC LIMIT 1
+        ");
+        $recentStmt->execute([(int) $seller['id'], $placement, $amount, $title]);
+        $recentPromo = $recentStmt->fetch();
+        if ($recentPromo) {
+            $message = 'Promotion request already submitted. Wallet debited and placement is waiting for admin approval before it goes live.';
+        } else {
+            $wallet = wallet_get_or_create($pdo, (int) $user['id']);
+            $promoRef = marketplace_promo_ref();
+            $imageIndex = random_int(1, 10);
+            $imagePath = 'assets/market/featured/vendor-ad-' . str_pad((string) $imageIndex, 2, '0', STR_PAD_LEFT) . '.png';
+            $targetUrl = $listingId ? 'product.php?id=' . $listingId : 'store.php?seller=' . rawurlencode((string) $seller['slug']);
+            if ($paymentMethod === 'wallet') {
             $pdo->beginTransaction();
             $lock = $pdo->prepare("SELECT * FROM wallets WHERE id = ? FOR UPDATE");
             $lock->execute([(int) $wallet['id']]);
@@ -59,6 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf($_POST['_csrf'] ?? null
             ")->execute([$promoRef, (int) $seller['id'], $listingId, $title, $subtitle, $placement, $imagePath, $targetUrl, $amount, $duration, $promoRef, (int) $user['id']]);
             redirect_to('seller-payouts.php?amount=' . rawurlencode((string) $amount));
         }
+    }
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();

@@ -153,16 +153,23 @@ function seller_query_context(PDO $pdo, array $user, bool $handlePost = false): 
                     $stmt->execute([$inquiryId, (int) $seller['id']]);
                     $inq = $stmt->fetch();
                     if ($inq) {
-                        $quantity = max(1, (float) ($inq['quantity'] ?: 1));
-                        $unitPrice = (float) ($inq['quoted_amount'] ?: $inq['price']);
-                        $stmt = $pdo->prepare("
-                            INSERT INTO marketplace_orders
-                                (order_ref, inquiry_id, listing_id, seller_id, buyer_user_id, buyer_name, buyer_email, buyer_phone, quantity, unit_price, total_amount, status, fulfillment_note)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'quoted', ?)
-                        ");
-                        $stmt->execute([marketplace_order_ref(), (int) $inq['id'], (int) $inq['listing_id'], (int) $seller['id'], $inq['buyer_user_id'] ?: null, $inq['buyer_name'], $inq['buyer_email'], $inq['buyer_phone'], $quantity, $unitPrice, $quantity * $unitPrice, trim((string) ($_POST['fulfillment_note'] ?? ''))]);
-                        $pdo->prepare("UPDATE marketplace_inquiries SET status='quoted' WHERE id=?")->execute([(int) $inq['id']]);
-                        $message = 'Order created from buyer request.';
+                        $checkOrder = $pdo->prepare("SELECT id, order_ref FROM marketplace_orders WHERE inquiry_id = ? LIMIT 1");
+                        $checkOrder->execute([(int) $inq['id']]);
+                        $existingOrder = $checkOrder->fetch();
+                        if ($existingOrder) {
+                            $message = 'Order already exists for this buyer request (' . $existingOrder['order_ref'] . ').';
+                        } else {
+                            $quantity = max(1, (float) ($inq['quantity'] ?: 1));
+                            $unitPrice = (float) ($inq['quoted_amount'] ?: $inq['price']);
+                            $stmt = $pdo->prepare("
+                                INSERT INTO marketplace_orders
+                                    (order_ref, inquiry_id, listing_id, seller_id, buyer_user_id, buyer_name, buyer_email, buyer_phone, quantity, unit_price, total_amount, status, fulfillment_note)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'quoted', ?)
+                            ");
+                            $stmt->execute([marketplace_order_ref(), (int) $inq['id'], (int) $inq['listing_id'], (int) $seller['id'], $inq['buyer_user_id'] ?: null, $inq['buyer_name'], $inq['buyer_email'], $inq['buyer_phone'], $quantity, $unitPrice, $quantity * $unitPrice, trim((string) ($_POST['fulfillment_note'] ?? ''))]);
+                            $pdo->prepare("UPDATE marketplace_inquiries SET status='quoted' WHERE id=?")->execute([(int) $inq['id']]);
+                            $message = 'Order created from buyer request.';
+                        }
                     }
                 }
 

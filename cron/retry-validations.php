@@ -27,6 +27,17 @@ require_once __DIR__ . '/../lib/identity-validation.php';
 $validator = new IdentityValidator($pdo);
 
 foreach ($failedDocs as $doc) {
+    // Atomically claim the document for retry so concurrent cron runs do not duplicate external API calls
+    $claimStmt = $pdo->prepare("
+        UPDATE document_requirements 
+        SET last_retry_at = NOW(), retry_count = retry_count + 1 
+        WHERE id = ? AND (last_retry_at IS NULL OR last_retry_at < DATE_SUB(NOW(), INTERVAL ? HOUR))
+    ");
+    $claimStmt->execute([$doc['id'], $retryHours]);
+    if ($claimStmt->rowCount() === 0) {
+        continue;
+    }
+
     echo "Retrying validation for {$doc['document_type']} {$doc['document_number']}...\n";
     
     // Parse name
@@ -34,6 +45,7 @@ foreach ($failedDocs as $doc) {
     $firstName = $nameParts[0] ?? '';
     $lastName = $nameParts[1] ?? $firstName;
     
+    $result = null;
     // Retry validation
     if ($doc['document_type'] === 'bvn') {
         $result = $validator->validateBVN($doc['document_number'], $firstName, $lastName, $doc['dob']);
@@ -47,9 +59,7 @@ foreach ($failedDocs as $doc) {
             UPDATE document_requirements 
             SET api_validation_status = ?, 
                 api_validation_response = ?, 
-                api_validation_timestamp = NOW(),
-                retry_count = retry_count + 1,
-                last_retry_at = NOW()
+                api_validation_timestamp = NOW()
             WHERE id = ?
         ")->execute([$result['status'], json_encode($result), $doc['id']]);
         

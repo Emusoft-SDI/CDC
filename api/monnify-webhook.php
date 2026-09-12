@@ -67,15 +67,18 @@ try {
             json_response(['success' => true, 'ignored' => true, 'reason' => 'Marketplace payment amount is incomplete']);
         }
         if ((int) $marketOrder['unpaid_count'] > 0) {
+            $updatedRows = 0;
             $pdo->beginTransaction();
             try {
-                $pdo->prepare("
+                $stmt = $pdo->prepare("
                     UPDATE marketplace_orders
                     SET payment_status = 'paid', payment_method = 'monnify', status = 'paid',
                         payment_provider_reference = ?, payment_provider_payload = ?,
                         paid_at = COALESCE(paid_at, NOW()), settled_at = COALESCE(settled_at, NOW())
-                    WHERE payment_reference = ?
-                ")->execute([$transactionReference, json_encode($payload, JSON_UNESCAPED_SLASHES), $reference]);
+                    WHERE payment_reference = ? AND payment_status != 'paid'
+                ");
+                $stmt->execute([$transactionReference, json_encode($payload, JSON_UNESCAPED_SLASHES), $reference]);
+                $updatedRows = $stmt->rowCount();
                 $pdo->commit();
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) {
@@ -83,7 +86,9 @@ try {
                 }
                 throw $e;
             }
-            market_settle_checkout_orders($pdo, (string) $marketOrder['checkout_ref']);
+            if ($updatedRows > 0) {
+                market_settle_checkout_orders($pdo, (string) $marketOrder['checkout_ref']);
+            }
         }
         json_response(['success' => true, 'event' => $eventType, 'marketplace' => true, 'checkout_ref' => (string) $marketOrder['checkout_ref']]);
     }

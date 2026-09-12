@@ -238,6 +238,20 @@ function support_create_ticket(PDO $pdo, array $data, ?array $user = null): stri
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         throw new RuntimeException('Enter a valid email address.');
     }
+
+    // Idempotency check: deduplicate accidental double-clicks within 15 seconds
+    $dedup = $pdo->prepare("
+        SELECT ticket_ref 
+        FROM support_tickets 
+        WHERE requester_email = ? AND subject = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 15 SECOND)
+        ORDER BY id DESC LIMIT 1
+    ");
+    $dedup->execute([$email, $subject]);
+    $existingRef = $dedup->fetchColumn();
+    if ($existingRef) {
+        return (string) $existingRef;
+    }
+
     $ref = support_ref();
     $module = (string) ($data['module'] ?? $categories[$category]['module']);
     $team = (string) $categories[$category]['team'];

@@ -307,6 +307,9 @@ function market_settle_checkout_orders(PDO $pdo, string $checkoutRef): void
         if ((string) ($order['payment_status'] ?? '') !== 'paid') {
             continue;
         }
+        if ((string) ($order['payout_status'] ?? '') === 'settled') {
+            continue;
+        }
         $amounts = revenue_apply_marketplace_order($pdo, $order);
         market_settle_seller_wallet(
             $pdo,

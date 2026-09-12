@@ -156,6 +156,7 @@ function revenue_ensure_schema(PDO $pdo): void
             json_encode($plan['features'], JSON_UNESCAPED_SLASHES),
         ]);
     }
+    $done = true;
 }
 
 function revenue_default_fee_rules(): array

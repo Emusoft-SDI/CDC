@@ -211,6 +211,17 @@ function provider_accreditation_pay_access(PDO $pdo, int $userId, int $providerI
         return ['success' => true, 'reference' => 'NO-FEE', 'amount' => 0.0];
     }
 
+    $existingAccess = provider_accreditation_access_status($pdo, $userId, $providerId, $certificateId);
+    if (!empty($existingAccess['paid']) && !empty($existingAccess['payment'])) {
+        return [
+            'success' => true,
+            'reference' => (string) ($existingAccess['payment']['reference'] ?? 'EXISTING-ACCESS'),
+            'amount' => (float) ($existingAccess['payment']['amount'] ?? 0),
+            'valid_until' => (string) ($existingAccess['payment']['valid_until'] ?? ''),
+            'duplicate' => true,
+        ];
+    }
+
     $certificateRef = null;
     if ($certificateId) {
         $certStmt = $pdo->prepare('SELECT * FROM provider_accreditation_certificates WHERE id = ? AND provider_id = ? LIMIT 1');
@@ -254,7 +265,9 @@ function provider_accreditation_pay_access(PDO $pdo, int $userId, int $providerI
             'description' => 'Provider accreditation certificate access fee',
             'metadata' => ['provider_id' => $providerId, 'certificate_id' => $certificateId],
         ]);
-        $pdo->commit();
+        if ($pdo->inTransaction()) {
+            $pdo->commit();
+        }
         return ['success' => true, 'reference' => $reference, 'amount' => $amount, 'valid_until' => $validUntil];
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
@@ -295,6 +308,17 @@ function grower_certificate_pay_access(PDO $pdo, int $userId, int $applicationId
     $amount = grower_certificate_fee_amount($pdo, $memberType);
     if ($amount <= 0 || !grower_certificate_access_required($pdo, $application)) {
         return ['success' => true, 'reference' => 'NO-FEE', 'amount' => 0.0];
+    }
+
+    $existingAccess = grower_certificate_access_status($pdo, $userId, $applicationId, $certificateId);
+    if (!empty($existingAccess['paid']) && !empty($existingAccess['payment'])) {
+        return [
+            'success' => true,
+            'reference' => (string) ($existingAccess['payment']['reference'] ?? 'EXISTING-ACCESS'),
+            'amount' => (float) ($existingAccess['payment']['amount'] ?? 0),
+            'valid_until' => (string) ($existingAccess['payment']['valid_until'] ?? ''),
+            'duplicate' => true,
+        ];
     }
     $certificate = null;
     if ($certificateId) {
@@ -337,7 +361,9 @@ function grower_certificate_pay_access(PDO $pdo, int $userId, int $applicationId
             'description' => grower_member_type_label($memberType) . ' certificate access/renewal fee',
             'metadata' => ['application_id' => $applicationId, 'certificate_id' => $certificateId, 'member_type' => $memberType],
         ]);
-        $pdo->commit();
+        if ($pdo->inTransaction()) {
+            $pdo->commit();
+        }
         return ['success' => true, 'reference' => $reference, 'amount' => $amount, 'valid_until' => $validUntil];
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {

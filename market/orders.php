@@ -110,6 +110,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'pay_w
         try {
             wallet_ensure_schema($pdo);
             $pdo->beginTransaction();
+            $ids = array_map(static fn(array $row): int => (int) $row['id'], $orders);
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $checkOrders = $pdo->prepare("SELECT COUNT(*) FROM marketplace_orders WHERE id IN ($placeholders) AND payment_status = 'paid' FOR UPDATE");
+            $checkOrders->execute($ids);
+            if ((int) $checkOrders->fetchColumn() > 0) {
+                $pdo->commit();
+                market_settle_checkout_orders($pdo, $displayCheckoutRef);
+                redirect_to('orders.php?checkout_ref=' . rawurlencode($displayCheckoutRef) . '&phone=' . rawurlencode($buyerPhone) . '&paid=1');
+            }
+
             $wallet = wallet_get_or_create($pdo, (int) $user['id']);
             $lock = $pdo->prepare("SELECT * FROM wallets WHERE id = ? FOR UPDATE");
             $lock->execute([(int) $wallet['id']]);
