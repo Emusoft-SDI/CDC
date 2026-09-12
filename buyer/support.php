@@ -36,7 +36,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (in_array((string) $ticket['status'], ['resolved', 'closed', 'rejected'], true)) {
                     throw new RuntimeException('This ticket is closed. Open a new ticket if you need more help.');
                 }
-                support_add_message($pdo, (int) $ticket['id'], (string) ($_POST['reply'] ?? ''), $user, false, 'public', (string) $user['name'], 'buyer');
+                $msgId = support_add_message($pdo, (int) $ticket['id'], (string) ($_POST['reply'] ?? ''), $user, false, 'public', (string) $user['name'], 'buyer');
+                if (!empty($_FILES['attachments']) || !empty($_FILES['attachment'])) {
+                    support_process_uploaded_files($pdo, (int) $ticket['id'], $msgId > 0 ? $msgId : null, $_FILES['attachments'] ?? $_FILES['attachment'], (int) $user['id']);
+                }
                 $pdo->prepare("UPDATE support_tickets SET status = IF(status = 'waiting_on_user', 'open', status), last_activity_at = NOW() WHERE id = ?")->execute([(int) $ticket['id']]);
                 redirect_to('support.php?ticket=' . urlencode($ref) . '&message=' . urlencode('Reply added.'));
             }
@@ -58,7 +61,7 @@ if ($selectedRef !== '') {
     $candidate = support_ticket_by_ref($pdo, $selectedRef);
     if ($candidate && (int) ($candidate['user_id'] ?? 0) === (int) $user['id']) {
         $selected = $candidate;
-        $conversation = support_ticket_messages($pdo, (int) $candidate['id'], false);
+        $conversation = support_messages_with_attachments($pdo, (int) $candidate['id'], false);
     }
 }
 $categories = buyer_support_categories();
@@ -72,7 +75,7 @@ buyer_page_start('Buyer Help & Support', 'support', $user, buyer_counts($pdo, $u
 <?php if ($message): ?><div class="alert ok"><?= e($message) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="alert err"><?= e($error) ?></div><?php endif; ?>
 <div class="grid">
-  <form class="card span-6 form-grid" method="post">
+  <form class="card span-6 form-grid" method="post" enctype="multipart/form-data">
     <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
     <input type="hidden" name="action" value="create">
     <div class="wide card-head"><h2>New Buyer Ticket</h2><span class="badge">Buyer-only</span></div>
@@ -82,6 +85,7 @@ buyer_page_start('Buyer Help & Support', 'support', $user, buyer_counts($pdo, $u
     <label>Reference<input name="linked_record_ref" placeholder="Checkout ref, order ref, transaction ref"></label>
     <label class="wide">Subject<input name="subject" required maxlength="190"></label>
     <label class="wide">Description<textarea name="description" required></textarea></label>
+    <label class="wide">Attach Supporting Documents (Optional)<input type="file" name="attachments[]" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx"></label>
     <div class="wide"><button class="btn">Send To Buyer Support</button></div>
   </form>
   <section class="card span-6">
@@ -96,9 +100,9 @@ buyer_page_start('Buyer Help & Support', 'support', $user, buyer_counts($pdo, $u
     <div class="card-head"><h2>Conversation</h2><?php if ($selected): ?><span class="badge"><?= e((string) $selected['ticket_ref']) ?></span><?php endif; ?></div>
     <?php if ($selected): ?>
       <p><strong><?= e((string) $selected['subject']) ?></strong><br><span class="badge"><?= e($statuses[(string) $selected['status']] ?? marketplace_status_label((string) $selected['status'])) ?></span></p>
-      <div class="list"><?php foreach ($conversation as $chat): ?><div class="row"><span><strong><?= e((string) $chat['author_name']) ?></strong><br><small><?= nl2br(e((string) $chat['message'])) ?></small></span><small><?= e((string) $chat['created_at']) ?></small></div><?php endforeach; ?></div>
+      <div class="list"><?php foreach ($conversation as $chat): ?><div class="row"><span><strong><?= e((string) $chat['author_name']) ?></strong><br><small><?= nl2br(e((string) $chat['message'])) ?></small><?php if (!empty($chat['attachments'])): ?><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;"><?php foreach ($chat['attachments'] as $att): ?><a href="../support/attachment.php?id=<?= (int) $att['id'] ?>" target="_blank" class="badge" style="text-decoration:none;"><i class="fas fa-paperclip"></i> <?= e((string) $att['original_name']) ?> (<?= e(support_format_bytes((int) ($att['file_size'] ?? 0))) ?>)</a><?php endforeach; ?></div><?php endif; ?></span><small><?= e((string) $chat['created_at']) ?></small></div><?php endforeach; ?></div>
       <?php if (!in_array((string) $selected['status'], ['resolved', 'closed', 'rejected'], true)): ?>
-        <form method="post" style="margin-top:14px"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="action" value="reply"><input type="hidden" name="ticket_ref" value="<?= e((string) $selected['ticket_ref']) ?>"><label>Reply<textarea name="reply" required></textarea></label><button class="btn">Add Reply</button></form>
+        <form method="post" enctype="multipart/form-data" style="margin-top:14px"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="action" value="reply"><input type="hidden" name="ticket_ref" value="<?= e((string) $selected['ticket_ref']) ?>"><label>Reply<textarea name="reply" required></textarea></label><label style="margin-top:6px;display:block;font-size:.85rem;">Attach File(s)<input type="file" name="attachments[]" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx" style="margin-top:4px;display:block;"></label><button class="btn" style="margin-top:10px">Add Reply</button></form>
       <?php endif; ?>
     <?php else: ?>
       <div class="alert ok">Select a ticket to view support replies.</div>

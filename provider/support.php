@@ -65,7 +65,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($reply === '') {
                     throw new RuntimeException('Enter a reply before sending.');
                 }
-                support_add_message($pdo, (int) $ticket['id'], $reply, $user, false, 'public', (string) ($user['name'] ?? 'Provider'), support_role_key($user));
+                $msgId = support_add_message($pdo, (int) $ticket['id'], $reply, $user, false, 'public', (string) ($user['name'] ?? 'Provider'), support_role_key($user));
+                if (!empty($_FILES['attachments']) || !empty($_FILES['attachment'])) {
+                    support_process_uploaded_files($pdo, (int) $ticket['id'], $msgId > 0 ? $msgId : null, $_FILES['attachments'] ?? $_FILES['attachment'], (int) $user['id']);
+                }
                 $pdo->prepare("UPDATE support_tickets SET status = IF(status IN ('resolved','closed','rejected'), 'open', status), last_activity_at = NOW() WHERE id = ?")->execute([(int) $ticket['id']]);
                 redirect_to('support.php?message=' . rawurlencode('Reply added to ticket ' . $ref . '.') . '&ticket=' . rawurlencode($ref));
             }
@@ -85,7 +88,7 @@ if ($selectedRef !== '') {
     $candidate = support_ticket_by_ref($pdo, $selectedRef);
     if ($candidate && (int) ($candidate['user_id'] ?? 0) === (int) $user['id']) {
         $selected = $candidate;
-        $conversation = support_ticket_messages($pdo, (int) $selected['id']);
+        $conversation = support_messages_with_attachments($pdo, (int) $selected['id']);
     }
 }
 $openCount = count(array_filter($tickets, static fn(array $ticket): bool => !in_array((string) $ticket['status'], ['resolved', 'closed', 'rejected'], true)));
@@ -114,7 +117,7 @@ provider_page_start('Provider Support Desk', 'support', $user, $provider, $count
 <div class="grid">
   <section class="card span-6">
     <div class="card-head"><h2>Open Provider Ticket</h2><span class="badge">Admin/Super Admin queue</span></div>
-    <form method="post" class="form-grid">
+    <form method="post" enctype="multipart/form-data" class="form-grid">
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
       <input type="hidden" name="action" value="create_ticket">
       <label>Category<select name="category"><?php foreach ($categories as $key => $cat): ?><option value="<?= e($key) ?>" <?= $key === 'provider' ? 'selected' : '' ?>><?= e((string) $cat['label']) ?></option><?php endforeach; ?></select></label>
@@ -123,6 +126,7 @@ provider_page_start('Provider Support Desk', 'support', $user, $provider, $count
       <label>Reference<input name="linked_record_ref" placeholder="Order, product, wallet, or certificate ref"></label>
       <label class="wide">Subject<input name="subject" required placeholder="Short summary of the issue"></label>
       <label class="wide">Message<textarea name="description" required placeholder="Explain what happened, what you expected, and any reference numbers admins need."></textarea></label>
+      <label class="wide">Attach File(s) (Optional)<input type="file" name="attachments[]" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx"></label>
       <div class="wide"><button class="btn" type="submit"><i class="fas fa-paper-plane"></i> Send To Support</button></div>
     </form>
   </section>
@@ -155,14 +159,15 @@ provider_page_start('Provider Support Desk', 'support', $user, $provider, $count
       <p><strong><?= e((string) $selected['ticket_ref']) ?></strong> - <?= e((string) $selected['subject']) ?><br><small><?= e($categories[(string) $selected['category']]['label'] ?? (string) $selected['category']) ?> / <?= e($statuses[(string) $selected['status']] ?? (string) $selected['status']) ?></small></p>
       <div class="list">
         <?php foreach ($conversation as $msg): ?>
-          <div class="row"><div><strong><?= e((string) $msg['author_name']) ?></strong> <small><?= e(support_role_label((string) $msg['author_role'])) ?></small><br><?= nl2br(e((string) $msg['message'])) ?></div><small><?= e(date('M j, g:i A', strtotime((string) $msg['created_at']))) ?></small></div>
+          <div class="row"><div><strong><?= e((string) $msg['author_name']) ?></strong> <small><?= e(support_role_label((string) $msg['author_role'])) ?></small><br><?= nl2br(e((string) $msg['message'])) ?><?php if (!empty($msg['attachments'])): ?><div style="margin-top:6px;padding-top:4px;display:flex;flex-wrap:wrap;gap:6px;"><?php foreach ($msg['attachments'] as $att): ?><a href="../support/attachment.php?id=<?= (int) $att['id'] ?>" target="_blank" class="badge" style="text-decoration:none;"><i class="fas fa-paperclip"></i> <?= e((string) $att['original_name']) ?> (<?= e(support_format_bytes((int) ($att['file_size'] ?? 0))) ?>)</a><?php endforeach; ?></div><?php endif; ?></div><small><?= e(date('M j, g:i A', strtotime((string) $msg['created_at']))) ?></small></div>
         <?php endforeach; ?>
       </div>
-      <form method="post" class="form-grid" style="margin-top:14px">
+      <form method="post" enctype="multipart/form-data" class="form-grid" style="margin-top:14px">
         <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
         <input type="hidden" name="action" value="reply_ticket">
         <input type="hidden" name="ticket_ref" value="<?= e((string) $selected['ticket_ref']) ?>">
         <label class="wide">Reply<textarea name="reply" required placeholder="Add more details, corrections, or confirmation for support."></textarea></label>
+        <label class="wide">Attach File(s) (Optional)<input type="file" name="attachments[]" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx"></label>
         <div class="wide"><button class="btn" type="submit"><i class="fas fa-reply"></i> Add Reply</button></div>
       </form>
     <?php else: ?>

@@ -377,6 +377,10 @@ if ($post) {
             <strong style="display:block;color:#fff;margin-bottom:2px">Call Us</strong>
             <a href="tel:<?= e($office['phone_tel']) ?>"><?= e($office['phone_display']) ?></a>
           </div>
+          <div>
+            <strong style="display:block;color:#fff;margin-bottom:2px">Email</strong>
+            <a href="mailto:<?= e($office['email']) ?>"><?= e($office['email']) ?></a>
+          </div>
         </div>
       </div>
       <div><h3>Registry</h3><a href="apply.php?type=farmer">Grower Registration</a><a href="provider/index.php">Provider Registration</a><a href="field-agent/login.php">Field Network</a></div>

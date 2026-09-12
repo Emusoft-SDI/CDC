@@ -150,6 +150,41 @@
                 </div>
                 <div class="message-bubble-body">
                   <?= nl2br(e((string) $msg['message'])) ?>
+                  <?php if (!empty($msg['attachments'])): ?>
+                    <div class="message-attachments-wrap">
+                      <strong class="attachments-label"><i class="fas fa-paperclip"></i> Attached Files (<?= count($msg['attachments']) ?>):</strong>
+                      <div class="attachments-grid">
+                        <?php foreach ($msg['attachments'] as $att): 
+                          $attExt = strtolower(pathinfo((string) $att['original_name'], PATHINFO_EXTENSION));
+                          $isImg = in_array($attExt, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true);
+                          $attUrl = 'attachment.php?id=' . (int) $att['id'] . '&ticket=' . urlencode((string) $selectedTicket['ticket_ref']) . '&email=' . urlencode((string) $selectedTicket['requester_email']);
+                        ?>
+                          <a href="<?= e($attUrl) ?>" target="_blank" rel="noopener noreferrer" class="attachment-item <?= $isImg ? 'has-preview' : '' ?>">
+                            <div class="attachment-icon">
+                              <?php if ($attExt === 'pdf'): ?>
+                                <i class="fas fa-file-pdf"></i>
+                              <?php elseif (in_array($attExt, ['doc', 'docx'], true)): ?>
+                                <i class="fas fa-file-word"></i>
+                              <?php elseif (in_array($attExt, ['xls', 'xlsx', 'csv'], true)): ?>
+                                <i class="fas fa-file-excel"></i>
+                              <?php elseif ($isImg): ?>
+                                <i class="fas fa-file-image"></i>
+                              <?php else: ?>
+                                <i class="fas fa-file"></i>
+                              <?php endif; ?>
+                            </div>
+                            <div class="attachment-info">
+                              <span class="attachment-name" title="<?= e((string) $att['original_name']) ?>"><?= e((string) $att['original_name']) ?></span>
+                              <span class="attachment-size"><?= e(support_format_bytes((int) ($att['file_size'] ?? 0))) ?></span>
+                            </div>
+                            <div class="attachment-action">
+                              <i class="fas fa-arrow-down-to-bracket"></i>
+                            </div>
+                          </a>
+                        <?php endforeach; ?>
+                      </div>
+                    </div>
+                  <?php endif; ?>
                 </div>
               </div>
             </div>
@@ -164,7 +199,7 @@
             <h3><i class="fas fa-reply"></i> Add an Update or Reply</h3>
             <p>Send additional information, answer questions from the specialist, or request further assistance.</p>
           </div>
-          <form method="post" class="ticket-reply-form">
+          <form method="post" enctype="multipart/form-data" class="ticket-reply-form">
             <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
             <input type="hidden" name="action" value="reply">
             <input type="hidden" name="ticket_ref" value="<?= e((string) $selectedTicket['ticket_ref']) ?>">
@@ -174,6 +209,14 @@
               <label for="reply_text">Your Message <span class="required">*</span></label>
               <textarea id="reply_text" name="reply" rows="4" placeholder="Type your reply here..." required></textarea>
             </div>
+
+            <div class="form-group">
+              <label for="reply_attachments">Attach File or Screenshot (Optional)</label>
+              <input id="reply_attachments" type="file" name="attachments[]" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx" class="support-file-input" onchange="updateFileList(this, 'replyFileList')">
+              <small class="field-hint">Allowed formats: Images (PNG, JPG, WEBP), Documents (PDF, DOC, DOCX, TXT), Spreadsheets (XLSX, CSV). Max 10 MB per file.</small>
+              <div id="replyFileList" class="selected-files-list"></div>
+            </div>
+
             <div class="form-submit-row">
               <button class="btn btn-primary" type="submit">
                 <i class="fas fa-paper-plane"></i> Send Reply

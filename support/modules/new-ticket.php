@@ -40,7 +40,7 @@
       </span>
     </div>
 
-    <form method="post" class="support-ticket-form" id="ticketForm">
+    <form method="post" enctype="multipart/form-data" class="support-ticket-form" id="ticketForm">
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
       <input type="hidden" name="action" value="create">
 
@@ -112,6 +112,19 @@
         <label for="ticket_linked_ref">Reference Number (Optional)</label>
         <input id="ticket_linked_ref" name="linked_record_ref" placeholder="Order ID (e.g. ORD-...), Monnify Reference, Certificate Number, or Transaction Ref">
         <small class="field-hint">If your inquiry relates to a payment, order, or application, providing the reference helps resolve it much faster.</small>
+      </div>
+
+      <div class="form-group field-full">
+        <label for="ticket_attachments">Attach Supporting Documents or Screenshots (Optional)</label>
+        <div class="support-file-dropzone" id="ticketDropzone">
+          <input id="ticket_attachments" type="file" name="attachments[]" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx" class="support-file-input" onchange="updateFileList(this, 'ticketFileList')">
+          <div class="dropzone-content">
+            <i class="fas fa-cloud-arrow-up dropzone-icon"></i>
+            <span class="dropzone-title">Click to browse or drag and drop files here</span>
+            <span class="dropzone-hint">Allowed formats: Images (PNG, JPG, WEBP), Documents (PDF, DOC, DOCX, TXT), Spreadsheets (XLSX, CSV). Max 10 MB per file.</span>
+          </div>
+        </div>
+        <div id="ticketFileList" class="selected-files-list"></div>
       </div>
 
       <div class="form-submit-row">

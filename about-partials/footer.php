@@ -13,7 +13,9 @@ require_once __DIR__ . '/../config.php';
                     <strong style="color:#fff;display:block;margin-bottom:4px;">Address</strong>
                     <span style="display:block; margin-bottom: 10px;"><?= e(implode(', ', $office['address_lines'])) ?></span>
                     <strong style="color:#fff;display:block;margin-bottom:4px;">Call Us</strong>
-                    <a href="tel:<?= e($office['phone_tel']) ?>" style="color:#fff;"><?= e($office['phone_display']) ?></a>
+                    <a href="tel:<?= e($office['phone_tel']) ?>" style="color:#fff;display:block;margin-bottom:10px;"><?= e($office['phone_display']) ?></a>
+                    <strong style="color:#fff;display:block;margin-bottom:4px;">Email</strong>
+                    <a href="mailto:<?= e($office['email']) ?>" style="color:#fff;"><?= e($office['email']) ?></a>
                 </div>
                 <div class="social-icons">
                     <a href="#"><i class="fab fa-facebook-f"></i></a>

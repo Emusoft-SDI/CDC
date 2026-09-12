@@ -69,7 +69,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (in_array((string) $ticket['status'], ['resolved', 'closed', 'rejected'], true)) {
                     throw new RuntimeException('This ticket is closed. Open a new request if you need more help.');
                 }
-                support_add_message($pdo, (int) $ticket['id'], (string) ($_POST['reply'] ?? ''), $user, false, 'public', $user['name'] ?? $ticket['requester_name'], support_role_key($user));
+                $replyText = trim((string) ($_POST['reply'] ?? ''));
+                $hasFiles = !empty($_FILES['attachments']['name']) || !empty($_FILES['attachment']['name']);
+                if ($replyText === '' && !$hasFiles) {
+                    throw new RuntimeException('Please enter a message or select a file to attach.');
+                }
+                $messageId = support_add_message($pdo, (int) $ticket['id'], $replyText !== '' ? $replyText : 'Attachment submitted.', $user, false, 'public', $user['name'] ?? $ticket['requester_name'], support_role_key($user));
+                if (!empty($_FILES['attachments']) || !empty($_FILES['attachment'])) {
+                    support_process_uploaded_files($pdo, (int) $ticket['id'], $messageId > 0 ? $messageId : null, $_FILES['attachments'] ?? $_FILES['attachment'], $user ? (int) $user['id'] : null);
+                }
                 $pdo->prepare("UPDATE support_tickets SET status = IF(status = 'waiting_on_user', 'open', status), last_activity_at = NOW() WHERE id = ?")->execute([(int) $ticket['id']]);
                 redirect_to('index.php?ticket=' . urlencode($ref) . '&email=' . urlencode((string) $ticket['requester_email']));
             }
@@ -85,6 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'description' => $_POST['description'] ?? '',
                 'linked_record_type' => $_POST['linked_record_type'] ?? '',
                 'linked_record_ref' => $_POST['linked_record_ref'] ?? '',
+                'attachments' => $_FILES['attachments'] ?? ($_FILES['attachment'] ?? null),
             ], $user);
             redirect_to('index.php?created=' . urlencode($ref) . '&ticket=' . urlencode($ref) . '&email=' . urlencode((string) ($_POST['email'] ?? ($user['email'] ?? ''))));
         } catch (Throwable $e) {
@@ -111,7 +120,7 @@ if ($lookupRef !== '') {
         }
         if ($allowed) {
             $selectedTicket = $candidate;
-            $conversation = support_ticket_messages($pdo, (int) $candidate['id'], false);
+            $conversation = support_messages_with_attachments($pdo, (int) $candidate['id'], false);
         } else {
             $error = 'Ticket found, but the email or account does not match the requester.';
         }
@@ -205,7 +214,7 @@ $upgradePaths = [
   </div>
 </main>
 
-<footer class="footer"><div class="bar"><span><i class="fas fa-shield-halved"></i> Your data is secure and confidential.</span><span><i class="fas fa-location-dot"></i> <?= e(implode(', ', $office['address_lines'])) ?></span><span><a href="tel:<?= e($office['phone_tel']) ?>"><?= e($office['phone_display']) ?></a> / <a href="mailto:support@natcodev.com.ng">support@natcodev.com.ng</a></span></div></footer>
+<footer class="footer"><div class="bar"><span><i class="fas fa-shield-halved"></i> Your data is secure and confidential.</span><span><i class="fas fa-location-dot"></i> <?= e(implode(', ', $office['address_lines'])) ?></span><span><a href="tel:<?= e($office['phone_tel']) ?>"><?= e($office['phone_display']) ?></a> / <a href="mailto:<?= e($office['email']) ?>"><?= e($office['email']) ?></a></span></div></footer>
 <script src="../assets/js/support-public.js"></script></body>
 </html>
 

@@ -156,6 +156,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           <h2>Head Office</h2>
           <div class="contact-row"><i class="fas fa-location-dot"></i><div><strong>Address</strong><span><?= nl2br(e(implode("\n", $office['address_lines']))) ?></span></div></div>
           <div class="contact-row"><i class="fas fa-phone"></i><div><strong>Call Us</strong><a href="tel:<?= e($office['phone_tel']) ?>"><?= e($office['phone_display']) ?></a></div></div>
+          <div class="contact-row"><i class="fas fa-envelope"></i><div><strong>Email</strong><a href="mailto:<?= e($office['email']) ?>"><?= e($office['email']) ?></a></div></div>
         </div>
         <div class="contact-card">
           <h2>Explore</h2>

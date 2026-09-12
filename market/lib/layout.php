@@ -156,7 +156,8 @@ function market_footer(): void
         <div style="margin-top:1rem;color:var(--text-secondary);font-size:.9rem;line-height:1.6">
           <strong style="display:block;color:var(--text-primary);margin-bottom:.35rem">Head Office</strong>
           <span><?= e(implode(', ', $office['address_lines'])) ?></span><br>
-          <a href="tel:<?= e($office['phone_tel']) ?>">Call Us: <?= e($office['phone_display']) ?></a>
+          <a href="tel:<?= e($office['phone_tel']) ?>">Call Us: <?= e($office['phone_display']) ?></a><br>
+          <a href="mailto:<?= e($office['email']) ?>"><?= e($office['email']) ?></a>
         </div>
       </div>
     </div>

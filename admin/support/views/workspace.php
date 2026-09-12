@@ -266,10 +266,10 @@
           </div>
 
           <div class="conversation">
-            <?php foreach ($conversation as $msg): ?><div class="msg <?= $msg['visibility'] === 'internal' ? 'internal' : ($msg['admin_id'] ? 'agent' : '') ?>"><strong><?= e((string) $msg['author_name']) ?></strong> <span class="meta"><?= e((string) $msg['author_role']) ?> / <?= e(date('M j, Y g:i A', strtotime((string) $msg['created_at']))) ?></span><p><?= nl2br(e((string) $msg['message'])) ?></p></div><?php endforeach; ?>
+            <?php foreach ($conversation as $msg): ?><div class="msg <?= $msg['visibility'] === 'internal' ? 'internal' : ($msg['admin_id'] ? 'agent' : '') ?>"><strong><?= e((string) $msg['author_name']) ?></strong> <span class="meta"><?= e((string) $msg['author_role']) ?> / <?= e(date('M j, Y g:i A', strtotime((string) $msg['created_at']))) ?></span><p><?= nl2br(e((string) $msg['message'])) ?></p><?php if (!empty($msg['attachments'])): ?><div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(0,0,0,.08);display:flex;flex-wrap:wrap;gap:8px;"><strong style="display:block;width:100%;font-size:.75rem;color:var(--muted);"><i class="fa-solid fa-paperclip"></i> Attached Files (<?= count($msg['attachments']) ?>):</strong><?php foreach ($msg['attachments'] as $att): $attUrl = '../support/attachment.php?id=' . (int) $att['id']; ?><a href="<?= e($attUrl) ?>" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:#fff;border:1px solid var(--line);border-radius:6px;font-size:.78rem;text-decoration:none;color:#102033;font-weight:700;"><i class="fa-solid fa-download" style="color:#087443;"></i><span><?= e((string) $att['original_name']) ?></span><small style="color:var(--muted);">(<?= e(support_format_bytes((int) ($att['file_size'] ?? 0))) ?>)</small></a><?php endforeach; ?></div><?php endif; ?></div><?php endforeach; ?>
           </div>
 
-          <form method="post">
+          <form method="post" enctype="multipart/form-data">
             <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
             <input type="hidden" name="ticket_ref" value="<?= e((string) $selected['ticket_ref']) ?>">
             <div class="form-grid">
@@ -277,7 +277,12 @@
               <div><label>Priority</label><select name="priority"><?php foreach ($priorities as $key => $label): ?><option value="<?= e($key) ?>" <?= (string) $selected['priority'] === $key ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?></select></div>
               <div><label>Assigned Team</label><select name="assigned_team"><?php foreach ($teams as $team): ?><option value="<?= e($team) ?>" <?= (string) $selected['assigned_team'] === $team ? 'selected' : '' ?>><?= e($team) ?></option><?php endforeach; ?></select></div><div class="span2"><label>Assigned Agent</label><select name="assigned_admin_id"><option value="">Unassigned</option><?php foreach ($supportAdmins as $agent): ?><option value="<?= (int) $agent['id'] ?>" <?= (int) ($selected['assigned_admin_id'] ?? 0) === (int) $agent['id'] ? 'selected' : '' ?>><?= e((string) ($agent['name'] ?: $agent['email'])) ?> - <?= e((string) ($agent['platform_role'] ?: $agent['role'])) ?></option><?php endforeach; ?></select></div>
               <div><label>Outcome</label><select name="outcome"><option value="">No final outcome</option><?php foreach ($outcomes as $key => $label): ?><option value="<?= e($key) ?>" <?= (string) ($selected['outcome'] ?? '') === $key ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?></select></div>
-              <div class="span2"><label>Reply to requester</label><textarea name="reply" rows="5" placeholder="Visible to the requester."></textarea></div>
+              <div class="span2">
+                <label>Reply to requester</label>
+                <textarea name="reply" rows="5" placeholder="Visible to the requester."></textarea>
+                <label style="margin-top:8px;font-size:.8rem;color:var(--muted);"><i class="fa-solid fa-paperclip"></i> Attach File to Reply</label>
+                <input type="file" name="attachments[]" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx" style="padding:6px;font-size:.82rem;">
+              </div>
               <div class="span2"><label>Internal note</label><textarea name="internal_note" rows="5" placeholder="Visible only to platform admins/support agents."></textarea></div>
               <div class="span4"><button class="btn" type="submit">Update Ticket</button></div>
             </div>

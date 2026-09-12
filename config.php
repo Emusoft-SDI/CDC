@@ -763,13 +763,13 @@ function app_setting(string $key, string $default = ''): string
 
 function app_contact_office(): array
 {
-    $address = app_setting_value('contact_office_address', "Plot 12, Commercial District\nCentral Business District, Abuja, Nigeria");
+    $address = app_setting_value('contact_office_address', "Suite T11, 3rd Floor, Febson Mall\n24/25 Herbert Macaulay Way, Wuse Zone 4, Abuja");
     $lines = array_values(array_filter(array_map('trim', explode("\n", str_replace("\r", "", $address)))));
     if (!$lines) {
-        $lines = ['Plot 12, Commercial District', 'Central Business District, Abuja, Nigeria'];
+        $lines = ['Suite T11, 3rd Floor, Febson Mall', '24/25 Herbert Macaulay Way, Wuse Zone 4, Abuja'];
     }
-    $phoneDisplay = app_setting_value('contact_office_phone', '+234 800 6282 6338');
-    $phoneTel = preg_replace('/[^\d+]/', '', $phoneDisplay) ?: '+23480062826338';
+    $phoneDisplay = app_setting_value('contact_office_phone', '+234 703 337 7202');
+    $phoneTel = preg_replace('/[^\d+]/', '', $phoneDisplay) ?: '+2347033377202';
     $email = app_setting_value('contact_office_email', 'info@natcodev.com.ng');
 
     return [

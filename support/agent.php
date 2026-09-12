@@ -80,7 +80,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $internalNote = $internalNote !== '' ? $internalNote : 'Support agent escalated this ticket for operator review.';
             }
             if ($reply !== '') {
-                support_add_message($pdo, (int) $ticket['id'], $reply, $user, true, 'public', (string) ($user['name'] ?? 'Support Agent'), 'support_agent');
+                $msgId = support_add_message($pdo, (int) $ticket['id'], $reply, $user, true, 'public', (string) ($user['name'] ?? 'Support Agent'), 'support_agent');
+                if (!empty($_FILES['attachments']) || !empty($_FILES['attachment'])) {
+                    support_process_uploaded_files($pdo, (int) $ticket['id'], $msgId > 0 ? $msgId : null, $_FILES['attachments'] ?? $_FILES['attachment'], $agentId);
+                }
             }
             if ($internalNote !== '') {
                 support_add_message($pdo, (int) $ticket['id'], $internalNote, $user, true, 'internal', (string) ($user['name'] ?? 'Support Agent'), 'support_agent');
@@ -104,7 +107,7 @@ if ($selectedId <= 0 && $assigned) {
     $selectedId = (int) $assigned[0]['id'];
 }
 $selected = sa_ticket($pdo, $selectedId, $agentId);
-$conversation = $selected ? support_ticket_messages($pdo, (int) $selected['id'], true) : [];
+$conversation = $selected ? support_messages_with_attachments($pdo, (int) $selected['id'], true) : [];
 $openCount = sa_scalar($pdo, "SELECT COUNT(*) FROM support_tickets WHERE assigned_admin_id = ? AND status NOT IN ('resolved','closed','rejected')", [$agentId]);
 $waitingCount = sa_scalar($pdo, "SELECT COUNT(*) FROM support_tickets WHERE assigned_admin_id = ? AND status = 'waiting_on_user'", [$agentId]);
 $escalatedCount = sa_scalar($pdo, "SELECT COUNT(*) FROM support_tickets WHERE assigned_admin_id = ? AND status = 'escalated'", [$agentId]);
@@ -151,11 +154,12 @@ $logo = app_primary_logo_url();
             <h2><?= e((string) $selected['ticket_ref']) ?> - <?= e((string) $selected['subject']) ?></h2>
             <p class="muted"><?= e((string) $selected['requester_name']) ?> / <?= e((string) $selected['requester_email']) ?> / <?= e((string) ($categories[(string) $selected['category']]['label'] ?? $selected['category'])) ?></p>
             <p><?= nl2br(e((string) $selected['description'])) ?></p>
-            <div class="messages"><?php foreach ($conversation as $msg): ?><div class="msg <?= (string) $msg['visibility'] === 'internal' ? 'internal' : '' ?>"><small><?= e((string) $msg['author_name']) ?> / <?= e((string) $msg['author_role']) ?> / <?= e((string) $msg['visibility']) ?></small><?= nl2br(e((string) $msg['message'])) ?></div><?php endforeach; ?></div>
-            <form class="form" method="post">
+            <div class="messages"><?php foreach ($conversation as $msg): ?><div class="msg <?= (string) $msg['visibility'] === 'internal' ? 'internal' : '' ?>"><small><?= e((string) $msg['author_name']) ?> / <?= e((string) $msg['author_role']) ?> / <?= e((string) $msg['visibility']) ?></small><?= nl2br(e((string) $msg['message'])) ?><?php if (!empty($msg['attachments'])): ?><div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08);display:flex;flex-wrap:wrap;gap:6px;"><small style="display:block;width:100%;color:#64748b;">Attachments (<?= count($msg['attachments']) ?>):</small><?php foreach ($msg['attachments'] as $att): ?><a href="attachment.php?id=<?= (int) $att['id'] ?>" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:4px 8px;background:#fff;border:1px solid #cbd5e1;border-radius:5px;font-size:.78rem;text-decoration:none;color:#0f172a;"><i class="fas fa-paperclip"></i> <?= e((string) $att['original_name']) ?> (<?= e(support_format_bytes((int) ($att['file_size'] ?? 0))) ?>)</a><?php endforeach; ?></div><?php endif; ?></div><?php endforeach; ?></div>
+            <form class="form" method="post" enctype="multipart/form-data">
               <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
               <input type="hidden" name="ticket_id" value="<?= (int) $selected['id'] ?>">
               <label>Public Reply<textarea name="reply" placeholder="Write a clear reply to the requester..."></textarea></label>
+              <label style="font-size:.82rem;color:#475569;">Attach File(s)<input type="file" name="attachments[]" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx" style="font-size:.82rem;"></label>
               <label>Internal Note<textarea name="internal_note" placeholder="Internal note for operators or future agents..."></textarea></label>
               <label>Status<select name="status"><option value="in_progress">In Progress</option><option value="waiting_on_user">Waiting On User</option><option value="resolved">Resolved</option><option value="escalated">Escalated</option></select></label>
               <div class="actions"><button class="btn" name="action" value="reply">Save Update</button><button class="btn danger" id="escalate" name="action" value="escalate">Escalate To Operator</button></div>

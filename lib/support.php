@@ -283,7 +283,13 @@ function support_create_ticket(PDO $pdo, array $data, ?array $user = null): stri
         support_sla_due($priority),
     ]);
     $ticketId = (int) $pdo->lastInsertId();
-    support_add_message($pdo, $ticketId, $description, $user, false, 'public', $name, $role);
+    $messageId = support_add_message($pdo, $ticketId, $description, $user, false, 'public', $name, $role);
+
+    // Process initial ticket attachments if provided
+    $filesToProcess = $data['attachments'] ?? $data['files'] ?? ($_FILES['attachments'] ?? ($_FILES['attachment'] ?? null));
+    if ($filesToProcess) {
+        support_process_uploaded_files($pdo, $ticketId, $messageId > 0 ? $messageId : null, $filesToProcess, $user ? (int) $user['id'] : null);
+    }
 
     // Dispatch ticket confirmation email
     $trackingUrl = app_base_url() . '/support/index.php?ticket=' . urlencode($ref) . '&email=' . urlencode($email);
@@ -296,11 +302,11 @@ function support_create_ticket(PDO $pdo, array $data, ?array $user = null): stri
     return $ref;
 }
 
-function support_add_message(PDO $pdo, int $ticketId, string $message, ?array $actor = null, bool $admin = false, string $visibility = 'public', ?string $authorName = null, ?string $authorRole = null): void
+function support_add_message(PDO $pdo, int $ticketId, string $message, ?array $actor = null, bool $admin = false, string $visibility = 'public', ?string $authorName = null, ?string $authorRole = null): int
 {
     $message = trim($message);
     if ($message === '') {
-        return;
+        return 0;
     }
     $role = $authorRole ?? ($admin ? 'support_agent' : support_role_key($actor));
     $name = $authorName ?? (string) ($actor['name'] ?? ($admin ? 'NATCODEV Support' : 'Requester'));
@@ -317,7 +323,294 @@ function support_add_message(PDO $pdo, int $ticketId, string $message, ?array $a
         $message,
         $visibility,
     ]);
+    $messageId = (int) $pdo->lastInsertId();
     $pdo->prepare("UPDATE support_tickets SET last_activity_at = NOW() WHERE id = ?")->execute([$ticketId]);
+    return $messageId;
+}
+
+function support_upload_dir(): string
+{
+    $dir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'support';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    $htaccess = $dir . DIRECTORY_SEPARATOR . '.htaccess';
+    if (!file_exists($htaccess)) {
+        $rule = "# Prevent direct PHP/script execution in support uploads\n"
+              . "<FilesMatch \"(?i)\\.(php|php[0-9]?|phtml|phar|pl|py|jsp|asp|sh|cgi|exe|bat|cmd)$\">\n"
+              . "    Order Deny,Allow\n"
+              . "    Deny from all\n"
+              . "</FilesMatch>\n"
+              . "Options -Indexes -ExecCGI\n";
+        @file_put_contents($htaccess, $rule);
+    }
+    return $dir;
+}
+
+function support_allowed_attachment_extensions(): array
+{
+    return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'doc', 'docx', 'txt', 'csv', 'xls', 'xlsx'];
+}
+
+function support_format_bytes(int $bytes): string
+{
+    if ($bytes < 1024) {
+        return $bytes . ' B';
+    }
+    if ($bytes < 1048576) {
+        return round($bytes / 1024, 1) . ' KB';
+    }
+    return round($bytes / 1048576, 2) . ' MB';
+}
+
+function support_save_attachment(PDO $pdo, int $ticketId, ?int $messageId, array $file, ?int $userId = null): array
+{
+    support_ensure_schema($pdo);
+    $error = (int) ($file['error'] ?? UPLOAD_ERR_OK);
+    if ($error !== UPLOAD_ERR_OK) {
+        if ($error === UPLOAD_ERR_NO_FILE) {
+            return [];
+        }
+        $msg = match ($error) {
+            UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'File exceeds maximum upload size (10 MB).',
+            UPLOAD_ERR_PARTIAL => 'File upload was incomplete.',
+            default => 'File upload failed (code ' . $error . ').',
+        };
+        throw new RuntimeException($msg);
+    }
+
+    $tmp = (string) ($file['tmp_name'] ?? '');
+    if ($tmp === '' || !file_exists($tmp)) {
+        throw new RuntimeException('Temporary upload file missing.');
+    }
+
+    $size = (int) ($file['size'] ?? 0);
+    if ($size <= 0) {
+        throw new RuntimeException('Attached file is empty.');
+    }
+    $maxBytes = 10 * 1024 * 1024; // 10MB
+    if ($size > $maxBytes) {
+        throw new RuntimeException('Attached file exceeds 10 MB limit.');
+    }
+
+    $originalName = trim(basename((string) ($file['name'] ?? 'attachment')));
+    if ($originalName === '') {
+        $originalName = 'attachment';
+    }
+    $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+
+    $prohibited = ['php', 'phtml', 'phar', 'sh', 'bat', 'cmd', 'exe', 'cgi', 'pl', 'py', 'js', 'jar', 'vbs', 'com'];
+    if (in_array($ext, $prohibited, true)) {
+        throw new RuntimeException("Security violation: Files with extension .{$ext} are not allowed.");
+    }
+
+    $allowed = support_allowed_attachment_extensions();
+    if (!in_array($ext, $allowed, true)) {
+        throw new RuntimeException("Unsupported file type (.{$ext}). Allowed types: " . implode(', ', $allowed));
+    }
+
+    // Binary / header verification
+    if ($ext === 'pdf') {
+        $handle = @fopen($tmp, 'rb');
+        $header = $handle ? (string) fread($handle, 4) : '';
+        if ($handle) {
+            fclose($handle);
+        }
+        if ($header !== '%PDF') {
+            throw new RuntimeException('Invalid PDF file format.');
+        }
+    } elseif (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true)) {
+        if (@getimagesize($tmp) === false) {
+            throw new RuntimeException('File contains invalid or corrupted image data.');
+        }
+    }
+
+    $mime = (string) ($file['type'] ?? '');
+    if (function_exists('finfo_open')) {
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        if ($finfo) {
+            $detected = finfo_file($finfo, $tmp);
+            finfo_close($finfo);
+            if ($detected) {
+                $mime = (string) $detected;
+            }
+        }
+    }
+
+    $uploadDir = support_upload_dir();
+    $safeName = 'att_' . $ticketId . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+    $destination = $uploadDir . DIRECTORY_SEPARATOR . $safeName;
+
+    if (is_uploaded_file($tmp)) {
+        if (!move_uploaded_file($tmp, $destination)) {
+            throw new RuntimeException('Failed to save uploaded attachment.');
+        }
+    } else {
+        if (!copy($tmp, $destination)) {
+            throw new RuntimeException('Failed to save attachment file.');
+        }
+    }
+
+    $relativePath = 'uploads/support/' . $safeName;
+    $stmt = $pdo->prepare("
+        INSERT INTO support_ticket_attachments
+            (ticket_id, message_id, original_name, file_path, mime_type, file_size, uploaded_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ");
+    $stmt->execute([
+        $ticketId,
+        $messageId,
+        $originalName,
+        $relativePath,
+        $mime ?: 'application/octet-stream',
+        $size,
+        $userId,
+    ]);
+
+    $id = (int) $pdo->lastInsertId();
+    return [
+        'id' => $id,
+        'ticket_id' => $ticketId,
+        'message_id' => $messageId,
+        'original_name' => $originalName,
+        'file_path' => $relativePath,
+        'mime_type' => $mime,
+        'file_size' => $size,
+        'uploaded_by' => $userId,
+    ];
+}
+
+function support_process_uploaded_files(PDO $pdo, int $ticketId, ?int $messageId, array|string $fileField = 'attachments', ?int $userId = null): array
+{
+    $raw = is_string($fileField) ? ($_FILES[$fileField] ?? null) : $fileField;
+    if (!$raw || !is_array($raw)) {
+        return [];
+    }
+
+    $saved = [];
+
+    // Case 1: Multi-file array from $_FILES (name => [...], tmp_name => [...])
+    if (isset($raw['name']) && is_array($raw['name'])) {
+        $count = count($raw['name']);
+        for ($i = 0; $i < $count; $i++) {
+            $err = (int) ($raw['error'][$i] ?? UPLOAD_ERR_NO_FILE);
+            if ($err === UPLOAD_ERR_NO_FILE) {
+                continue;
+            }
+            $fileItem = [
+                'name' => $raw['name'][$i] ?? '',
+                'type' => $raw['type'][$i] ?? '',
+                'tmp_name' => $raw['tmp_name'][$i] ?? '',
+                'error' => $err,
+                'size' => (int) ($raw['size'][$i] ?? 0),
+            ];
+            $saved[] = support_save_attachment($pdo, $ticketId, $messageId, $fileItem, $userId);
+        }
+    }
+    // Case 2: Single-file array from $_FILES (name => string, tmp_name => string)
+    elseif (isset($raw['name']) && is_string($raw['name'])) {
+        $err = (int) ($raw['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($err !== UPLOAD_ERR_NO_FILE) {
+            $saved[] = support_save_attachment($pdo, $ticketId, $messageId, $raw, $userId);
+        }
+    }
+    // Case 3: List of file arrays [['name' => ..., 'tmp_name' => ...], ...]
+    else {
+        foreach ($raw as $item) {
+            if (is_array($item) && isset($item['tmp_name'])) {
+                $err = (int) ($item['error'] ?? UPLOAD_ERR_OK);
+                if ($err !== UPLOAD_ERR_NO_FILE) {
+                    $saved[] = support_save_attachment($pdo, $ticketId, $messageId, $item, $userId);
+                }
+            }
+        }
+    }
+
+    return array_values(array_filter($saved));
+}
+
+function support_ticket_attachments(PDO $pdo, int $ticketId, ?int $messageId = null): array
+{
+    support_ensure_schema($pdo);
+    if ($messageId !== null) {
+        $stmt = $pdo->prepare("SELECT * FROM support_ticket_attachments WHERE ticket_id = ? AND message_id = ? ORDER BY id ASC");
+        $stmt->execute([$ticketId, $messageId]);
+    } else {
+        $stmt = $pdo->prepare("SELECT * FROM support_ticket_attachments WHERE ticket_id = ? ORDER BY id ASC");
+        $stmt->execute([$ticketId]);
+    }
+    return $stmt->fetchAll();
+}
+
+function support_messages_with_attachments(PDO $pdo, int $ticketId, bool $includeInternal = false): array
+{
+    $messages = support_ticket_messages($pdo, $ticketId, $includeInternal);
+    $allAttachments = support_ticket_attachments($pdo, $ticketId);
+
+    // Group attachments by message_id
+    $byMessage = [];
+    $unassignedAttachments = [];
+    foreach ($allAttachments as $att) {
+        $mId = (int) ($att['message_id'] ?? 0);
+        if ($mId > 0) {
+            $byMessage[$mId][] = $att;
+        } else {
+            $unassignedAttachments[] = $att;
+        }
+    }
+
+    // Attach to each message
+    foreach ($messages as $idx => &$msg) {
+        $id = (int) $msg['id'];
+        $atts = $byMessage[$id] ?? [];
+        // Associate unassigned attachments with the first message
+        if ($idx === 0 && !empty($unassignedAttachments)) {
+            $atts = array_merge($unassignedAttachments, $atts);
+        }
+        $msg['attachments'] = $atts;
+    }
+    unset($msg);
+
+    return $messages;
+}
+
+function support_attachment_by_id(PDO $pdo, int $id): ?array
+{
+    support_ensure_schema($pdo);
+    $stmt = $pdo->prepare("
+        SELECT a.*, t.ticket_ref, t.requester_name, t.requester_email, t.user_id as ticket_user_id
+        FROM support_ticket_attachments a
+        JOIN support_tickets t ON t.id = a.ticket_id
+        WHERE a.id = ?
+        LIMIT 1
+    ");
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function support_can_access_ticket(PDO $pdo, array $ticket, ?array $user, ?string $email = null, bool $isAdmin = false): bool
+{
+    if ($isAdmin) {
+        return true;
+    }
+    if ($user) {
+        if ((int) ($ticket['user_id'] ?? 0) === (int) $user['id']) {
+            return true;
+        }
+        if (strcasecmp((string) ($ticket['requester_email'] ?? ''), (string) ($user['email'] ?? '')) === 0) {
+            return true;
+        }
+        $role = strtolower((string) ($user['role'] ?? ''));
+        $platformRole = strtolower((string) ($user['platform_role'] ?? ''));
+        if (in_array($role, ['admin', 'super_admin', 'support'], true) || in_array($platformRole, ['admin', 'super_admin', 'support_agent'], true)) {
+            return true;
+        }
+    }
+    if ($email !== null && $email !== '' && strcasecmp((string) ($ticket['requester_email'] ?? ''), trim($email)) === 0) {
+        return true;
+    }
+    return false;
 }
 
 function support_ticket_by_ref(PDO $pdo, string $ref): ?array

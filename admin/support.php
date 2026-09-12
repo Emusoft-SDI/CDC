@@ -244,7 +244,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($reply !== '') {
-                support_add_message($pdo, (int) $ticket['id'], $reply, $admin, true, 'public', (string) ($admin['name'] ?? 'NATCODEV Support'), 'support_agent');
+                $msgId = support_add_message($pdo, (int) $ticket['id'], $reply, $admin, true, 'public', (string) ($admin['name'] ?? 'NATCODEV Support'), 'support_agent');
+                if (!empty($_FILES['attachments']) || !empty($_FILES['attachment'])) {
+                    support_process_uploaded_files($pdo, (int) $ticket['id'], $msgId > 0 ? $msgId : null, $_FILES['attachments'] ?? $_FILES['attachment'], (int) ($admin['id'] ?? 0));
+                }
                 if (!empty($ticket['user_id'])) {
                     natcodev_notify_user($pdo, (int) $ticket['user_id'], 'support_reply', 'NATCODEV Support Reply', [
                         'ticket_ref' => $selectedRef,
@@ -315,7 +318,7 @@ $conversation = [];
 if ($selectedRef !== '') {
     $selected = support_ticket_by_ref($pdo, $selectedRef);
     if ($selected) {
-        $conversation = support_ticket_messages($pdo, (int) $selected['id'], true);
+        $conversation = support_messages_with_attachments($pdo, (int) $selected['id'], true);
     }
 }
 
