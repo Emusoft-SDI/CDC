@@ -2,40 +2,45 @@
 
 declare(strict_types=1);
 
-function app_schema_flag_is_set(PDO $pdo, string $key, string $version): bool
-{
-    static $cache = [];
-    $cacheKey = $key . ':' . $version;
-    if (array_key_exists($cacheKey, $cache)) {
-        return $cache[$cacheKey];
-    }
-    try {
-        $pdo->exec("
-            CREATE TABLE IF NOT EXISTS app_schema_flags (
-                flag_key VARCHAR(120) PRIMARY KEY,
-                flag_value VARCHAR(120) NOT NULL,
-                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        ");
-        $stmt = $pdo->prepare("SELECT flag_value FROM app_schema_flags WHERE flag_key = ? LIMIT 1");
-        $stmt->execute([$key]);
-        $cache[$cacheKey] = (string) ($stmt->fetchColumn() ?: '') === $version;
-        return $cache[$cacheKey];
-    } catch (Throwable $e) {
-        return false;
-    }
-}
-
-function app_schema_flag_set(PDO $pdo, string $key, string $version): void
-{
-    try {
-        $stmt = $pdo->prepare("INSERT INTO app_schema_flags (flag_key, flag_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE flag_value = VALUES(flag_value)");
-        $stmt->execute([$key, $version]);
-    } catch (Throwable $e) {
-        error_log("Unable to set schema flag {$key}: " . $e->getMessage());
+if (!function_exists('app_schema_flag_is_set')) {
+    function app_schema_flag_is_set(PDO $pdo, string $key, string $version): bool
+    {
+        static $cache = [];
+        $cacheKey = $key . ':' . $version;
+        if (array_key_exists($cacheKey, $cache)) {
+            return $cache[$cacheKey];
+        }
+        try {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS app_schema_flags (
+                    flag_key VARCHAR(120) PRIMARY KEY,
+                    flag_value VARCHAR(120) NOT NULL,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+            $stmt = $pdo->prepare("SELECT flag_value FROM app_schema_flags WHERE flag_key = ? LIMIT 1");
+            $stmt->execute([$key]);
+            $cache[$cacheKey] = (string) ($stmt->fetchColumn() ?: '') === $version;
+            return $cache[$cacheKey];
+        } catch (Throwable $e) {
+            return false;
+        }
     }
 }
 
+if (!function_exists('app_schema_flag_set')) {
+    function app_schema_flag_set(PDO $pdo, string $key, string $version): void
+    {
+        try {
+            $stmt = $pdo->prepare("INSERT INTO app_schema_flags (flag_key, flag_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE flag_value = VALUES(flag_value)");
+            $stmt->execute([$key, $version]);
+        } catch (Throwable $e) {
+            error_log("Unable to set schema flag {$key}: " . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('app_ensure_core_schema')) {
 function app_ensure_core_schema(PDO $pdo): void
 {
     static $done = false;
@@ -155,138 +160,152 @@ function app_ensure_core_schema(PDO $pdo): void
     app_schema_flag_set($pdo, 'core_schema_ready', '20260606-fast');
     $done = true;
 }
+}
 
 /**
  * Basic database-backed rate limiting.
  * Returns true if the action is allowed, false if blocked.
  */
-function app_check_rate_limit(string $action, int $maxAttempts, int $decaySeconds): bool
-{
-    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-    $key = $action . ':' . $ip;
-    $now = time();
-    $pdo = db();
+if (!function_exists('app_check_rate_limit')) {
+    function app_check_rate_limit(string $action, int $maxAttempts, int $decaySeconds): bool
+    {
+        $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $key = $action . ':' . $ip;
+        $now = time();
+        $pdo = db();
 
-    try {
-        // Probabilistic cleanup of expired entries (1 in 200 requests) to keep table fast & compact under high concurrency
-        if (mt_rand(1, 200) === 1) {
-            $pdo->prepare("DELETE FROM app_rate_limits WHERE expires_at < ?")->execute([$now]);
+        try {
+            // Probabilistic cleanup of expired entries (1 in 200 requests) to keep table fast & compact under high concurrency
+            if (mt_rand(1, 200) === 1) {
+                $pdo->prepare("DELETE FROM app_rate_limits WHERE expires_at < ?")->execute([$now]);
+            }
+
+            $stmt = $pdo->prepare("SELECT attempts, last_attempt_at, expires_at FROM app_rate_limits WHERE limit_key = ? LIMIT 1");
+            $stmt->execute([$key]);
+            $record = $stmt->fetch();
+
+            if (!$record || (int)$record['expires_at'] <= $now) {
+                $stmt = $pdo->prepare("
+                    INSERT INTO app_rate_limits (limit_key, attempts, last_attempt_at, expires_at)
+                    VALUES (?, 1, ?, ?)
+                    ON DUPLICATE KEY UPDATE attempts = 1, last_attempt_at = VALUES(last_attempt_at), expires_at = VALUES(expires_at)
+                ");
+                $stmt->execute([$key, $now, $now + $decaySeconds]);
+                return true;
+            }
+
+            if ((int)$record['attempts'] >= $maxAttempts) {
+                return false;
+            }
+
+            $stmt = $pdo->prepare("UPDATE app_rate_limits SET attempts = attempts + 1, last_attempt_at = ? WHERE limit_key = ?");
+            $stmt->execute([$now, $key]);
+            return true;
+        } catch (Throwable $e) {
+            error_log('Rate limit check failed: ' . $e->getMessage());
+            return true; // Fail open to avoid blocking users on DB errors
+        }
+    }
+}
+
+if (!function_exists('app_table_exists')) {
+    function app_table_exists(PDO $pdo, string $table): bool
+    {
+        static $cache = [];
+        if (array_key_exists($table, $cache)) {
+            return $cache[$table];
         }
 
-        $stmt = $pdo->prepare("SELECT attempts, last_attempt_at, expires_at FROM app_rate_limits WHERE limit_key = ? LIMIT 1");
-        $stmt->execute([$key]);
-        $record = $stmt->fetch();
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*)
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
+        ");
+        $stmt->execute([$table]);
+        $cache[$table] = (int) $stmt->fetchColumn() > 0;
+        return $cache[$table];
+    }
+}
 
-        if (!$record || (int)$record['expires_at'] <= $now) {
-            $stmt = $pdo->prepare("
-                INSERT INTO app_rate_limits (limit_key, attempts, last_attempt_at, expires_at)
-                VALUES (?, 1, ?, ?)
-                ON DUPLICATE KEY UPDATE attempts = 1, last_attempt_at = VALUES(last_attempt_at), expires_at = VALUES(expires_at)
-            ");
-            $stmt->execute([$key, $now, $now + $decaySeconds]);
+if (!function_exists('app_column_exists')) {
+    function app_column_exists(PDO $pdo, string $table, string $column): bool
+    {
+        static $cache = [];
+        $key = $table . '.' . $column;
+        if (array_key_exists($key, $cache) && $cache[$key] === true) {
             return true;
         }
 
-        if ((int)$record['attempts'] >= $maxAttempts) {
-            return false;
-        }
-
-        $stmt = $pdo->prepare("UPDATE app_rate_limits SET attempts = attempts + 1, last_attempt_at = ? WHERE limit_key = ?");
-        $stmt->execute([$now, $key]);
-        return true;
-    } catch (Throwable $e) {
-        error_log('Rate limit check failed: ' . $e->getMessage());
-        return true; // Fail open to avoid blocking users on DB errors
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*)
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+        ");
+        $stmt->execute([$table, $column]);
+        $cache[$key] = (int) $stmt->fetchColumn() > 0;
+        return $cache[$key];
     }
 }
 
-function app_table_exists(PDO $pdo, string $table): bool
-{
-    static $cache = [];
-    if (array_key_exists($table, $cache)) {
-        return $cache[$table];
-    }
-
-    $stmt = $pdo->prepare("
-        SELECT COUNT(*)
-        FROM information_schema.TABLES
-        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
-    ");
-    $stmt->execute([$table]);
-    $cache[$table] = (int) $stmt->fetchColumn() > 0;
-    return $cache[$table];
-}
-
-function app_column_exists(PDO $pdo, string $table, string $column): bool
-{
-    static $cache = [];
-    $key = $table . '.' . $column;
-    if (array_key_exists($key, $cache) && $cache[$key] === true) {
-        return true;
-    }
-
-    $stmt = $pdo->prepare("
-        SELECT COUNT(*)
-        FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
-    ");
-    $stmt->execute([$table, $column]);
-    $cache[$key] = (int) $stmt->fetchColumn() > 0;
-    return $cache[$key];
-}
-
-function app_add_column_if_missing(PDO $pdo, string $table, string $column, string $definition): void
-{
-    if (!app_column_exists($pdo, $table, $column)) {
-        try {
-            $pdo->exec("ALTER TABLE `{$table}` ADD COLUMN `{$column}` {$definition}");
-        } catch (Throwable $e) {
-            if (stripos($e->getMessage(), 'Duplicate column') === false && stripos($e->getMessage(), '1060') === false) {
-                throw $e;
+if (!function_exists('app_add_column_if_missing')) {
+    function app_add_column_if_missing(PDO $pdo, string $table, string $column, string $definition): void
+    {
+        if (!app_column_exists($pdo, $table, $column)) {
+            try {
+                $pdo->exec("ALTER TABLE `{$table}` ADD COLUMN `{$column}` {$definition}");
+            } catch (Throwable $e) {
+                if (stripos($e->getMessage(), 'Duplicate column') === false && stripos($e->getMessage(), '1060') === false) {
+                    throw $e;
+                }
             }
         }
     }
 }
 
-function app_column_extra(PDO $pdo, string $table, string $column): string
-{
-    static $cache = [];
-    $key = $table . '.' . $column;
-    if (array_key_exists($key, $cache)) {
+if (!function_exists('app_column_extra')) {
+    function app_column_extra(PDO $pdo, string $table, string $column): string
+    {
+        static $cache = [];
+        $key = $table . '.' . $column;
+        if (array_key_exists($key, $cache)) {
+            return $cache[$key];
+        }
+
+        $stmt = $pdo->prepare("
+            SELECT EXTRA
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$table, $column]);
+        $cache[$key] = strtolower((string) $stmt->fetchColumn());
         return $cache[$key];
     }
-
-    $stmt = $pdo->prepare("
-        SELECT EXTRA
-        FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
-        LIMIT 1
-    ");
-    $stmt->execute([$table, $column]);
-    $cache[$key] = strtolower((string) $stmt->fetchColumn());
-    return $cache[$key];
 }
 
-function app_primary_key_columns(PDO $pdo, string $table): array
-{
-    static $cache = [];
-    if (array_key_exists($table, $cache)) {
+if (!function_exists('app_primary_key_columns')) {
+    function app_primary_key_columns(PDO $pdo, string $table): array
+    {
+        static $cache = [];
+        if (array_key_exists($table, $cache)) {
+            return $cache[$table];
+        }
+
+        $stmt = $pdo->prepare("
+            SELECT COLUMN_NAME
+            FROM information_schema.KEY_COLUMN_USAGE
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = ?
+              AND CONSTRAINT_NAME = 'PRIMARY'
+            ORDER BY ORDINAL_POSITION
+        ");
+        $stmt->execute([$table]);
+        $cache[$table] = array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN));
         return $cache[$table];
     }
-
-    $stmt = $pdo->prepare("
-        SELECT COLUMN_NAME
-        FROM information_schema.KEY_COLUMN_USAGE
-        WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = ?
-          AND CONSTRAINT_NAME = 'PRIMARY'
-        ORDER BY ORDINAL_POSITION
-    ");
-    $stmt->execute([$table]);
-    $cache[$table] = array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN));
-    return $cache[$table];
 }
 
+if (!function_exists('app_ensure_primary_auto_increment')) {
 function app_ensure_primary_auto_increment(PDO $pdo, string $table): void
 {
     static $checked = null;
@@ -322,18 +341,22 @@ function app_ensure_primary_auto_increment(PDO $pdo, string $table): void
         }
     }
 }
-
-function app_resequence_id_column(PDO $pdo, string $table): void
-{
-    $quotedTable = '`' . str_replace('`', '``', $table) . '`';
-    $pdo->exec('SET @natcodev_row_number := 0');
-    $pdo->exec("UPDATE {$quotedTable} SET `id` = (@natcodev_row_number := @natcodev_row_number + 1) ORDER BY `id`");
 }
 
-function app_ensure_certificate_schema(PDO $pdo): void
-{
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS certificates (
+if (!function_exists('app_resequence_id_column')) {
+    function app_resequence_id_column(PDO $pdo, string $table): void
+    {
+        $quotedTable = '`' . str_replace('`', '``', $table) . '`';
+        $pdo->exec('SET @natcodev_row_number := 0');
+        $pdo->exec("UPDATE {$quotedTable} SET `id` = (@natcodev_row_number := @natcodev_row_number + 1) ORDER BY `id`");
+    }
+}
+
+if (!function_exists('app_ensure_certificate_schema')) {
+    function app_ensure_certificate_schema(PDO $pdo): void
+    {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS certificates (
             id INT AUTO_INCREMENT PRIMARY KEY,
             certificate_ref VARCHAR(80) NOT NULL UNIQUE,
             application_id INT NOT NULL,
@@ -398,7 +421,9 @@ function app_ensure_certificate_schema(PDO $pdo): void
     }
     app_ensure_primary_auto_increment($pdo, 'certificates');
 }
+}
 
+if (!function_exists('app_ensure_farmer_engagement_schema')) {
 function app_ensure_farmer_engagement_schema(PDO $pdo): void
 {
     app_ensure_core_schema($pdo);
@@ -501,56 +526,63 @@ function app_ensure_farmer_engagement_schema(PDO $pdo): void
     ");
     app_ensure_primary_auto_increment($pdo, 'wallet_transactions');
 }
-
-function app_ensure_user_verification_schema(PDO $pdo): void
-{
-    app_add_column_if_missing($pdo, 'users', 'account_status', "VARCHAR(40) NOT NULL DEFAULT 'active'");
-    app_add_column_if_missing($pdo, 'users', 'email_verified_at', 'DATETIME NULL');
-    app_add_column_if_missing($pdo, 'users', 'email_verification_token', 'VARCHAR(64) NULL');
-    app_add_column_if_missing($pdo, 'users', 'email_verification_sent_at', 'DATETIME NULL');
 }
 
-function app_user_needs_email_verification(array $user): bool
-{
-    $status = strtolower(trim((string) ($user['account_status'] ?? 'active')));
-    if (in_array($status, ['pending', 'unconfirmed', 'inactive', 'needs_confirmation'], true)) {
-        return true;
+if (!function_exists('app_ensure_user_verification_schema')) {
+    function app_ensure_user_verification_schema(PDO $pdo): void
+    {
+        app_add_column_if_missing($pdo, 'users', 'account_status', "VARCHAR(40) NOT NULL DEFAULT 'active'");
+        app_add_column_if_missing($pdo, 'users', 'email_verified_at', 'DATETIME NULL');
+        app_add_column_if_missing($pdo, 'users', 'email_verification_token', 'VARCHAR(64) NULL');
+        app_add_column_if_missing($pdo, 'users', 'email_verification_sent_at', 'DATETIME NULL');
     }
-
-    return trim((string) ($user['email_verified_at'] ?? '')) === '';
 }
 
-function app_send_user_verification(PDO $pdo, int $userId, string $context = 'NATCODEV'): bool
-{
-    app_ensure_user_verification_schema($pdo);
+if (!function_exists('app_user_needs_email_verification')) {
+    function app_user_needs_email_verification(array $user): bool
+    {
+        $status = strtolower(trim((string) ($user['account_status'] ?? 'active')));
+        if (in_array($status, ['pending', 'unconfirmed', 'inactive', 'needs_confirmation'], true)) {
+            return true;
+        }
 
-    $stmt = $pdo->prepare('SELECT id, name, email FROM users WHERE id = ? LIMIT 1');
-    $stmt->execute([$userId]);
-    $user = $stmt->fetch();
-    if (!$user) {
-        return false;
+        return trim((string) ($user['email_verified_at'] ?? '')) === '';
     }
+}
 
-    $token = bin2hex(random_bytes(32));
-    $pdo->prepare("
-        UPDATE users
-        SET account_status = 'needs_confirmation',
-            email_verified_at = NULL,
-            email_verification_token = ?,
-            email_verification_sent_at = NOW()
-        WHERE id = ?
-    ")->execute([$token, $userId]);
+if (!function_exists('app_send_user_verification')) {
+    function app_send_user_verification(PDO $pdo, int $userId, string $context = 'NATCODEV'): bool
+    {
+        app_ensure_user_verification_schema($pdo);
 
-    $confirmUrl = app_base_url() . '/confirm_email.php?token=' . urlencode($token);
-    $name = trim((string) ($user['name'] ?? 'NATCODEV User'));
-    $label = trim($context) !== '' ? trim($context) : 'NATCODEV';
-    $plain = "Dear {$name},\n\nConfirm your {$label} account with this secure link:\n{$confirmUrl}\n\nThis link expires in 7 days. You cannot login until your email is verified.\n\nThe NATCODEV Team";
-    $html = "
-        <p>Dear <strong>" . e($name) . "</strong>,</p>
-        <p>Confirm your " . e($label) . " account with this secure link.</p>
-        <p><a href=\"" . e($confirmUrl) . "\" style=\"display:inline-block;padding:10px 18px;background:#2d5016;color:#fff;text-decoration:none;border-radius:5px;\">Verify My Email</a></p>
-        <p>This link expires in 7 days. You cannot login until your email is verified.</p>
-    ";
+        $stmt = $pdo->prepare('SELECT id, name, email FROM users WHERE id = ? LIMIT 1');
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch();
+        if (!$user) {
+            return false;
+        }
 
-    return app_send_mail((string) $user['email'], 'Verify your NATCODEV account', $plain, $html);
+        $token = bin2hex(random_bytes(32));
+        $pdo->prepare("
+            UPDATE users
+            SET account_status = 'needs_confirmation',
+                email_verified_at = NULL,
+                email_verification_token = ?,
+                email_verification_sent_at = NOW()
+            WHERE id = ?
+        ")->execute([$token, $userId]);
+
+        $confirmUrl = app_base_url() . '/confirm_email.php?token=' . urlencode($token);
+        $name = trim((string) ($user['name'] ?? 'NATCODEV User'));
+        $label = trim($context) !== '' ? trim($context) : 'NATCODEV';
+        $plain = "Dear {$name},\n\nConfirm your {$label} account with this secure link:\n{$confirmUrl}\n\nThis link expires in 7 days. You cannot login until your email is verified.\n\nThe NATCODEV Team";
+        $html = "
+            <p>Dear <strong>" . e($name) . "</strong>,</p>
+            <p>Confirm your " . e($label) . " account with this secure link.</p>
+            <p><a href=\"" . e($confirmUrl) . "\" style=\"display:inline-block;padding:10px 18px;background:#2d5016;color:#fff;text-decoration:none;border-radius:5px;\">Verify My Email</a></p>
+            <p>This link expires in 7 days. You cannot login until your email is verified.</p>
+        ";
+
+        return app_send_mail((string) $user['email'], 'Verify your NATCODEV account', $plain, $html);
+    }
 }

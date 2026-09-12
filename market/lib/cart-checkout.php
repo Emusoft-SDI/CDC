@@ -191,8 +191,27 @@ function market_checkout_totals(array $rows): array
     ];
 }
 
+function market_ensure_orders_delivery_schema(PDO $pdo): void
+{
+    static $ensured = false;
+    if ($ensured) {
+        return;
+    }
+    foreach ([
+        'delivery_state' => "VARCHAR(120) NULL",
+        'delivery_lga' => "VARCHAR(120) NULL",
+        'delivery_latitude' => "DECIMAL(10,7) NULL",
+        'delivery_longitude' => "DECIMAL(10,7) NULL",
+        'delivery_method' => "VARCHAR(60) NULL DEFAULT 'Standard Delivery'",
+    ] as $col => $def) {
+        app_add_column_if_missing($pdo, 'marketplace_orders', $col, $def);
+    }
+    $ensured = true;
+}
+
 function market_insert_checkout_orders(PDO $pdo, array $rows, ?array $user, array $buyer, array $payment): array
 {
+    market_ensure_orders_delivery_schema($pdo);
     $totals = market_checkout_totals($rows);
     $checkoutRef = (string) ($payment['checkout_ref'] ?? market_checkout_ref());
     $paid = (bool) ($payment['paid'] ?? false);
@@ -201,10 +220,24 @@ function market_insert_checkout_orders(PDO $pdo, array $rows, ?array $user, arra
     $createdOrders = [];
     $settlements = [];
 
+    $deliveryState = trim((string) ($buyer['state'] ?? ''));
+    $deliveryLga = trim((string) ($buyer['lga'] ?? ''));
+    $deliveryLat = isset($buyer['latitude']) && is_numeric($buyer['latitude']) ? (float) $buyer['latitude'] : null;
+    $deliveryLng = isset($buyer['longitude']) && is_numeric($buyer['longitude']) ? (float) $buyer['longitude'] : null;
+    $deliveryMethod = trim((string) ($buyer['delivery_method'] ?? 'Standard Delivery'));
+
+    $fullAddress = trim((string) ($buyer['address'] ?? ''));
+    if ($deliveryLga !== '' && !str_contains(strtolower($fullAddress), strtolower($deliveryLga))) {
+        $fullAddress .= ', ' . $deliveryLga;
+    }
+    if ($deliveryState !== '' && !str_contains(strtolower($fullAddress), strtolower($deliveryState))) {
+        $fullAddress .= ', ' . $deliveryState;
+    }
+
     $orderStmt = $pdo->prepare("
         INSERT INTO marketplace_orders
-            (order_ref, checkout_ref, listing_id, seller_id, buyer_user_id, buyer_name, buyer_email, buyer_phone, quantity, unit_price, total_amount, status, payment_status, payment_method, delivery_status, delivery_address, delivery_contact, tracking_ref, payment_reference, payment_provider_reference, payment_provider_payload, delivery_fee, service_fee, checkout_total, paid_at, settled_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_seller', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (order_ref, checkout_ref, listing_id, seller_id, buyer_user_id, buyer_name, buyer_email, buyer_phone, quantity, unit_price, total_amount, status, payment_status, payment_method, delivery_status, delivery_address, delivery_state, delivery_lga, delivery_latitude, delivery_longitude, delivery_method, delivery_contact, tracking_ref, payment_reference, payment_provider_reference, payment_provider_payload, delivery_fee, service_fee, checkout_total, paid_at, settled_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_seller', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
 
     foreach ($rows as $row) {
@@ -225,7 +258,12 @@ function market_insert_checkout_orders(PDO $pdo, array $rows, ?array $user, arra
             $paid ? 'paid' : 'pending_payment',
             $paid ? 'paid' : 'unpaid',
             $paymentMethod,
-            (string) $buyer['address'],
+            $fullAddress,
+            $deliveryState ?: null,
+            $deliveryLga ?: null,
+            $deliveryLat,
+            $deliveryLng,
+            $deliveryMethod,
             (string) $buyer['phone'],
             $trackingRef,
             (string) ($payment['reference'] ?? ''),
