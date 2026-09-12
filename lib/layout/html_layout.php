@@ -6,13 +6,101 @@ function status_label(string $status): string
 }
 
 
+
+function admin_chrome_base_path(): string
+{
+    $scriptName = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? '/admin/index.php'));
+    $marker = '/admin/';
+    $pos = strpos($scriptName, $marker);
+    if ($pos === false) {
+        return 'admin/';
+    }
+
+    return substr($scriptName, 0, $pos + strlen($marker));
+}
+
+function admin_public_base_path(): string
+{
+    return rtrim(dirname(rtrim(admin_chrome_base_path(), '/')), '/');
+}
+
+function admin_chrome_url(string $href): string
+{
+    $href = trim($href);
+    if ($href === '' || $href[0] === '#' || preg_match('/^[a-z][a-z0-9+.-]*:/i', $href) || str_starts_with($href, '//')) {
+        return $href;
+    }
+    if (str_starts_with($href, '/')) {
+        return $href;
+    }
+
+    if (str_starts_with($href, '../')) {
+        $publicBase = admin_public_base_path();
+        while (str_starts_with($href, '../')) {
+            $href = substr($href, 3);
+        }
+        return ($publicBase === '' ? '' : $publicBase) . '/' . ltrim($href, '/');
+    }
+
+    return admin_chrome_base_path() . ltrim($href, '/');
+}
+
+function admin_public_url(string $href): string
+{
+    $href = trim($href);
+    if ($href === '' || $href[0] === '#' || preg_match('/^[a-z][a-z0-9+.-]*:/i', $href) || str_starts_with($href, '//')) {
+        return $href;
+    }
+    if (str_starts_with($href, '/')) {
+        return $href;
+    }
+
+    return admin_public_base_path() . '/' . ltrim($href, '/');
+}
+
+function admin_active_key(?string $active = null): string
+{
+    $active = trim((string) $active);
+    if ($active !== '') {
+        return ltrim(str_replace('\\', '/', $active), './');
+    }
+
+    $scriptName = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? '/admin/index.php'));
+    $marker = '/admin/';
+    $pos = strpos($scriptName, $marker);
+    if ($pos === false) {
+        return basename($scriptName);
+    }
+
+    return ltrim(substr($scriptName, $pos + strlen($marker)), '/');
+}
+
+function admin_nav_item_is_active(string $active, string $href): bool
+{
+    $activePath = ltrim(str_replace('\\', '/', $active), './');
+    $hrefPath = ltrim(str_replace('\\', '/', $href), './');
+    $activePathOnly = strtok($activePath, '?') ?: $activePath;
+    $hrefPathOnly = strtok($hrefPath, '?') ?: $hrefPath;
+
+    if ($activePath === $hrefPath || $activePathOnly === $hrefPathOnly) {
+        return true;
+    }
+
+    if (str_ends_with($hrefPathOnly, '/') && str_starts_with($activePathOnly, $hrefPathOnly)) {
+        return true;
+    }
+
+    return false;
+}
+
 function admin_page_start(string $title, array $options = []): void
 {
-    $active = $options['active'] ?? basename((string) ($_SERVER['SCRIPT_NAME'] ?? 'admin.php'));
+    $active = admin_active_key($options['active'] ?? null);
     $description = (string) ($options['description'] ?? '');
     $wide = !empty($options['wide']);
     $chrome = (bool) ($options['chrome'] ?? true);
     $GLOBALS['admin_page_chrome'] = $chrome;
+    $GLOBALS['admin_page_uses_location_picker'] = !empty($options['location_picker']);
     $max = $wide ? '1320px' : '1180px';
     $navGroups = admin_allowed_nav_groups(db());
     ?>
@@ -123,7 +211,7 @@ function admin_page_start(string $title, array $options = []): void
     }
     <?= $options['css'] ?? '' ?>
   </style>
-  <link rel="stylesheet" href="../assets/css/natcodev-ui.css?v=20260530">
+  <link rel="stylesheet" href="<?= e(admin_public_url('assets/css/natcodev-ui.css?v=20260530')) ?>">
 </head>
 <body>
 <div class="admin-shell">
@@ -132,18 +220,18 @@ function admin_page_start(string $title, array $options = []): void
   <?php if ($chrome): ?>
   <header class="admin-header">
     <div class="admin-bar">
-      <a class="admin-brand" href="index.php">
+      <a class="admin-brand" href="<?= e(admin_chrome_url('index.php')) ?>">
         <img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV">
         <span><strong>NATCODEV Admin</strong><span>Workspace operations hub</span></span>
       </a>
       <nav class="admin-nav" aria-label="Admin navigation">
         <?php foreach ($navGroups as $groupLabel => $items): ?>
-          <?php $groupActive = in_array($active, array_column($items, 'href'), true); ?>
+          <?php $groupActive = array_reduce($items, static fn(bool $carry, array $item): bool => $carry || admin_nav_item_is_active($active, (string) $item['href']), false); ?>
           <details class="<?= $groupActive ? 'active' : '' ?>">
             <summary><?= e((string) $groupLabel) ?></summary>
             <div class="admin-menu">
               <?php foreach ($items as $item): ?>
-                <a class="<?= $active === $item['href'] ? 'active' : '' ?>" href="<?= e($item['href']) ?>"><?= e($item['label']) ?></a>
+                <a class="<?= admin_nav_item_is_active($active, (string) $item['href']) ? 'active' : '' ?>" href="<?= e(admin_chrome_url((string) $item['href'])) ?>"><?= e($item['label']) ?></a>
               <?php endforeach; ?>
             </div>
           </details>
@@ -181,7 +269,7 @@ function admin_page_end(): void
       </div>
       <nav class="footer-links" aria-label="Admin quick links">
         <?php foreach ($footerItems as $item): ?>
-          <a href="<?= e($item['href']) ?>"><?= e($item['label']) ?></a>
+          <a href="<?= e(admin_chrome_url((string) $item['href'])) ?>"><?= e($item['label']) ?></a>
         <?php endforeach; ?>
         <form method="post" action="<?= e(admin_logout_action_path()) ?>" style="margin:0"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="logout" value="1"><button class="footer-logout" type="submit">Logout</button></form>
       </nav>
@@ -189,7 +277,9 @@ function admin_page_end(): void
   </footer>
   <?php endif; ?>
 </div>
-<script src="../lib/location-picker.js"></script>
+<?php if (!empty($GLOBALS['admin_page_uses_location_picker'])): ?>
+<script src="<?= e(admin_public_url('lib/location-picker.js')) ?>"></script>
+<?php endif; ?>
 <script>
 (function () {
   const nav = document.querySelector('.admin-nav');

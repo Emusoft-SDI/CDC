@@ -2,6 +2,11 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/lib/news.php';
+
+$pdo = db();
+news_ensure_schema($pdo);
+$recentNews = news_get_published($pdo, 3, 'public');
 
 $logo = app_primary_logo_url();
 $year = date('Y');
@@ -35,6 +40,7 @@ $trust = [
     ['icon' => 'fa-leaf', 'title' => 'Sustainable coconut', 'text' => 'value chain'],
     ['icon' => 'fa-lock', 'title' => 'Secure, transparent', 'text' => 'and compliant'],
 ];
+$office = app_contact_office();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -45,9 +51,6 @@ $trust = [
   <meta name="description" content="NATCODEV connects coconut growers, farm hands, providers, sellers, buyers, field teams, academy learners, and coordinators through one coconut development platform.">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <style>
-    .fas,.fab{font-style:normal;font-family:Arial,sans-serif;font-weight:900;line-height:1}.fa-leaf::before{content:"\2630"}.fa-facebook-f::before{content:"f"}.fa-x-twitter::before{content:"X"}.fa-youtube::before{content:"\25B6"}.fa-linkedin::before{content:"in"}.fa-search::before{content:"\2315"}.fa-user-plus::before{content:"+"}.fa-cart-shopping::before{content:"\25A3"}.fa-seedling::before{content:"\2733"}.fa-user-gear::before{content:"\2699"}.fa-box-open::before{content:"\25A1"}.fa-screwdriver-wrench::before{content:"\2692"}.fa-store::before{content:"\2302"}.fa-location-dot::before{content:"\2316"}.fa-people-group::before{content:"\25CE"}.fa-chevron-right::before{content:"\203A"}.fa-shield-halved::before{content:"\25C7"}.fa-chart-line::before{content:"\2197"}.fa-cow::before{content:"\2663"}.fa-graduation-cap::before{content:"\25A3"}.fa-bag-shopping::before{content:"\25A2"}.fa-wallet::before{content:"\25A4"}.fa-award::before{content:"\2605"}.fa-headset::before{content:"tel"}.fa-shield-heart::before{content:"\2661"}.fa-map::before{content:"\2318"}.fa-users::before{content:"\25CF"}.fa-lock::before{content:"\25A0"}
-  </style>
-  <style>
     :root{--green:#063f20;--green2:#08753a;--leaf:#39a84d;--soft:#f4faf2;--gold:#c79010;--teal:#0e7e7d;--blue:#2f72d8;--purple:#5b3ba6;--ink:#111827;--muted:#667085;--line:#dfe8d8;--white:#fff;--shadow:0 18px 42px rgba(16,24,40,.1);--max:1760px}
     *{box-sizing:border-box}body{margin:0;font-family:"Segoe UI",Arial,sans-serif;color:var(--ink);background:#f7faf5}a{text-decoration:none;color:inherit}button,input{font:inherit}
     .top-strip{background:linear-gradient(90deg,#063f20,#085d2b);color:#fff;padding:11px 30px;font-weight:800}.top-inner{max-width:var(--max);margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:20px}.top-links{display:flex;gap:18px;align-items:center}.top-links a{color:#fff}.social{display:flex;gap:14px}
@@ -55,10 +58,18 @@ $trust = [
     .hero{min-height:430px;background:linear-gradient(90deg,rgba(0,0,0,.54) 0%,rgba(4,45,19,.44) 36%,rgba(0,0,0,.08) 72%),url("assets/public/natcodev-home-hero.png") center/cover no-repeat;color:#fff;position:relative}.hero-inner{max-width:var(--max);margin:0 auto;padding:58px 30px 85px}.hero-copy{max-width:760px}.hero h1{font-size:clamp(3rem,5.6vw,5.7rem);line-height:1.02;margin:0 0 18px;text-shadow:0 2px 20px rgba(0,0,0,.35)}.hero h1 span{color:#8ed17b}.hero p{font-size:1.38rem;line-height:1.45;margin:0 0 26px;font-weight:700;text-shadow:0 2px 14px rgba(0,0,0,.35)}.hero-actions{display:flex;flex-wrap:wrap;gap:16px}.hero .btn{font-size:1.15rem;min-width:230px}.hero .btn.light{background:rgba(0,0,0,.18);color:#fff;border-color:#fff}
     .role-panel{max-width:1600px;margin:-64px auto 18px;position:relative;z-index:5;background:#fff;border:1px solid var(--line);border-radius:20px;padding:18px 24px 26px;box-shadow:var(--shadow)}.section-title{display:flex;align-items:center;justify-content:center;gap:24px;color:var(--green);font-size:1.8rem;font-weight:950;margin:0 0 16px}.section-title::before,.section-title::after{content:"";height:1px;background:#a9d7ad;flex:0 1 140px}.role-grid{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:18px}.role-card{border:1px solid var(--line);border-radius:12px;background:#fff;min-height:160px;padding:20px 16px;display:grid;text-align:center;position:relative;box-shadow:0 8px 20px rgba(16,24,40,.04);transition:.18s ease}.role-card:hover{transform:translateY(-3px);box-shadow:var(--shadow);border-color:#b9dfbd}.role-icon{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;margin:0 auto 8px;font-size:1.75rem;background:#e8f6ec;color:var(--green2);border:1px solid #ccebd3}.role-card.gold .role-icon{background:#fff4d9;color:#a36d00}.role-card.teal .role-icon{background:#e2f7f5;color:var(--teal)}.role-card.blue .role-icon{background:#e8f1ff;color:var(--blue)}.role-card.purple .role-icon{background:#f0ebff;color:var(--purple)}.role-card h3{margin:0 0 6px;color:var(--green);font-size:1.05rem}.role-card p{margin:0;color:#1f2937;line-height:1.35;font-weight:650}.role-card .arrow{position:absolute;right:17px;bottom:14px;color:var(--green);font-size:1.2rem}
     .platform{max-width:1600px;margin:0 auto 28px;background:linear-gradient(135deg,#f3faf0,#fff);border:1px solid var(--line);border-radius:12px;padding:18px 18px 0;box-shadow:0 10px 28px rgba(16,24,40,.06)}.feature-grid{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:12px}.feature-card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:16px;display:grid;grid-template-columns:54px 1fr;gap:12px;align-items:center;min-height:118px}.feature-card i{font-size:2.25rem;color:var(--green)}.feature-card h3{margin:0 0 4px;color:var(--green);font-size:.98rem}.feature-card p{margin:0;color:#1f2937;font-size:.82rem;line-height:1.35}.trust-row{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:0;border-top:1px solid var(--line);margin-top:16px}.trust-item{padding:18px;display:flex;gap:12px;align-items:center;border-right:1px solid var(--line);font-weight:850}.trust-item:last-child{border-right:0}.trust-item i{font-size:1.8rem;color:var(--green)}.learn{background:var(--green);color:#fff;border-radius:8px;padding:15px 20px;justify-content:center}
+    
+    .news-teaser{max-width:1600px;margin:0 auto 34px;padding:0 18px}
+    .news-teaser-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}
+    .teaser-card{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:0 6px 18px rgba(16,24,40,.04);display:flex;flex-direction:column;transition:transform 0.18s ease}
+    .teaser-card:hover{transform:translateY(-3px);box-shadow:var(--shadow);border-color:#b9dfbd}
+    .teaser-img{width:100%;height:180px;object-fit:cover;background:#e8f6ec}
+    .teaser-body{padding:20px;display:flex;flex-direction:column;flex-grow:1}
+    
     .story{max-width:1600px;margin:0 auto 34px;display:grid;grid-template-columns:1fr 1fr;gap:22px}.story-img{min-height:330px;background:url("assets/public/natcodev-community-impact.png") center/cover no-repeat;border-radius:16px;box-shadow:var(--shadow)}.story-card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:30px;box-shadow:var(--shadow)}.story-card h2{font-size:2.2rem;color:var(--green);margin:0 0 10px}.story-card p{font-size:1.05rem;color:#344054;line-height:1.65}.quick-links{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}.quick-links a{border:1px solid var(--line);border-radius:10px;padding:14px;font-weight:950;color:var(--green);background:#f9fcf7}
-    .footer{background:#052915;color:#e8f6ec;margin-top:36px}.footer-inner{max-width:var(--max);margin:0 auto;padding:38px 30px;display:grid;grid-template-columns:1.3fr repeat(4,1fr);gap:28px}.footer h3{margin:0 0 12px;color:#fff}.footer p,.footer a{color:#cfe5d3;line-height:1.65}.footer a{display:block;margin:6px 0}.footer-brand{display:flex;gap:12px;align-items:center;margin-bottom:12px}.footer-brand img{width:58px;height:58px;background:#fff;border-radius:50%}.footer-bottom{border-top:1px solid rgba(255,255,255,.12);padding:18px 30px;text-align:center;color:#bdd5c1}
-    @media(max-width:1320px){.role-grid,.feature-grid{grid-template-columns:repeat(4,1fr)}.nav-wrap{grid-template-columns:1fr}.nav,.actions{justify-content:flex-start;flex-wrap:wrap}.trust-row{grid-template-columns:repeat(3,1fr)}.story{grid-template-columns:1fr;padding:0 18px}.platform,.role-panel{margin-left:18px;margin-right:18px}}
-    @media(max-width:820px){.top-inner,.top-links,.nav,.actions,.hero-actions{align-items:flex-start;flex-direction:column}.nav-wrap{padding:14px}.role-grid,.feature-grid,.quick-links,.footer-inner{grid-template-columns:1fr}.trust-row{grid-template-columns:1fr}.hero-inner{padding:42px 18px 92px}.role-panel{margin-top:-42px}.section-title{font-size:1.3rem}.brand strong{font-size:1.55rem}}
+    .footer{background:#052915;color:#e8f6ec;margin-top:36px}.footer-inner{max-width:var(--max);margin:0 auto;padding:24px 24px 18px;display:grid;grid-template-columns:minmax(320px,1.55fr) repeat(4,minmax(0,1fr));gap:18px;align-items:start}.footer h3{margin:0 0 8px;color:#fff;font-size:1rem}.footer p,.footer a{color:#cfe5d3;line-height:1.45;font-size:.93rem}.footer a{display:block;margin:4px 0}.footer-brand{display:flex;gap:12px;align-items:center;margin-bottom:10px}.footer-brand img{width:54px;height:54px;background:#fff;border-radius:50%}.footer-bottom{border-top:1px solid rgba(255,255,255,.12);padding:14px 24px;text-align:center;color:#bdd5c1}
+    @media(max-width:1320px){.role-grid,.feature-grid,.news-teaser-grid{grid-template-columns:repeat(4,1fr)}.nav-wrap{grid-template-columns:1fr}.nav,.actions{justify-content:flex-start;flex-wrap:wrap}.trust-row{grid-template-columns:repeat(3,1fr)}.story{grid-template-columns:1fr;padding:0 18px}.platform,.role-panel{margin-left:18px;margin-right:18px}}
+    @media(max-width:820px){.top-inner,.top-links,.nav,.actions,.hero-actions{align-items:flex-start;flex-direction:column}.nav-wrap{padding:14px}.role-grid,.feature-grid,.news-teaser-grid,.quick-links,.footer-inner{grid-template-columns:1fr}.trust-row{grid-template-columns:1fr}.hero-inner{padding:42px 18px 92px}.role-panel{margin-top:-42px}.section-title{font-size:1.3rem}.brand strong{font-size:1.55rem}}
   </style>
 </head>
 <body>
@@ -66,7 +77,7 @@ $trust = [
     <div class="top-inner">
       <div><i class="fas fa-leaf"></i> Building productive coconut communities for Nigeria's future.</div>
       <div class="top-links">
-        <a href="about.php">About Us</a><span>|</span><a href="#updates">News & Updates</a><span>|</span><a href="contact.php">Contact Us</a>
+        <a href="about.php">About Us</a><span>|</span><a href="news.php">News & Updates</a><span>|</span><a href="contact.php">Contact Us</a>
         <span class="social"><i class="fab fa-facebook-f"></i><i class="fab fa-x-twitter"></i><i class="fab fa-youtube"></i><i class="fab fa-linkedin"></i></span>
       </div>
     </div>
@@ -83,6 +94,7 @@ $trust = [
         <a href="registry/register.php">Registry</a>
         <a href="market/index.php">Marketplace</a>
         <a href="academy/index.php?screen=catalog">Academy</a>
+        <a href="news.php">News & Insights</a>
         <a href="verify-certificate.php">Verify</a>
         <a href="support/index.php">Support</a>
       </nav>
@@ -140,6 +152,37 @@ $trust = [
       </div>
     </section>
 
+    <?php if (!empty($recentNews)): ?>
+      <!-- Latest News & Announcements -->
+      <section id="updates" class="news-teaser">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+          <h2 style="color:var(--green);font-size:1.8rem;margin:0;font-weight:900;"><i class="fas fa-newspaper"></i> Latest News & Bulletins</h2>
+          <a href="news.php" class="btn primary" style="min-height:38px;padding:8px 18px;font-size:0.92rem;">View All Releases &rarr;</a>
+        </div>
+        <div class="news-teaser-grid">
+          <?php foreach ($recentNews as $post): 
+            $img = !empty($post['image_url']) ? $post['image_url'] : 'assets/public/natcodev-community-impact.png';
+            $detailUrl = 'news-detail.php?slug=' . urlencode((string) $post['slug']);
+          ?>
+            <article class="teaser-card">
+              <a href="<?= e($detailUrl) ?>">
+                <img src="<?= e($img) ?>" alt="<?= e($post['title']) ?>" class="teaser-img" onerror="this.src='assets/public/natcodev-community-impact.png'">
+              </a>
+              <div class="teaser-body">
+                <span style="background:rgba(8,117,58,0.1);color:var(--green2);font-size:0.75rem;font-weight:800;text-transform:uppercase;padding:4px 10px;border-radius:12px;align-self:flex-start;margin-bottom:10px;"><?= e($post['category'] ?? 'General') ?></span>
+                <h3 style="margin:0 0 8px;font-size:1.15rem;color:var(--green);line-height:1.4;"><a href="<?= e($detailUrl) ?>"><?= e($post['title']) ?></a></h3>
+                <p style="margin:0 0 16px;color:#475569;font-size:0.9rem;line-height:1.5;flex-grow:1;"><?= e(mb_strimwidth((string)($post['summary'] ?? strip_tags($post['content'])), 0, 120, '...')) ?></p>
+                <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding-top:12px;font-size:0.82rem;color:var(--muted);margin-top:auto;">
+                  <span><?= date('M d, Y', strtotime($post['created_at'])) ?></span>
+                  <a href="<?= e($detailUrl) ?>" style="color:var(--green2);font-weight:800;">Read More &rarr;</a>
+                </div>
+              </div>
+            </article>
+          <?php endforeach; ?>
+        </div>
+      </section>
+    <?php endif; ?>
+
     <section id="about" class="story">
       <div class="story-img" aria-label="Coconut farmers and marketplace community"></div>
       <article class="story-card">
@@ -160,6 +203,16 @@ $trust = [
       <div>
         <div class="footer-brand"><img src="<?= e($logo) ?>" alt="NATCODEV"><strong>NATCODEV</strong></div>
         <p>National Coconut Development & Propagation Initiative. Building productive coconut communities and a sustainable coconut value chain.</p>
+        <div style="margin-top:12px;display:grid;gap:8px;font-size:.92rem;line-height:1.45;max-width:360px">
+          <div>
+            <strong style="display:block;color:#fff;margin-bottom:2px">Head Office</strong>
+            <span style="display:block"><?= e(implode(', ', $office['address_lines'])) ?></span>
+          </div>
+          <div>
+            <strong style="display:block;color:#fff;margin-bottom:2px">Call Us</strong>
+            <a href="tel:<?= e($office['phone_tel']) ?>"><?= e($office['phone_display']) ?></a>
+          </div>
+        </div>
       </div>
       <div><h3>Registry</h3><a href="apply.php?type=farmer">Grower Registration</a><a href="provider/index.php">Provider Registration</a><a href="field-agent/login.php">Field Network</a></div>
       <div><h3>Marketplace</h3><a href="market/index.php">Browse Marketplace</a><a href="market/stores.php">Seller Directory</a><a href="provider/login.php">Seller Central</a></div>

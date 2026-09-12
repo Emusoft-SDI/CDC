@@ -1,10 +1,15 @@
 <?php
-// cron/retry-validations.php
-require_once '../config.php';
+declare(strict_types=1);
+
+require_once __DIR__ . '/../config.php';
+
+app_require_cli('retry-validations');
+
+$pdo = db();
 
 // Get failed validations eligible for retry
-$maxRetries = $pdo->query("SELECT value FROM settings WHERE key_name = 'max_validation_retries'")->fetchColumn();
-$retryHours = $pdo->query("SELECT value FROM settings WHERE key_name = 'retry_interval_hours'")->fetchColumn();
+$maxRetries = (int) ($pdo->query("SELECT value FROM settings WHERE key_name = 'max_validation_retries'")->fetchColumn() ?: 3);
+$retryHours = (int) ($pdo->query("SELECT value FROM settings WHERE key_name = 'retry_interval_hours'")->fetchColumn() ?: 24);
 
 $stmt = $pdo->prepare("
     SELECT dr.id, dr.document_type, dr.document_number, dr.user_id, u.name, u.dob

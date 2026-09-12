@@ -23,6 +23,7 @@ try {
     ");
     $stmt->execute([$state, $state]);
     $stateRow = $stmt->fetch();
+    header('Cache-Control: public, max-age=86400');
     if ($stateRow) {
         json_response(nigeria_ensure_lgas_for_state($pdo, (int) $stateRow['id'], (string) $stateRow['state_name'], (string) ($stateRow['state_code'] ?? '')));
     }

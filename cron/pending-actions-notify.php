@@ -4,6 +4,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../lib/notification-dispatch.php';
 
+app_require_cli('pending-actions-notify');
+
 $pdo = db();
 
 if (!app_table_exists($pdo, 'admin_action_requests')) {

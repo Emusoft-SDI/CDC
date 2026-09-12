@@ -4,6 +4,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../lib/weather.php';
 
+app_require_cli('system-performance-report');
+
 $pdo = db();
 app_ensure_core_schema($pdo);
 

@@ -10,6 +10,14 @@ if (!admin_session_is_authenticated($pdo)) {
     json_response(['success' => false, 'error' => 'Forbidden'], 403);
 }
 
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    json_response(['success' => false, 'error' => 'POST method required'], 405);
+}
+
+if (!verify_csrf($_POST['_csrf'] ?? null)) {
+    json_response(['success' => false, 'error' => 'Invalid security token'], 403);
+}
+
 $action = (string) ($_POST['bulk_action'] ?? '');
 $docIds = array_map('intval', (array) ($_POST['doc_ids'] ?? []));
 $reason = trim((string) ($_POST['rejection_reason'] ?? ''));

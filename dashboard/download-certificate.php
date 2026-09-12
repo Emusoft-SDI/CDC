@@ -62,17 +62,21 @@ if ($accessRequired && !$accessStatus['paid']) {
     redirect_to('certificates.php?error=' . urlencode('Pay the certificate access or renewal fee before downloading.'));
 }
 
-$pdf = certificate_pdf_document($certificate);
-$pdfPath = 'certificates/' . strtolower(preg_replace('/[^a-zA-Z0-9-]+/', '-', (string) $certificate['display_ref'])) . '.pdf';
-$absolutePdf = dirname(__DIR__) . '/' . $pdfPath;
-if (!is_dir(dirname($absolutePdf))) {
-    mkdir(dirname($absolutePdf), 0775, true);
-}
-file_put_contents($absolutePdf, $pdf, LOCK_EX);
-$pdo->prepare("UPDATE certificates SET certificate_pdf_path = ? WHERE user_id = ? AND (certificate_ref = ? OR qr_code_hash = ?)")
-    ->execute([$pdfPath, $userId, $ref, $ref]);
-
 $fileName = strtolower(preg_replace('/[^a-zA-Z0-9-]+/', '-', (string) $certificate['display_ref'])) . '.pdf';
+$pdfPath = 'certificates/' . $fileName;
+$absolutePdf = dirname(__DIR__) . '/' . $pdfPath;
+
+if (is_file($absolutePdf) && filesize($absolutePdf) > 0) {
+    $pdf = file_get_contents($absolutePdf);
+} else {
+    $pdf = certificate_pdf_document($certificate);
+    if (!is_dir(dirname($absolutePdf))) {
+        mkdir(dirname($absolutePdf), 0775, true);
+    }
+    file_put_contents($absolutePdf, $pdf, LOCK_EX);
+    $pdo->prepare("UPDATE certificates SET certificate_pdf_path = ? WHERE user_id = ? AND (certificate_ref = ? OR qr_code_hash = ?)")
+        ->execute([$pdfPath, $userId, $ref, $ref]);
+}
 
 header('Content-Type: application/pdf');
 header('Content-Disposition: attachment; filename="' . $fileName . '"');

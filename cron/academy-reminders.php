@@ -1,8 +1,11 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../lib/academy.php';
 require_once __DIR__ . '/../lib/twilio.php';
+
+app_require_cli('academy-reminders');
 
 $pdo = db();
 app_ensure_core_schema($pdo);

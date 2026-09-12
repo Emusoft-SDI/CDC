@@ -30,8 +30,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf($_POST['_csrf'] ?? null
         }
     }
 }
+
 $rows = market_cart_rows($pdo);
-$total = array_sum(array_map(static fn($row) => (float) $row['cart_total'], $rows));
+$totals = market_checkout_totals($rows);
+$total = (float) $totals['subtotal'];
 
 $featuredInspiration = [];
 $suggestedCategories = [];
@@ -121,10 +123,11 @@ market_header('Cart', 'marketplace', $pdo);
   <aside class="mk-section cart-summary">
     <?php if ($rows): ?>
         <h2>Order Summary <small style="float:right"><?= number_format(count($rows)) ?> items</small></h2>
-        <p>Subtotal <strong style="float:right"><?= e(marketplace_money((float) $total)) ?></strong></p>
-        <p>Estimated Delivery <strong style="float:right"><?= e(marketplace_money(8500)) ?></strong></p>
+        <p>Subtotal <strong style="float:right"><?= e(marketplace_money((float) $totals['subtotal'])) ?></strong></p>
+        <p>Estimated Delivery <strong style="float:right"><?= e(marketplace_money((float) $totals['delivery_fee'])) ?></strong></p>
+        <p>Service Fee <strong style="float:right"><?= e(marketplace_money((float) $totals['service_fee'])) ?></strong></p>
         <hr>
-        <p>Order Total <span class="summary-total" style="float:right"><?= e(marketplace_money((float) $total + 8500)) ?></span></p>
+        <p>Order Total <span class="summary-total" style="float:right"><?= e(marketplace_money((float) $totals['total'])) ?></span></p>
         <a class="mk-btn" style="width:100%;margin-top:18px;font-size:1.1rem" href="checkout.php"><i class="fas fa-lock"></i> Proceed to Checkout</a>
         <form method="post" style="width:100%;margin-top:10px">
             <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">

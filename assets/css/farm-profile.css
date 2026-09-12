@@ -1,0 +1,12 @@
+.profile-section { margin-top:18px; padding:18px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); }
+  .profile-section h2 { margin:0 0 6px; color:var(--green); font-size:1.15rem; }
+  .profile-section .hint { margin:0 0 14px; color:var(--muted); line-height:1.45; }
+  .profile-section textarea { min-height:96px; }
+  .profile-section select, .profile-section input, .profile-section textarea { background:#fff; }
+  .profile-tabs { position:sticky; top:86px; z-index:12; display:flex; flex-wrap:wrap; gap:8px; margin:16px 0 12px; padding:10px; background:rgba(245,248,243,.95); border:1px solid var(--line); border-radius:8px; backdrop-filter:blur(8px); }
+  .profile-tab { border:1px solid transparent; background:#fff; color:var(--green); box-shadow:none; min-height:42px; }
+  .profile-tab[aria-selected="true"] { background:var(--green); color:#fff; border-color:var(--green); }
+  .profile-tab-panel[hidden] { display:none; }
+  .profile-actions { position:sticky; bottom:0; z-index:12; display:flex; justify-content:flex-end; margin-top:16px; padding:12px 0; background:linear-gradient(180deg, rgba(245,248,243,0), var(--bg) 28%); }
+  .profile-section h3 { margin:0 0 12px; color:var(--green); }
+  @media(max-width:700px){.profile-tabs{position:static}.profile-tab{flex:1 1 calc(50% - 8px)}}

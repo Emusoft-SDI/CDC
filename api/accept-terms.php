@@ -11,6 +11,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     json_response(['success' => false, 'error' => 'POST method required'], 405);
 }
 
+if (!verify_csrf($_POST['_csrf'] ?? null)) {
+    json_response(['success' => false, 'error' => 'Invalid security token'], 403);
+}
+
 try {
     app_add_column_if_missing($pdo, 'users', 'terms_accepted', 'TINYINT(1) NOT NULL DEFAULT 0');
     app_add_column_if_missing($pdo, 'users', 'terms_accepted_at', 'DATETIME NULL');

@@ -6,6 +6,7 @@ require_once __DIR__ . '/lib/support.php';
 
 $logo = app_primary_logo_url();
 $year = date('Y');
+$office = app_contact_office();
 $sent = false;
 $errors = [];
 
@@ -150,6 +151,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           <div class="contact-row"><i class="fas fa-user-plus"></i><div><strong>Registry</strong><a href="apply.php?type=farmer">Start grower registration</a><a href="provider/index.php">Register as provider</a></div></div>
           <div class="contact-row"><i class="fas fa-headset"></i><div><strong>Support Desk</strong><a href="support/index.php">Open support desk</a><span>Track platform issues and service requests.</span></div></div>
           <div class="contact-row"><i class="fas fa-award"></i><div><strong>Verification</strong><a href="verify-certificate.php">Verify certificate</a><span>Confirm NATCODEV certificates and credentials.</span></div></div>
+        </div>
+        <div class="contact-card">
+          <h2>Head Office</h2>
+          <div class="contact-row"><i class="fas fa-location-dot"></i><div><strong>Address</strong><span><?= nl2br(e(implode("\n", $office['address_lines']))) ?></span></div></div>
+          <div class="contact-row"><i class="fas fa-phone"></i><div><strong>Call Us</strong><a href="tel:<?= e($office['phone_tel']) ?>"><?= e($office['phone_display']) ?></a></div></div>
         </div>
         <div class="contact-card">
           <h2>Explore</h2>

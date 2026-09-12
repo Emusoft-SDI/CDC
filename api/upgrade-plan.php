@@ -11,6 +11,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     json_response(['success' => false, 'error' => 'POST method required'], 405);
 }
 
+if (!verify_csrf($_POST['_csrf'] ?? null)) {
+    json_response(['success' => false, 'error' => 'Invalid security token'], 403);
+}
+
 try {
     app_ensure_farmer_engagement_schema($pdo);
     app_add_column_if_missing($pdo, 'users', 'plan', "VARCHAR(30) NOT NULL DEFAULT 'basic'");

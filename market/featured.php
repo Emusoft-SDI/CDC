@@ -86,7 +86,10 @@ market_header('Featured Products', 'featured', $pdo);
         <h3 class="sidebar-title">Categories</h3>
         <ul class="category-list">
           <li><a class="category-item" href="index.php"><span><i class="fas fa-th-large" style="margin-right:.5rem"></i>All Categories</span><span class="category-count"><?= number_format($stats['total_listings']) ?></span></a></li>
-          <?php foreach ($categories as $cat): ?>
+          <?php 
+          $populatedCategories = array_values(array_filter($categories, static fn(array $cat): bool => (int) ($cat['listing_count'] ?? 0) > 0));
+          foreach (($populatedCategories ?: $categories) as $cat): 
+          ?>
             <li><a class="category-item" href="index.php?category_id=<?= (int) $cat['id'] ?>"><span><?= e((string) $cat['name']) ?></span><span class="category-count"><?= number_format((int) $cat['listing_count']) ?></span></a></li>
           <?php endforeach; ?>
         </ul>

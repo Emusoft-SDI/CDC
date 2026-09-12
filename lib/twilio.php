@@ -158,6 +158,23 @@ function sendMessage($to, $message, $channel = 'whatsapp') {
         return sendSendchampSMS((string) $to, (string) $message);
     }
 
+    // Support dynamic SMS & WhatsApp multi-gateway routing (eBulkSMS, PaylessBulkSMS, Termii, Custom)
+    if (in_array($transport, ['gateway', 'sms_gateway', 'ebulksms', 'paylessbulksms', 'termii', 'auto'], true) || (twilio_value_is_placeholder($sid) || twilio_value_is_placeholder($token))) {
+        require_once __DIR__ . '/sms_gateway.php';
+        if ($channel === 'whatsapp') {
+            $gwRes = app_send_whatsapp((string) $to, (string) $message);
+        } else {
+            $gwRes = app_send_sms((string) $to, (string) $message);
+        }
+        if (!empty($gwRes['success'])) {
+            return true;
+        }
+        // If gateway explicitly handled or simulated, return success
+        if (($gwRes['status'] ?? '') === 'simulated' || ($gwRes['status'] ?? '') === 'delivered') {
+            return true;
+        }
+    }
+
     if ($transport !== 'twilio') {
         app_log_notification($channel, $number, null, (string) $message, 'failed', $transport, null, 'Unsupported notification transport');
         return false;

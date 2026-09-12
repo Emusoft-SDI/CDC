@@ -1,17 +1,40 @@
 # SECRETS & CONFIG
 .env
-*.env.local
+*.env
+*.env.*
+* - Copy.env
+*-Copy.env
 config.local.php
 whatsapp_queue.txt
 *.log
 uploads/
+certificates/*.pdf
+certificates/*.html
+!certificates/.htaccess
 
 # BACKUP/TEMP FILES
 * - Copy.php
 * - Copy.txt
+* - Copy.jpeg
 "New Text Document*.txt"
 *.bak
 *.tmp
+refactor*.php
+refactor*.py
+diff*.php
+dump*.php
+count.php
+fix_modules.php
+patch_tabs.php
+opcache_reset.php
+cli_check.php
+cli_info.php
+run_cli.php
+where_php.php
+reset.php
+git_commit.php
+info.php
+1.maintenance
 
 # IDE & OS
 .DS_Store

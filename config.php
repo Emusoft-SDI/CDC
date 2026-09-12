@@ -756,6 +756,11 @@ function app_setting_value(string $key, string $default = ''): string
     }
 }
 
+function app_setting(string $key, string $default = ''): string
+{
+    return app_setting_value($key, $default);
+}
+
 function app_social_login_enabled(?string $driver = null): bool
 {
     if (app_setting_value('social_login_enabled', '0') !== '1') {
@@ -1349,3 +1354,4 @@ function generate_application_ref(): string
 {
     return 'NAT-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
 }
+

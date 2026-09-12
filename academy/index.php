@@ -30,8 +30,21 @@ foreach ($courses as $courseRow) {
 }
 ksort($catalogCategories);
 $catalogCategory = trim((string) ($_GET['category'] ?? ''));
+$catalogPayment = trim((string) ($_GET['payment'] ?? ''));
 $catalogCourses = array_values(array_filter($courses, static function (array $course) use ($catalogCategory): bool {
     return $catalogCategory === '' || strcasecmp((string) ($course['category'] ?? ''), $catalogCategory) === 0;
+}));
+$catalogCourses = array_values(array_filter($catalogCourses, static function (array $course) use ($catalogPayment): bool {
+    if ($catalogPayment === '') {
+        return true;
+    }
+    if ($catalogPayment === 'free') {
+        return (int) ($course['is_free'] ?? 0) === 1;
+    }
+    if ($catalogPayment === 'paid') {
+        return (int) ($course['is_free'] ?? 0) === 0;
+    }
+    return true;
 }));
 $catalogPage = max(1, (int) ($_GET['page'] ?? 1));
 $catalogTotal = count($catalogCourses);
@@ -193,6 +206,11 @@ function public_academy_course_image(array $course, array $images): string
             <option value="">All Categories</option>
             <?php foreach (array_keys($catalogCategories) as $categoryOption): ?><option value="<?= e($categoryOption) ?>" <?= $catalogCategory === $categoryOption ? 'selected' : '' ?>><?= e($categoryOption) ?></option><?php endforeach; ?>
           </select>
+          <select name="payment" onchange="this.form.submit()">
+            <option value="">All Courses</option>
+            <option value="free" <?= $catalogPayment === 'free' ? 'selected' : '' ?>>Free only</option>
+            <option value="paid" <?= $catalogPayment === 'paid' ? 'selected' : '' ?>>Paid only</option>
+          </select>
           <a class="btn secondary" href="<?= $user ? 'dashboard.php?screen=catalog' : 'register.php' ?>">Enroll</a>
         </form>
       </div>
@@ -219,7 +237,7 @@ function public_academy_course_image(array $course, array $images): string
         <?php if (!$pagedCourses): ?><div class="panel">No public Academy course is active in this category yet.</div><?php endif; ?>
       <?php if ($catalogPages > 1): ?>
         <nav class="pagination" aria-label="Course catalog pages">
-          <?php $catalogBase = []; if ($catalogCategory !== '') { $catalogBase['category'] = $catalogCategory; } ?>
+          <?php $catalogBase = []; if ($catalogCategory !== '') { $catalogBase['category'] = $catalogCategory; } if ($catalogPayment !== '') { $catalogBase['payment'] = $catalogPayment; } ?>
           <?php if ($catalogPage > 1): ?><a href="index.php?<?= e(http_build_query($catalogBase + ['page' => $catalogPage - 1])) ?>#catalog">Previous</a><?php endif; ?>
           <?php for ($page = 1; $page <= $catalogPages; $page++): ?><a class="<?= $page === $catalogPage ? 'active' : '' ?>" href="index.php?<?= e(http_build_query($catalogBase + ['page' => $page])) ?>#catalog"><?= $page ?></a><?php endfor; ?>
           <?php if ($catalogPage < $catalogPages): ?><a href="index.php?<?= e(http_build_query($catalogBase + ['page' => $catalogPage + 1])) ?>#catalog">Next</a><?php endif; ?>

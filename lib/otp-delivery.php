@@ -64,7 +64,23 @@ function otp_send_code(PDO $pdo, int $userId, string $code, string $purpose, ?st
 
     if ($email && filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $mailTransport = strtolower((string) app_env('MAIL_TRANSPORT', app_is_production() ? 'mail' : 'log'));
-        if (app_send_mail($email, 'NATCODEV OTP Code', $message)) {
+        $purposeLabel = $purpose === 'phone_verification' ? 'Phone Verification' : 'Platform Access';
+        $htmlContent = '
+            <h2 style="color: #075f2a; margin: 0 0 16px 0; font-size: 22px; font-weight: 800;">Your Access Verification Code</h2>
+            <p style="margin: 0 0 12px 0; font-size: 15px; line-height: 1.5;">Hello,</p>
+            <p style="margin: 0 0 16px 0; font-size: 15px; line-height: 1.5;">You requested a security verification code for your <strong>NATCODEV</strong> account (' . e($purposeLabel) . ').</p>
+            <p style="margin: 0 0 8px 0; font-size: 15px; line-height: 1.5;">Enter this 6-digit code on the verification screen to proceed:</p>
+        ';
+        $html = app_branded_email_html(
+            'NATCODEV Access Code',
+            $htmlContent,
+            "Your verification code is {$code}",
+            null,
+            null,
+            $code
+        );
+
+        if (app_send_mail($email, "NATCODEV Access Code: {$code}", $message, $html)) {
             if ($mailTransport === 'log') {
                 $result['logged'][] = 'email';
             } else {
@@ -114,7 +130,7 @@ function otp_verify_code(PDO $pdo, int $userId, string $code, string $purpose): 
 
 function otp_begin_email_login_challenge(PDO $pdo, array $user, string $nextDestination = '', string $purpose = 'login'): array
 {
-    if (session_status() !== PHP_SESSION_ACTIVE) {
+    if (session_status() !== PHP_SESSION_ACTIVE && !headers_sent()) {
         session_start();
     }
 

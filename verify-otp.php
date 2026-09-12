@@ -118,6 +118,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['user_id'] = $_SESSION['otp_user_id'];
                 $nextDestination = otp_safe_next_destination((string) ($_SESSION['otp_next_destination'] ?? ''));
                 $destination = $nextDestination !== '' ? $nextDestination : otp_login_destination($pdo, (int) $_SESSION['otp_user_id']);
+                if ($destination === 'super-admin/index.php') {
+                    $_SESSION['super_admin_authenticated'] = true;
+                    $_SESSION['super_admin_user_id'] = (int) $_SESSION['otp_user_id'];
+                    unset($_SESSION['super_admin_login_audited']);
+                }
                 unset($_SESSION['otp_user_id'], $_SESSION['otp_delivery_message'], $_SESSION['otp_debug_code'], $_SESSION['otp_next_destination']);
                 redirect_to($destination);
             } else {
@@ -164,19 +169,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         const submitIfComplete = () => {
             if (!form || submitting || code().length !== fields.length) return;
             submitting = true;
+            const submitBtn = form.querySelector('button[type="submit"]');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Verifying...';
+            }
             if (form.requestSubmit) {
                 form.requestSubmit();
             } else {
                 form.submit();
             }
         };
+
         const fillFrom = (startIndex, value) => {
-            const digits = String(value).replace(/\D/g, '').slice(0, fields.length - startIndex);
+            const digits = String(value).replace(/\D/g, '');
             if (!digits) return false;
-            digits.split('').forEach((digit, offset) => {
-                if (fields[startIndex + offset]) fields[startIndex + offset].value = digit;
+            // When pasting full length code or more, start from beginning
+            const actualStart = digits.length >= fields.length ? 0 : startIndex;
+            const sliceDigits = digits.slice(0, fields.length - actualStart);
+            sliceDigits.split('').forEach((digit, offset) => {
+                if (fields[actualStart + offset]) {
+                    fields[actualStart + offset].value = digit;
+                }
             });
-            const nextIndex = Math.min(startIndex + digits.length, fields.length - 1);
+            const nextIndex = Math.min(actualStart + sliceDigits.length, fields.length - 1);
             fields[nextIndex]?.focus();
             submitIfComplete();
             return true;
@@ -185,17 +201,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         fields.forEach((input, index) => {
             input.addEventListener('paste', (event) => {
                 event.preventDefault();
-                fillFrom(index, event.clipboardData?.getData('text') || '');
+                const pasted = (event.clipboardData || window.clipboardData)?.getData('text') || '';
+                fillFrom(index, pasted);
             });
+
             input.addEventListener('input', () => {
                 const raw = input.value;
                 input.value = '';
                 fillFrom(index, raw);
             });
+
             input.addEventListener('keydown', (event) => {
-                if (event.key === 'Backspace' && !input.value && fields[index - 1]) fields[index - 1].focus();
+                if (event.key === 'Backspace') {
+                    if (!input.value && fields[index - 1]) {
+                        fields[index - 1].focus();
+                        fields[index - 1].value = '';
+                    }
+                } else if (event.key === 'ArrowLeft' && fields[index - 1]) {
+                    fields[index - 1].focus();
+                } else if (event.key === 'ArrowRight' && fields[index + 1]) {
+                    fields[index + 1].focus();
+                }
+            });
+
+            input.addEventListener('focus', () => {
+                input.select();
             });
         });
+
+        // Auto-focus first empty field
+        const firstEmpty = fields.find((f) => !f.value) || fields[0];
+        firstEmpty?.focus();
     })();
 document.getElementById('resendOtpBtn')?.addEventListener('click', async function () {
         const btn = this;

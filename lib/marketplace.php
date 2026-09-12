@@ -75,6 +75,23 @@ function marketplace_ensure_operational_columns(PDO $pdo): void
 {
     app_add_column_if_missing($pdo, 'marketplace_sellers', 'logo_path', "VARCHAR(255) NULL");
     foreach ([
+        'mpn' => "VARCHAR(120) NULL",
+        'origin_country' => "VARCHAR(120) NULL",
+        'manufacturer' => "VARCHAR(180) NULL",
+        'brand' => "VARCHAR(180) NULL",
+        'model_number' => "VARCHAR(180) NULL",
+        'tags' => "VARCHAR(500) NULL",
+        'requires_shipping' => "TINYINT(1) NOT NULL DEFAULT 1",
+        'downloadable' => "TINYINT(1) NOT NULL DEFAULT 0",
+        'image_gallery' => "TEXT NULL",
+        'shipping_options' => "TEXT NULL",
+        'pickup_available' => "TINYINT(1) NOT NULL DEFAULT 0",
+        'local_delivery_available' => "TINYINT(1) NOT NULL DEFAULT 0",
+        'nationwide_shipping_available' => "TINYINT(1) NOT NULL DEFAULT 0",
+    ] as $column => $definition) {
+        app_add_column_if_missing($pdo, 'marketplace_listings', $column, $definition);
+    }
+    foreach ([
         'checkout_ref' => "VARCHAR(100) NULL",
         'payment_status' => "VARCHAR(40) NOT NULL DEFAULT 'unpaid'",
         'payment_method' => "VARCHAR(40) NULL",
@@ -100,27 +117,9 @@ function marketplace_ensure_operational_columns(PDO $pdo): void
 function marketplace_ensure_schema(PDO $pdo): void
 {
     static $done = false;
-    if ($done || app_schema_flag_is_set($pdo, 'marketplace_schema_ready', '20260617-v1')) {
+    if ($done) {
         marketplace_ensure_operational_columns($pdo);
-        $done = true;
         return;
-    }
-
-    try {
-        $existing = $pdo->query("
-            SELECT COUNT(*)
-            FROM information_schema.TABLES
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME IN ('marketplace_categories','marketplace_sellers','marketplace_listings','marketplace_orders')
-        ")->fetchColumn();
-        if ((int) $existing === 4) {
-            marketplace_ensure_operational_columns($pdo);
-            app_schema_flag_set($pdo, 'marketplace_schema_ready', '20260617-v1');
-            $done = true;
-            return;
-        }
-    } catch (Throwable $e) {
-        // Fall through to the full schema creation path.
     }
 
     app_ensure_farmer_engagement_schema($pdo);

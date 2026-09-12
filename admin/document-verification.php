@@ -38,12 +38,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
         $docId = (int) ($_POST['doc_id'] ?? 0);
 
-        if ($action === 'verify') {
+        if ($action === 'revalidate') {
+            $valResult = identity_validate_requirement($pdo, $docId);
+            if (($valResult['status'] ?? '') === 'valid') {
+                $message = 'Identity matched successfully via ' . htmlspecialchars((string) ($valResult['provider'] ?? 'gateway')) . ' (Ref: ' . htmlspecialchars((string) ($valResult['reference'] ?? 'N/A')) . ').';
+            } elseif (($valResult['status'] ?? '') === 'invalid') {
+                $error = 'Identity verification failed: ' . htmlspecialchars((string) ($valResult['message'] ?? 'Record mismatch or invalid number'));
+            } else {
+                $error = 'Identity verification error: ' . htmlspecialchars((string) ($valResult['message'] ?? 'Provider unavailable'));
+            }
+        } elseif ($action === 'verify') {
             $docStmt = $pdo->prepare("SELECT document_type, api_validation_status FROM document_requirements WHERE id = ? LIMIT 1");
             $docStmt->execute([$docId]);
             $doc = $docStmt->fetch();
             if (in_array((string) ($doc['document_type'] ?? ''), ['nin', 'bvn'], true) && (string) ($doc['api_validation_status'] ?? '') !== 'valid') {
-                $error = 'NIN/BVN must be valid through Monnify before manual verification.';
+                $error = 'NIN/BVN must be verified valid through an Identity Gateway before manual approval. You can select "Re-validate via Gateways" to verify live against Monnify, Dojah, NetApps, or QoreID.';
             } else {
             $pdo->prepare("
                 UPDATE document_requirements
@@ -136,7 +145,7 @@ admin_page_start('Document Verification', [
 
   <table>
     <thead>
-      <tr><th>User</th><th>Document Type</th><th>Document Number</th><th>Monnify</th><th>Uploaded</th><th>Actions</th></tr>
+      <tr><th>User</th><th>Document Type</th><th>Document Number</th><th>Identity Gateway API</th><th>Uploaded</th><th>Actions</th></tr>
     </thead>
     <tbody>
       <?php foreach ($pendingDocs as $doc): ?>
@@ -144,7 +153,12 @@ admin_page_start('Document Verification', [
           <td><?= e($doc['name']) ?><br><small><?= e($doc['email']) ?></small></td>
           <td><?= e(ucfirst(str_replace('_', ' ', (string) $doc['document_type']))) ?></td>
           <td><?= e($doc['document_number']) ?></td>
-          <td><?= e(status_label((string) ($doc['api_validation_status'] ?? 'not checked'))) ?></td>
+          <td>
+            <strong><?= e(status_label((string) ($doc['api_validation_status'] ?? 'not checked'))) ?></strong>
+            <?php if (!empty($doc['api_validation_provider'])): ?>
+              <br><small style="color:var(--muted);"><?= e(ucfirst((string) $doc['api_validation_provider'])) ?><?= !empty($doc['api_validation_reference']) ? ' &bull; ' . e((string) $doc['api_validation_reference']) : '' ?></small>
+            <?php endif; ?>
+          </td>
           <td><?= e(date('M j, Y', strtotime((string) $doc['uploaded_at']))) ?></td>
           <td>
             <?php $files = $filesByRequirement[(int) $doc['id']] ?? []; ?>
@@ -159,7 +173,10 @@ admin_page_start('Document Verification', [
               <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
               <input type="hidden" name="doc_id" value="<?= (int) $doc['id'] ?>">
               <select name="action">
-                <option value="verify">Verify</option>
+                <option value="verify">Verify & Approve</option>
+                <?php if (in_array((string) ($doc['document_type'] ?? ''), ['nin', 'bvn'], true)): ?>
+                  <option value="revalidate">Re-validate via Gateways</option>
+                <?php endif; ?>
                 <option value="reject">Reject</option>
               </select>
               <input type="text" name="notes" placeholder="Reason if rejecting">

@@ -1,6 +1,9 @@
 <?php
-// cron/fetch-satellite.php - Fetch Sentinel-2 data for farms
-require_once '../config.php';
+declare(strict_types=1);
+
+require_once __DIR__ . '/../config.php';
+
+app_require_cli('fetch-satellite');
 
 $pdo = db();
 $sentinelInstanceId = (string) app_env('SENTINEL_HUB_INSTANCE_ID', '');

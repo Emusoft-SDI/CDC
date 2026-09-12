@@ -18,6 +18,7 @@ $form = [
     'buyer_phone' => (string) ($user['phone'] ?? ''),
     'delivery_address' => '',
     'payment_method' => 'monnify',
+    'create_account' => false,
 ];
 
 if (isset($_GET['verify_monnify'])) {
@@ -45,6 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf($_POST['_csrf'] ?? null
         'buyer_phone' => trim((string) ($_POST['buyer_phone'] ?? '')),
         'delivery_address' => trim((string) ($_POST['delivery_address'] ?? '')),
         'payment_method' => (string) ($_POST['payment_method'] ?? 'monnify'),
+        'create_account' => !empty($_POST['create_account']),
     ];
     if (!$rows) {
         $error = 'Your cart is empty.';
@@ -54,10 +56,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf($_POST['_csrf'] ?? null
         $buyerPhone = $form['buyer_phone'];
         $address = $form['delivery_address'];
         $paymentMethod = $form['payment_method'];
+        $createAccount = !$user && (bool) $form['create_account'];
+        $accountPassword = (string) ($_POST['account_password'] ?? '');
+        $accountPasswordConfirm = (string) ($_POST['account_password_confirm'] ?? '');
         if ($buyerName === '' || $buyerPhone === '' || $address === '') {
             $error = 'Name, phone, and delivery address are required.';
+        } elseif ($paymentMethod === 'wallet' && !$user) {
+            $error = 'Please sign in to pay with your NATCODEV wallet.';
         } elseif ($paymentMethod === 'monnify' && ($buyerEmail === '' || !filter_var($buyerEmail, FILTER_VALIDATE_EMAIL))) {
             $error = 'A valid email address is required for Monnify direct payment.';
+        } elseif ($createAccount && ($buyerEmail === '' || !filter_var($buyerEmail, FILTER_VALIDATE_EMAIL))) {
+            $error = 'A valid email address is required to create a buyer account.';
+        } elseif ($createAccount && strlen($accountPassword) < 6) {
+            $error = 'Choose a password of at least 6 characters for your buyer account.';
+        } elseif ($createAccount && $accountPassword !== $accountPasswordConfirm) {
+            $error = 'Your buyer account passwords do not match.';
         } elseif (!in_array($paymentMethod, ['wallet', 'monnify', 'bank_transfer'], true)) {
             $error = 'Select a valid payment method.';
         } else {
@@ -67,8 +80,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf($_POST['_csrf'] ?? null
             $settlements = [];
             try {
                 $buyer = ['name' => $buyerName, 'email' => $buyerEmail, 'phone' => $buyerPhone, 'address' => $address];
+                $checkoutUser = $user;
+                if ($createAccount) {
+                    $checkoutUser = market_checkout_create_optional_buyer_account($pdo, $buyer, $accountPassword);
+                    $_SESSION['marketplace_checkout_account_flash'] = [
+                        'name' => (string) ($checkoutUser['name'] ?? $buyerName),
+                        'email' => (string) ($checkoutUser['email'] ?? $buyerEmail),
+                    ];
+                }
                 if ($paymentMethod === 'monnify') {
-                    $checkout = market_initialize_monnify_checkout($pdo, $rows, $user, $buyer);
+                    $checkout = market_initialize_monnify_checkout($pdo, $rows, $checkoutUser, $buyer);
                     if (!($checkout['success'] ?? false)) {
                         throw new RuntimeException((string) ($checkout['error'] ?? 'Unable to initialize Monnify payment.'));
                     }
@@ -100,7 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf($_POST['_csrf'] ?? null
                     $paid = true;
                 }
 
-                $created = market_insert_checkout_orders($pdo, $rows, $user, $buyer, [
+                $created = market_insert_checkout_orders($pdo, $rows, $checkoutUser, $buyer, [
                     'checkout_ref' => $checkoutRef,
                     'method' => $paymentMethod,
                     'reference' => $paymentMethod === 'wallet' ? $checkoutRef : '',
@@ -112,9 +133,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf($_POST['_csrf'] ?? null
                     market_settle_seller_wallet($pdo, (int) $settlement['seller_user_id'], (float) $settlement['amount'], (string) $settlement['reference'], (string) $settlement['description']);
                 }
                 market_cart_clear();
-                $message = $paid
-                    ? 'Payment completed. Seller wallets have been credited and delivery tracking has started.'
-                    : 'Order created for bank transfer. Use your checkout reference and phone number to track payment and delivery status.';
+                if ($paid) {
+                    redirect_to('orders.php?checkout_ref=' . rawurlencode($checkoutRef) . '&phone=' . rawurlencode($buyerPhone) . '&paid=1');
+                } else {
+                    redirect_to('orders.php?checkout_ref=' . rawurlencode($checkoutRef) . '&phone=' . rawurlencode($buyerPhone) . '&order_created=1');
+                }
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
@@ -130,7 +153,7 @@ market_header('Checkout', 'marketplace', $pdo);
 <?php if ($message): ?><div class="mk-alert ok"><?= e($message) ?> <?php if ($createdRef): ?><strong><?= e($createdRef) ?></strong><?php endif; ?></div><?php endif; ?>
 <?php if ($error): ?><div class="mk-alert err"><?= e($error) ?></div><?php endif; ?>
 <style>
-.co-hero{margin:-26px -26px 22px;padding:44px 32px;background:linear-gradient(90deg,rgba(255,255,255,.96),rgba(255,255,255,.82)),url("../assets/market/checkout-coconut-bg.png") center/cover no-repeat;border-bottom:1px solid var(--mk-line)}.co-hero h1{font-size:2.35rem;margin:0;color:#0b2414}.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:20px 0}.stepx{display:flex;align-items:center;gap:12px;font-weight:900}.stepx b{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:#0b6b33;color:#fff}.stepx.muted b{background:#667085}.co-shell{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:24px}.co-card{border:1px solid var(--mk-line);border-radius:14px;padding:18px;margin-bottom:14px;background:#fff}.pay-options{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.pay-option{border:1px solid var(--mk-line);border-radius:12px;padding:16px}.pay-option.active{border-color:#0b6b33;background:#f4fbf2}.summary-item{display:grid;grid-template-columns:92px 1fr auto;gap:12px;align-items:center;border-bottom:1px solid var(--mk-line);padding:13px 0}.summary-item img{width:92px;height:70px;border-radius:10px;object-fit:cover}.settle{border:1px solid #bde4c5;background:#f0fbf2;border-radius:12px;padding:14px;margin:12px 0;color:#0b6b33}.co-assurance{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;background:#fff;border:1px solid var(--mk-line);border-radius:14px;padding:20px;margin-top:16px}.co-assurance div{display:flex;gap:12px;align-items:center;font-weight:900}.co-assurance i,.co-card h3 i{color:#0b6b33}@media(max-width:1100px){.co-shell,.steps,.pay-options,.co-assurance{grid-template-columns:1fr}}
+.co-hero{margin:-26px -26px 22px;padding:44px 32px;background:linear-gradient(90deg,rgba(255,255,255,.96),rgba(255,255,255,.82)),url("../assets/market/checkout-coconut-bg.png") center/cover no-repeat;border-bottom:1px solid var(--mk-line)}.co-hero h1{font-size:2.35rem;margin:0;color:#0b2414}.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:20px 0}.stepx{display:flex;align-items:center;gap:12px;font-weight:900}.stepx b{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:#0b6b33;color:#fff}.stepx.muted b{background:#667085}.co-shell{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:24px}.co-card{border:1px solid var(--mk-line);border-radius:14px;padding:18px;margin-bottom:14px;background:#fff}.acct-card{border-style:dashed;background:#fbfdf9}.acct-toggle{display:flex;gap:12px;align-items:flex-start;font-weight:900;cursor:pointer}.acct-toggle input{width:auto;margin-top:4px}.acct-note{margin:8px 0 0;color:#667085;font-size:.92rem;line-height:1.45}.acct-fields{margin-top:14px}.pay-options{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.pay-option{border:1px solid var(--mk-line);border-radius:12px;padding:16px}.pay-option.active{border-color:#0b6b33;background:#f4fbf2}.summary-item{display:grid;grid-template-columns:92px 1fr auto;gap:12px;align-items:center;border-bottom:1px solid var(--mk-line);padding:13px 0}.summary-item img{width:92px;height:70px;border-radius:10px;object-fit:cover}.settle{border:1px solid #bde4c5;background:#f0fbf2;border-radius:12px;padding:14px;margin:12px 0;color:#0b6b33}.co-assurance{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;background:#fff;border:1px solid var(--mk-line);border-radius:14px;padding:20px;margin-top:16px}.co-assurance div{display:flex;gap:12px;align-items:center;font-weight:900}.co-assurance i,.co-card h3 i{color:#0b6b33}@media(max-width:1100px){.co-shell,.steps,.pay-options,.co-assurance{grid-template-columns:1fr}}
 </style>
 <section class="co-hero">
   <h1><i class="fas fa-shield-alt" style="color:#0b6b33"></i> Secure Checkout</h1>
@@ -144,6 +167,24 @@ market_header('Checkout', 'marketplace', $pdo);
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
       <section class="co-card wide"><h3><i class="fas fa-user"></i> Buyer Information</h3><div class="mk-form-grid"><div class="mk-field"><label>Full Name *</label><input name="buyer_name" value="<?= e($form['buyer_name']) ?>" required></div><div class="mk-field"><label>Email Address</label><input type="email" name="buyer_email" value="<?= e($form['buyer_email']) ?>"></div><div class="mk-field"><label>Phone Number *</label><input name="buyer_phone" value="<?= e($form['buyer_phone']) ?>" required></div></div></section>
       <section class="co-card wide"><h3><i class="fas fa-map-marker-alt"></i> Delivery Address</h3><div class="mk-form-grid"><div class="mk-field wide"><label>Address *</label><input name="delivery_address" value="<?= e($form['delivery_address']) ?>" required placeholder="State, LGA, town/community, address, nearest landmark"></div><div class="mk-field"><label>State</label><input name="delivery_state" placeholder="Lagos State"></div><div class="mk-field"><label>LGA</label><input name="delivery_lga" placeholder="Ikeja"></div><div class="mk-field"><label>Delivery Method</label><select name="delivery_method"><option>Standard Delivery (2-4 days)</option><option>Express Delivery</option></select></div></div></section>
+      <?php if (!$user): ?>
+      <section class="co-card wide acct-card">
+        <label class="acct-toggle">
+          <input id="createBuyerAccount" type="checkbox" name="create_account" value="1" <?= !empty($form['create_account']) ? 'checked' : '' ?>>
+          <span>
+            <strong>Create a buyer account for me</strong><br>
+            <small>Optional. Leave this off for a guest checkout. We will only create the account if you tick this box.</small>
+          </span>
+        </label>
+        <div id="buyerAccountFields" class="acct-fields" hidden>
+          <div class="mk-form-grid">
+            <div class="mk-field"><label>Account Password *</label><input id="buyerAccountPassword" type="password" name="account_password" minlength="6" autocomplete="new-password" placeholder="Create a password"></div>
+            <div class="mk-field"><label>Confirm Password *</label><input id="buyerAccountPasswordConfirm" type="password" name="account_password_confirm" minlength="6" autocomplete="new-password" placeholder="Confirm your password"></div>
+          </div>
+          <p class="acct-note">A verification email will be sent after you create the account. You can still complete checkout without creating one.</p>
+        </div>
+      </section>
+      <?php endif; ?>
       <section class="co-card wide"><h3><i class="fas fa-lock"></i> Choose Payment Method</h3><div class="pay-options"><label class="pay-option"><input type="radio" name="payment_method" value="wallet" <?= $form['payment_method'] === 'wallet' ? 'checked' : '' ?> <?= $user ? '' : 'disabled' ?>> <strong>NATCODEV Wallet</strong><br><small>Signed-in users only</small></label><label class="pay-option active"><input type="radio" name="payment_method" value="monnify" <?= $form['payment_method'] === 'monnify' ? 'checked' : '' ?>> <strong>Monnify Direct Payment</strong><br><small>Card, bank transfer, USSD or mobile money</small></label><label class="pay-option"><input type="radio" name="payment_method" value="bank_transfer" <?= $form['payment_method'] === 'bank_transfer' ? 'checked' : '' ?>> <strong>Manual Bank Transfer</strong><br><small>Create order and confirm with support</small></label></div><p class="mk-alert ok" style="margin-top:14px">Your payment is protected by NATCODEV Buyer Protection. Seller settlement is recorded after successful payment.</p></section>
       <div class="wide"><button class="mk-btn" style="width:100%;font-size:1.1rem" type="submit"><i class="fas fa-lock"></i> Pay Now <?= e(marketplace_money((float) $grandTotal)) ?></button></div>
     </form>
@@ -167,4 +208,18 @@ market_header('Checkout', 'marketplace', $pdo);
   </aside>
 </section>
 <section class="co-assurance"><div><i class="fas fa-shield-alt"></i> Secure Payment</div><div><i class="fas fa-wallet"></i> Seller Wallet Settlement</div><div><i class="fas fa-truck"></i> Trackable Delivery</div><div><i class="fas fa-user-shield"></i> Buyer Protection</div></section>
+<script>
+(function(){
+  var checkbox = document.getElementById('createBuyerAccount');
+  var fields = document.getElementById('buyerAccountFields');
+  if (!checkbox || !fields) {
+    return;
+  }
+  var sync = function() {
+    fields.hidden = !checkbox.checked;
+  };
+  checkbox.addEventListener('change', sync);
+  sync();
+})();
+</script>
 <?php market_footer(); ?>

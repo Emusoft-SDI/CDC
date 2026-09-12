@@ -19,6 +19,11 @@ if (!is_array($input)) {
     json_response(['success' => false, 'error' => 'Invalid JSON'], 400);
 }
 
+$csrfToken = (string) ($input['_csrf'] ?? $_POST['_csrf'] ?? '');
+if (!verify_csrf($csrfToken)) {
+    json_response(['success' => false, 'error' => 'Invalid security token'], 403);
+}
+
 $templateName = trim((string) ($input['template_name'] ?? ''));
 if ($templateName === '') {
     json_response(['success' => false, 'error' => 'Template name required'], 422);

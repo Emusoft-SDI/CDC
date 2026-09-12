@@ -292,12 +292,68 @@ for ($i = 9; $i >= 0; $i--) {
 $chartMarketplacePct = array_map(fn($v) => $maxMarket > 0 ? max(10, round(($v / $maxMarket) * 100)) : 10, $chartDataMarketplace);
 $chartProvidersPct = array_map(fn($v) => $maxProv > 0 ? max(10, round(($v / $maxProv) * 100)) : 10, $chartDataProviders);
 
+$areaNameSql = $selectedLgaId > 0 ? 'COALESCE(nl.lga_name, u.location, a.location, "Unspecified")' : 'COALESCE(ns.state_name, a.location, u.location, "Unspecified")';
+$areaLabel = $selectedLgaId > 0 ? 'LGA' : 'State';
+
+$marketRows = report_rows($pdo, "
+    SELECT ms.store_name, ms.seller_type, COUNT(ml.id) listings, COALESCE(SUM(mo.total_amount), 0) order_value
+    FROM marketplace_sellers ms
+    LEFT JOIN marketplace_listings ml ON ml.seller_id = ms.id
+    LEFT JOIN marketplace_orders mo ON mo.seller_id = ms.id AND mo.created_at BETWEEN ? AND ?
+    GROUP BY ms.id, ms.store_name, ms.seller_type
+    ORDER BY order_value DESC, listings DESC
+    LIMIT 12
+", $dateParams);
+
+$stateRows = report_rows($pdo, "
+    SELECT {$areaNameSql} area_name,
+           COUNT(DISTINCT u.id) farmers,
+           COUNT(DISTINCT gf.id) farms,
+           COALESCE(SUM(gf.farm_size), 0) hectares,
+           SUM(CASE WHEN COALESCE(u.accreditation_status, 'not_accredited') = 'accredited' THEN 1 ELSE 0 END) accredited
+    FROM users u
+    LEFT JOIN applications a ON a.id = u.application_id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
+    LEFT JOIN nigeria_lgas nl ON nl.id = COALESCE(gf.lga_id, a.lga_id)
+    WHERE u.role = 'grower' AND {$locationFilterSql}
+    GROUP BY {$areaNameSql}
+    ORDER BY farmers DESC, area_name
+    LIMIT 20
+", $locationFilterParams);
+
+$exportRows = [];
 $moduleFile = __DIR__ . '/reports/modules/' . basename($selectedReport) . '.php';
 if (!is_file($moduleFile)) {
     $moduleFile = __DIR__ . '/reports/modules/default.php';
 }
 
 require $moduleFile;
+
+$marketRows = is_array($marketRows ?? null) ? $marketRows : [];
+$stateRows = is_array($stateRows ?? null) ? $stateRows : [];
+$reportMapPoints = [
+    'Abia' => [70, 72], 'Adamawa' => [76, 42], 'Akwa Ibom' => [70, 82], 'Anambra' => [62, 70], 'Bauchi' => [58, 35],
+    'Bayelsa' => [50, 82], 'Benue' => [60, 58], 'Borno' => [82, 23], 'Cross River' => [76, 75], 'Delta' => [52, 75],
+    'Ebonyi' => [68, 68], 'Edo' => [48, 68], 'Ekiti' => [39, 60], 'Enugu' => [64, 66], 'Federal Capital Territory' => [50, 51],
+    'FCT' => [50, 51], 'Gombe' => [64, 38], 'Imo' => [66, 74], 'Jigawa' => [54, 21], 'Kaduna' => [44, 35],
+    'Kano' => [47, 24], 'Katsina' => [40, 19], 'Kebbi' => [22, 29], 'Kogi' => [50, 61], 'Kwara' => [36, 52],
+    'Lagos' => [25, 74], 'Nasarawa' => [56, 52], 'Niger' => [36, 43], 'Ogun' => [29, 70], 'Ondo' => [42, 66],
+    'Osun' => [36, 64], 'Oyo' => [31, 61], 'Plateau' => [58, 44], 'Rivers' => [58, 80], 'Sokoto' => [25, 20],
+    'Taraba' => [72, 52], 'Yobe' => [72, 25], 'Zamfara' => [34, 27],
+];
+function report_map_point_for_area(string $area, array $points, int $index): array
+{
+    $area = trim($area);
+    if (isset($points[$area])) {
+        return $points[$area];
+    }
+
+    return [24 + (($index * 19) % 58), 24 + (($index * 23) % 58)];
+}
+$reportMapRows = array_slice($stateRows, 0, 10);
+$maxReportMapFarmers = max(1, ...array_map(static fn(array $row): int => (int) ($row['farmers'] ?? 0), $reportMapRows ?: [['farmers' => 1]]));
+$exportRows = is_array($exportRows ?? null) ? $exportRows : [];
 
 if (($_GET['format'] ?? '') === 'csv') {
     report_csv('natcodev-' . $selectedReport . '-report-' . date('Ymd') . '.csv', $exportRows);
@@ -353,7 +409,7 @@ admin_page_start('Reporting Intelligence', [
       .ri-list{display:grid;gap:8px}.ri-row{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #edf1ea;padding:8px 0}.ri-row:last-child{border-bottom:0}.ri-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;background:#eaf8f0;color:#0f6b3c;padding:4px 8px;font-size:.74rem;font-weight:950}.ri-badge.warn{background:#fff7df;color:#8a5a00}.ri-badge.bad{background:#fff3f3;color:#a32020}
       .ri-chart{height:150px;border-left:1px solid var(--line);border-bottom:1px solid var(--line);display:grid;grid-template-columns:repeat(10,1fr);gap:8px;align-items:end;padding:10px 10px 0;background:linear-gradient(#fff,#fbfdfb);margin-top:12px}.ri-bar{height:var(--h);min-height:12px;background:linear-gradient(180deg,#1f8a55,#cfe8d8);border-radius:5px 5px 0 0}
       .ri-donut{width:112px;height:112px;border-radius:50%;background:conic-gradient(#0f6b3c 0 58%,#2374c6 58% 78%,#f79009 78% 91%,#d92d20 91%);display:grid;place-items:center;margin:auto}.ri-donut b{display:grid;place-items:center;width:64px;height:64px;border-radius:50%;background:#fff;color:#06451f}
-      .ri-map{height:180px;border:1px solid var(--line);border-radius:8px;background:radial-gradient(circle at 55% 40%,#2f8f52 0 8%,transparent 9%),radial-gradient(circle at 38% 58%,#82c78d 0 11%,transparent 12%),radial-gradient(circle at 62% 70%,#b8dfbc 0 15%,transparent 16%),linear-gradient(135deg,#eaf8f0,#f8fcfa);display:grid;place-items:center;color:#06451f;font-weight:950}
+      .ri-map{height:210px;border:1px solid var(--line);border-radius:8px;background:linear-gradient(135deg,#eaf8f0,#f8fcfa);position:relative;overflow:hidden;color:#06451f;font-weight:850}.ri-map-shape{position:absolute;inset:16px 26px;background:rgba(15,107,60,.12);clip-path:polygon(10% 47%,24% 18%,45% 10%,69% 15%,88% 30%,94% 50%,82% 72%,57% 90%,33% 84%,17% 66%);border:1px solid rgba(15,107,60,.22)}.ri-map-point{position:absolute;left:var(--x);top:var(--y);width:var(--s);height:var(--s);transform:translate(-50%,-50%);border-radius:50%;background:#0f6b3c;border:3px solid #fff;box-shadow:0 8px 18px rgba(6,63,36,.2);display:grid;place-items:center;color:#fff;font-size:.68rem;line-height:1}.ri-map-point small{position:absolute;left:50%;top:calc(100% + 4px);transform:translateX(-50%);white-space:nowrap;background:#fff;color:#0b5131;border:1px solid #cfe8d8;border-radius:999px;padding:2px 6px;font-size:.64rem;font-weight:900;box-shadow:0 5px 12px rgba(6,63,36,.08)}.ri-map-empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:16px;color:#64748b}.ri-map-foot{position:absolute;left:12px;right:12px;bottom:9px;display:flex;justify-content:space-between;gap:10px;font-size:.72rem;color:#315342}.ri-map-foot b{color:#06451f}
       .ri-flow{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}.ri-step{text-align:center;border:1px solid var(--line);border-radius:8px;background:#fbfdfb;padding:12px}.ri-step i{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;margin:0 auto 8px;background:#eaf8f0;color:#0f6b3c}
       @media(max-width:1200px){.ri-span-3,.ri-span-4,.ri-span-5,.ri-span-6,.ri-span-7,.ri-span-8{grid-column:span 12}.ri-mini-grid,.ri-report-cats{grid-template-columns:repeat(2,minmax(0,1fr))}.ri-flow{grid-template-columns:repeat(3,minmax(0,1fr))}}
       @media(max-width:680px){.ri-board,.ri-mini-grid,.ri-report-cats,.ri-flow{grid-template-columns:1fr}.ri-span-3,.ri-span-4,.ri-span-5,.ri-span-6,.ri-span-7,.ri-span-8,.ri-span-12{grid-column:auto}.ri-top{display:block}}
@@ -439,7 +495,23 @@ admin_page_start('Reporting Intelligence', [
       <div class="ri-mini"><strong><?= number_format($sellerCount + $providersApproved) ?></strong><span>Providers / Sellers</span></div>
       <div class="ri-mini"><strong><?= number_format($registered ?? 0) ?></strong><span>Academy</span></div>
     </div>
-    <div class="ri-map">State / LGA Drilldown Map</div>
+        <div class="ri-map" role="img" aria-label="State and LGA drilldown activity map">
+      <div class="ri-map-shape" aria-hidden="true"></div>
+      <?php foreach ($reportMapRows as $index => $row): ?>
+        <?php
+          $areaName = (string) ($row['area_name'] ?? 'Unspecified');
+          [$x, $y] = report_map_point_for_area($areaName, $reportMapPoints, $index);
+          $farmers = max(1, (int) ($row['farmers'] ?? 0));
+          $size = 16 + (int) round(($farmers / $maxReportMapFarmers) * 20);
+        ?>
+        <span class="ri-map-point" style="--x:<?= (int) $x ?>%;--y:<?= (int) $y ?>%;--s:<?= (int) $size ?>px" title="<?= e($areaName) ?>: <?= number_format($farmers) ?> growers">
+          <?= number_format($farmers) ?>
+          <small><?= e($areaName) ?></small>
+        </span>
+      <?php endforeach; ?>
+      <?php if (!$reportMapRows): ?><div class="ri-map-empty">No <?= e(strtolower($areaLabel)) ?> drilldown data is available yet.</div><?php endif; ?>
+      <div class="ri-map-foot"><span><b><?= e($areaLabel) ?> Drilldown</b></span><span>Top areas by growers</span></div>
+    </div>
   </article>
 
   <article class="ri-card ri-span-4">
@@ -597,3 +669,4 @@ admin_page_start('Reporting Intelligence', [
 })();
 </script>
 <?php admin_page_end(); ?>
+

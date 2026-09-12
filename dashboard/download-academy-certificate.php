@@ -53,17 +53,21 @@ if (!$certificate) {
     exit('Issued Academy certificate not found.');
 }
 
-$pdf = academy_certificate_pdf_document($certificate, $courses);
-$pdfPath = 'certificates/' . strtolower(preg_replace('/[^a-zA-Z0-9-]+/', '-', (string) $certificate['certificate_ref'])) . '.pdf';
-$absolutePdf = dirname(__DIR__) . '/' . $pdfPath;
-if (!is_dir(dirname($absolutePdf))) {
-    mkdir(dirname($absolutePdf), 0775, true);
-}
-file_put_contents($absolutePdf, $pdf, LOCK_EX);
-$pdo->prepare("UPDATE {$table} SET certificate_pdf_path = ? WHERE id = ? AND user_id = ?")
-    ->execute([$pdfPath, (int) $certificate['id'], $userId]);
-
 $fileName = strtolower(preg_replace('/[^a-zA-Z0-9-]+/', '-', (string) $certificate['certificate_ref'])) . '.pdf';
+$pdfPath = 'certificates/' . $fileName;
+$absolutePdf = dirname(__DIR__) . '/' . $pdfPath;
+
+if (is_file($absolutePdf) && filesize($absolutePdf) > 0) {
+    $pdf = file_get_contents($absolutePdf);
+} else {
+    $pdf = academy_certificate_pdf_document($certificate, $courses);
+    if (!is_dir(dirname($absolutePdf))) {
+        mkdir(dirname($absolutePdf), 0775, true);
+    }
+    file_put_contents($absolutePdf, $pdf, LOCK_EX);
+    $pdo->prepare("UPDATE {$table} SET certificate_pdf_path = ? WHERE id = ? AND user_id = ?")
+        ->execute([$pdfPath, (int) $certificate['id'], $userId]);
+}
 
 header('Content-Type: application/pdf');
 header('Content-Disposition: attachment; filename="' . $fileName . '"');

@@ -42,7 +42,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $message = 'Item added to cart.';
         } elseif ($action === 'add_bundle_to_cart') {
-            $bundleItems = (array) ($_POST['bundle_items'] ?? []);
+            $bundleItemIds = array_values(array_filter(array_map('intval', (array) ($_POST['bundle_item_id'] ?? []))));
+            $bundleQuantities = array_values(array_map('intval', (array) ($_POST['bundle_item_qty'] ?? [])));
+            $bundleItems = [];
+            foreach ($bundleItemIds as $index => $listingId) {
+                $bundleItems[$listingId] = max(1, (int) ($bundleQuantities[$index] ?? 1));
+            }
+            if (!$bundleItems && isset($_POST['bundle_items']) && is_array($_POST['bundle_items'])) {
+                foreach ($_POST['bundle_items'] as $listingId => $quantity) {
+                    $bundleItems[(int) $listingId] = max(1, (int) $quantity);
+                }
+            }
             if ($bundleItems) {
                 foreach ($bundleItems as $listingId => $quantity) {
                     market_cart_add((int) $listingId, (int) $quantity);
@@ -53,31 +63,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'No items in bundle to add to cart.';
             }
         } else {
-        $buyerName = trim((string) ($_POST['buyer_name'] ?? ''));
-        $buyerEmail = trim((string) ($_POST['buyer_email'] ?? ''));
-        $buyerPhone = trim((string) ($_POST['buyer_phone'] ?? ''));
-        if ($buyerName === '' || $buyerPhone === '') {
-            $error = 'Your name and phone number are required so the seller can respond.';
-        } else {
-            $stmt = $pdo->prepare("
-                INSERT INTO marketplace_inquiries
-                    (inquiry_ref, listing_id, seller_id, buyer_user_id, buyer_name, buyer_email, buyer_phone, quantity, preferred_date, message)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-            $stmt->execute([
-                marketplace_inquiry_ref(),
-                (int) $item['id'],
-                (int) $item['seller_id'],
-                $user ? (int) $user['id'] : null,
-                $buyerName,
-                $buyerEmail,
-                $buyerPhone,
-                $_POST['quantity'] === '' ? null : max(1, (float) $_POST['quantity']),
-                $_POST['preferred_date'] ?: null,
-                trim((string) ($_POST['message'] ?? '')),
-            ]);
-            $message = 'Request sent. The seller will review it from the NATCODEV seller workspace.';
-        }
+            $buyerName = trim((string) ($_POST['buyer_name'] ?? ''));
+            $buyerEmail = trim((string) ($_POST['buyer_email'] ?? ''));
+            $buyerPhone = trim((string) ($_POST['buyer_phone'] ?? ''));
+            if ($buyerName === '' || $buyerPhone === '') {
+                $error = 'Your name and phone number are required so the seller can respond.';
+            } else {
+                $stmt = $pdo->prepare("
+                    INSERT INTO marketplace_inquiries
+                        (inquiry_ref, listing_id, seller_id, buyer_user_id, buyer_name, buyer_email, buyer_phone, quantity, preferred_date, message)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmt->execute([
+                    marketplace_inquiry_ref(),
+                    (int) $item['id'],
+                    (int) $item['seller_id'],
+                    $user ? (int) $user['id'] : null,
+                    $buyerName,
+                    $buyerEmail,
+                    $buyerPhone,
+                    $_POST['quantity'] === '' ? null : max(1, (float) $_POST['quantity']),
+                    $_POST['preferred_date'] ?: null,
+                    trim((string) ($_POST['message'] ?? '')),
+                ]);
+                $message = 'Request sent. The seller will review it from the NATCODEV seller workspace.';
+            }
         }
     }
 }

@@ -59,6 +59,7 @@ function admin_nav_groups(): array
             ['href' => 'admin.php', 'label' => 'Legacy Applications', 'feature' => 'applications', 'super_only' => true],
             ['href' => 'document-verification.php', 'label' => 'Documents', 'feature' => 'documents'],
             ['href' => 'bulk-verification.php', 'label' => 'Bulk Review', 'feature' => 'documents'],
+            ['href' => 'identity_gateways.php', 'label' => 'Identity & KYC Gateways', 'feature' => 'documents', 'super_only' => true],
             ['href' => 'certificate-batch-verification.php', 'label' => 'Batch Certificate Verify', 'feature' => 'certificates'],
         ],
         'Support Desk' => [
@@ -93,25 +94,25 @@ function admin_nav_groups(): array
         ],
         'Communication & Content' => [
             ['href' => 'communications.php', 'label' => 'Communication Hub', 'feature' => 'communications'],
+            ['href' => 'news.php', 'label' => 'News & Desk Releases', 'feature' => 'communications'],
+            ['href' => 'sms_gateways.php', 'label' => 'SMS & WhatsApp Gateways', 'feature' => 'communications', 'super_only' => true],
             ['href' => 'notifications.php', 'label' => 'Notification Log', 'feature' => 'notifications'],
         ],
         'Learning & Training' => [
             ['href' => 'resources.php', 'label' => 'Learning Resources', 'feature' => 'resources'],
             ['href' => 'academy/', 'label' => 'NATCODEV Academy', 'feature' => 'training'],
-            ['href' => '../super-admin/index.php?view=training', 'label' => 'Training Governance Policy', 'feature' => 'training', 'super_only' => true],
+            ['href' => '../super-admin/index.php?view=controls', 'label' => 'Training Governance Policy', 'feature' => 'training', 'super_only' => true],
         ],
         'Governance & Compliance' => [
             ['href' => 'governance.php', 'label' => 'Policies & Governance', 'feature' => 'governance'],
             ['href' => 'production-readiness.php', 'label' => 'Production Readiness', 'feature' => 'production_readiness'],
             ['href' => 'monitoring.php', 'label' => 'System Health', 'feature' => 'monitoring'],
-                    ['href' => 'backups.php', 'label' => 'Backup & Recovery', 'feature' => 'backups'],
+            ['href' => 'backups.php', 'label' => 'Backup & Recovery', 'feature' => 'backups'],
         ],
         'System Settings' => [
             ['href' => 'settings/', 'label' => 'Operational Settings', 'feature' => 'settings'],
             ['href' => 'templates.php', 'label' => 'Message Templates', 'feature' => 'templates'],
-            ['href' => 'notifications.php', 'label' => 'Notification Delivery Log', 'feature' => 'notifications'],
-            ['href' => '../super-admin/index.php?view=modules', 'label' => 'Module Setup', 'feature' => 'integrations', 'super_only' => true],
-                    ['href' => 'backups.php', 'label' => 'Backup & Recovery', 'feature' => 'backups'],
+            ['href' => '../super-admin/index.php?view=controls', 'label' => 'Module Setup', 'feature' => 'integrations', 'super_only' => true],
         ],
     ];
 }
@@ -144,7 +145,7 @@ function admin_footer_nav_items(PDO $pdo): array
         ['href' => 'support/', 'label' => 'Support Desk', 'feature' => 'support'],
         ['href' => 'reports/', 'label' => 'Reports', 'feature' => 'reports'],
         ['href' => 'settings/', 'label' => 'Settings', 'feature' => 'settings'],
-            ['href' => 'backups.php', 'label' => 'Backups', 'feature' => 'backups'],
+
     ];
 
     return array_values(array_filter($items, static function (array $item) use ($pdo): bool {
@@ -155,5 +156,3 @@ function admin_footer_nav_items(PDO $pdo): array
         return admin_feature_is_allowed($pdo, (string) ($item['feature'] ?? 'dashboard'));
     }));
 }
-
-

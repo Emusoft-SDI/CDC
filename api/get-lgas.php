@@ -19,12 +19,8 @@ try {
     }
 
     $rows = nigeria_ensure_lgas_for_state($pdo, (int) $state['id'], (string) $state['state_name'], (string) ($state['state_code'] ?? ''));
+    header('Cache-Control: public, max-age=86400');
     json_response(['success' => true, 'items' => $rows]);
-
-    $stmt = $pdo->prepare("SELECT id, lga_name FROM nigeria_lgas WHERE state_id = ? ORDER BY lga_name");
-    $stmt->execute([$stateId]);
-
-    json_response(['success' => true, 'items' => $stmt->fetchAll()]);
 } catch (Throwable $e) {
     error_log('Get LGAs API error: ' . $e->getMessage());
     json_response(['success' => true, 'items' => []]);
