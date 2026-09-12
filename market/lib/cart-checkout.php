@@ -351,14 +351,8 @@ function market_initialize_monnify_checkout(PDO $pdo, array $rows, ?array $user,
         'paymentMethods' => monnify_payment_methods(),
     ];
 
-    $pdo->beginTransaction();
     try {
-        $created = market_insert_checkout_orders($pdo, $rows, $user, $buyer, [
-            'checkout_ref' => $checkoutRef,
-            'method' => 'monnify',
-            'reference' => $reference,
-            'paid' => false,
-        ]);
+        // Call Monnify API first before opening DB transaction to prevent holding locks during network I/O
         $res = monnify_request('POST', '/api/v1/merchant/transactions/init-transaction', $payload);
         if (!$res['success']) {
             throw new RuntimeException((string) ($res['error'] ?? 'Unable to initialize Monnify payment.'));
@@ -368,21 +362,32 @@ function market_initialize_monnify_checkout(PDO $pdo, array $rows, ?array $user,
         if ($checkoutUrl === '') {
             throw new RuntimeException('Monnify did not return a checkout URL.');
         }
+        $transactionReference = (string) ($body['transactionReference'] ?? '');
+
+        // Atomically insert orders with provider reference in a fast transaction
+        $pdo->beginTransaction();
+        $created = market_insert_checkout_orders($pdo, $rows, $user, $buyer, [
+            'checkout_ref' => $checkoutRef,
+            'method' => 'monnify',
+            'reference' => $reference,
+            'paid' => false,
+        ]);
         $pdo->prepare("
             UPDATE marketplace_orders
             SET payment_provider_reference = ?, payment_provider_payload = ?
             WHERE checkout_ref = ?
         ")->execute([
-            (string) ($body['transactionReference'] ?? ''),
+            $transactionReference,
             json_encode($body, JSON_UNESCAPED_SLASHES),
             $checkoutRef,
         ]);
         $pdo->commit();
+
         return $created + [
             'success' => true,
             'payment_url' => $checkoutUrl,
             'reference' => $reference,
-            'provider_reference' => (string) ($body['transactionReference'] ?? ''),
+            'provider_reference' => $transactionReference,
         ];
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {

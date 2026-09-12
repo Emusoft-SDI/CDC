@@ -46,12 +46,15 @@ if (isset($_GET['verify_monnify'])) {
     }
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf($_POST['_csrf'] ?? null)) {
-    $checkoutToken = trim((string) ($_POST['checkout_token'] ?? ''));
-    if ($checkoutToken !== '' && !empty($_SESSION['completed_checkouts'][$checkoutToken])) {
-        $prev = $_SESSION['completed_checkouts'][$checkoutToken];
-        redirect_to('orders.php?checkout_ref=' . rawurlencode((string) $prev['checkout_ref']) . '&phone=' . rawurlencode((string) $prev['phone']) . (!empty($prev['paid']) ? '&paid=1' : '&order_created=1'));
-    }
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!verify_csrf($_POST['_csrf'] ?? null)) {
+        $error = 'Your checkout security token has expired or is invalid. Please try submitting again.';
+    } else {
+        $checkoutToken = trim((string) ($_POST['checkout_token'] ?? ''));
+        if ($checkoutToken !== '' && !empty($_SESSION['completed_checkouts'][$checkoutToken])) {
+            $prev = $_SESSION['completed_checkouts'][$checkoutToken];
+            redirect_to('orders.php?checkout_ref=' . rawurlencode((string) $prev['checkout_ref']) . '&phone=' . rawurlencode((string) $prev['phone']) . (!empty($prev['paid']) ? '&paid=1' : '&order_created=1'));
+        }
 
     $form = [
         'buyer_name' => trim((string) ($_POST['buyer_name'] ?? '')),
@@ -197,6 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf($_POST['_csrf'] ?? null
             }
         }
     }
+}
 }
 
 market_header('Checkout', 'marketplace', $pdo);
@@ -374,21 +378,100 @@ market_header('Checkout', 'marketplace', $pdo);
     });
   });
 
-  // Double-Click and Multiple Submission Shield
+  // Dynamic email requirement depending on payment method
+  var emailInput = document.querySelector('input[name="buyer_email"]');
+  var emailLabel = emailInput ? emailInput.closest('.mk-field')?.querySelector('label') : null;
+  function syncEmailRequired() {
+    var selectedPay = document.querySelector('input[name="payment_method"]:checked')?.value || 'monnify';
+    if (emailInput) {
+      if (selectedPay === 'monnify') {
+        emailInput.required = true;
+        if (emailLabel && !emailLabel.textContent.includes('*')) {
+          emailLabel.textContent = 'Email Address * (Required for Monnify)';
+        }
+      } else {
+        emailInput.required = false;
+        if (emailLabel) {
+          emailLabel.textContent = 'Email Address';
+        }
+      }
+    }
+  }
+  document.querySelectorAll('input[name="payment_method"]').forEach(function(r) {
+    r.addEventListener('change', syncEmailRequired);
+  });
+  syncEmailRequired();
+
+  // Double-Click and Multiple Submission Shield with Automatic Recovery
   var form = document.getElementById('checkoutForm');
   var submitBtn = document.getElementById('checkoutSubmitBtn');
   var isSubmitting = false;
+  var originalBtnHtml = submitBtn ? submitBtn.innerHTML : '';
+  var safetyTimer = null;
+
+  function resetSubmitBtn() {
+    isSubmitting = false;
+    if (safetyTimer) {
+      clearTimeout(safetyTimer);
+      safetyTimer = null;
+    }
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.style.pointerEvents = 'auto';
+      submitBtn.style.opacity = '1';
+      submitBtn.style.cursor = 'pointer';
+      submitBtn.innerHTML = originalBtnHtml;
+    }
+  }
+
+  // Restore button if user navigates back (e.g. from payment gateway, browser back button, or bfcache)
+  window.addEventListener('pageshow', function() {
+    resetSubmitBtn();
+  });
+
   if (form && submitBtn) {
     form.addEventListener('submit', function(e) {
+      // 1. Check HTML5 validity first - if invalid, do not enter loading state
+      if (form.checkValidity && !form.checkValidity()) {
+        return;
+      }
+
+      // 2. Prevent duplicate submits if already in progress
       if (isSubmitting) {
         e.preventDefault();
         return false;
       }
       isSubmitting = true;
-      submitBtn.disabled = true;
+
+      // 3. Visual loading feedback WITHOUT synchronously disabling the submitter.
+      // (Disabling the submit button synchronously causes modern browsers to abort the form submission per HTML spec step 5)
       submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing Secure Payment...';
+      submitBtn.style.pointerEvents = 'none';
       submitBtn.style.opacity = '0.75';
       submitBtn.style.cursor = 'not-allowed';
+
+      // Delay actual disabled attribute slightly so the browser finishes form dispatch
+      setTimeout(function() {
+        if (isSubmitting && submitBtn) {
+          submitBtn.disabled = true;
+        }
+      }, 200);
+
+      // 4. Safety recovery timeout (15 seconds):
+      // If the gateway/server takes too long or network stalls, reset button and notify user so they are never stuck
+      safetyTimer = setTimeout(function() {
+        resetSubmitBtn();
+        var alertBox = document.getElementById('checkoutTimeoutNotice');
+        if (!alertBox) {
+          alertBox = document.createElement('div');
+          alertBox.id = 'checkoutTimeoutNotice';
+          alertBox.className = 'mk-alert err';
+          alertBox.style.marginTop = '14px';
+          submitBtn.parentNode.insertBefore(alertBox, submitBtn);
+        }
+        alertBox.innerHTML = '<i class="fas fa-exclamation-circle"></i> Payment initialization is taking longer than expected. Please check your connection or choose another payment method and click <strong>Pay Now</strong> again.';
+        alertBox.style.display = 'block';
+      }, 15000);
     });
   }
 
