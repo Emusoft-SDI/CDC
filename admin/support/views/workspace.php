@@ -242,58 +242,210 @@
   </section>
   <?php endif; ?>
   <?php if ($selected): ?>
-  <section class="sd-panel<?= $selected ? ' is-focused' : '' ?>" id="ticket-workbench">
-    <div class="sd-head"><h3>Ticket Workbench</h3><a href="<?= e(sd_url(['view' => 'public-entry'])) ?>">Public Entry Info</a></div>
+  <section class="sd-panel is-focused" id="ticket-workbench">
+    <div class="sd-head">
+      <h3>
+        <i class="fa-solid fa-clipboard-check text-success me-1"></i> Ticket Workbench: <?= e((string) $selected['ticket_ref']) ?>
+      </h3>
+      <div class="d-flex align-items-center gap-2">
+        <span class="sd-badge ok"><i class="fa-solid fa-lock me-1"></i> Audit-Protected Record</span>
+        <a class="btn light" href="<?= e(sd_url(['view' => $workspaceView, 'status' => $filterStatus, 'scope' => $filterScope])) ?>">Close Workbench</a>
+      </div>
+    </div>
     <div class="support-work">
       <aside>
+        <div style="margin-bottom:10px; font-size:.72rem; font-weight:800; text-transform:uppercase; color:var(--muted); letter-spacing:.04em;">
+          Queue Quick Nav
+        </div>
         <?php foreach ($tickets as $ticket): ?>
-          <a class="sd-action" href="<?= e(sd_ticket_url((string) $ticket['ticket_ref'])) ?>">
+          <a class="sd-action <?= (string) $ticket['ticket_ref'] === (string) $selected['ticket_ref'] ? 'border-success bg-light' : '' ?>" href="<?= e(sd_ticket_url((string) $ticket['ticket_ref'])) ?>">
             <i class="fa-solid fa-ticket"></i>
             <span><strong><?= e((string) $ticket['ticket_ref']) ?></strong><small><?= e((string) $ticket['subject']) ?> / <?= e($statuses[(string) $ticket['status']] ?? (string) $ticket['status']) ?></small></span>
           </a>
         <?php endforeach; ?>
       </aside>
       <section>
-        <?php if ($selected): ?>
-          <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
-            <div><h2><?= e((string) $selected['subject']) ?></h2><p class="meta"><?= e((string) $selected['ticket_ref']) ?> / <?= e($categories[(string) $selected['category']]['label'] ?? (string) $selected['category']) ?> / <?= e((string) $selected['module']) ?></p></div>
-            <a class="btn light" href="<?= e(sd_url(['view' => 'public-entry'])) ?>">Public Entry</a>
-          </div>
-          <div class="detail-grid">
-            <div class="detail"><strong>Requester</strong><br><?= e((string) $selected['requester_name']) ?><br><span class="meta"><?= e((string) $selected['requester_email']) ?> / <?= e(support_role_label((string) $selected['requester_role'])) ?></span></div>
-            <div class="detail"><strong>Linked Record</strong><br><?= e((string) ($selected['linked_record_type'] ?: 'None')) ?><br><span class="meta"><?= e((string) ($selected['linked_record_ref'] ?: 'No reference')) ?></span></div>
-            <div class="detail"><strong>Team / Agent / SLA</strong><br><?= e((string) ($selected['assigned_team'] ?: 'Unassigned')) ?><br><span class="meta"><?= e(sd_agent_label($supportAdmins, ((int) ($selected['assigned_admin_id'] ?? 0)) ?: null)) ?> / <?= e(sd_short_date((string) ($selected['sla_due_at'] ?? ''))) ?></span></div>
+        <!-- Requester & Inquiry Details (IMMUTABLE AUDIT RECORD) -->
+        <div class="audit-record-box mb-3" style="border:1px solid #d0e7d7; border-radius:8px; background:#f6fbf8; padding:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+            <div>
+              <h2 style="margin:0 0 4px; font-size:1.35rem; color:#063f24;"><?= e((string) $selected['subject']) ?></h2>
+              <div class="meta" style="font-size:0.82rem; color:#4a5d50;">
+                <strong>Ref:</strong> <?= e((string) $selected['ticket_ref']) ?> &bull;
+                <strong>Category:</strong> <?= e($categories[(string) $selected['category']]['label'] ?? (string) $selected['category']) ?> &bull;
+                <strong>Module:</strong> <?= e(ucwords(str_replace('_', ' ', (string) $selected['module']))) ?> &bull;
+                <strong>Logged:</strong> <?= e(date('M j, Y g:i A', strtotime((string) $selected['created_at']))) ?>
+              </div>
+            </div>
+            <span class="sd-badge <?= e(support_badge_class((string) $selected['status'])) ?>" style="font-size:0.8rem; padding:4px 10px;">
+              <?= e($statuses[(string) $selected['status']] ?? (string) $selected['status']) ?>
+            </span>
           </div>
 
-          <div class="conversation">
-            <?php foreach ($conversation as $msg): ?><div class="msg <?= $msg['visibility'] === 'internal' ? 'internal' : ($msg['admin_id'] ? 'agent' : '') ?>"><strong><?= e((string) $msg['author_name']) ?></strong> <span class="meta"><?= e((string) $msg['author_role']) ?> / <?= e(date('M j, Y g:i A', strtotime((string) $msg['created_at']))) ?></span><p><?= nl2br(e((string) $msg['message'])) ?></p><?php if (!empty($msg['attachments'])): ?><div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(0,0,0,.08);display:flex;flex-wrap:wrap;gap:8px;"><strong style="display:block;width:100%;font-size:.75rem;color:var(--muted);"><i class="fa-solid fa-paperclip"></i> Attached Files (<?= count($msg['attachments']) ?>):</strong><?php foreach ($msg['attachments'] as $att): $attUrl = '../support/attachment.php?id=' . (int) $att['id']; ?><a href="<?= e($attUrl) ?>" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:#fff;border:1px solid var(--line);border-radius:6px;font-size:.78rem;text-decoration:none;color:#102033;font-weight:700;"><i class="fa-solid fa-download" style="color:#087443;"></i><span><?= e((string) $att['original_name']) ?></span><small style="color:var(--muted);">(<?= e(support_format_bytes((int) ($att['file_size'] ?? 0))) ?>)</small></a><?php endforeach; ?></div><?php endif; ?></div><?php endforeach; ?>
+          <div class="detail-grid" style="margin:12px 0;">
+            <div class="detail">
+              <strong>Requester Statement</strong><br>
+              <?= e((string) $selected['requester_name']) ?><br>
+              <span class="meta"><?= e((string) $selected['requester_email']) ?><?= !empty($selected['requester_phone']) ? ' &bull; ' . e((string) $selected['requester_phone']) : '' ?></span><br>
+              <span class="sd-badge neutral" style="margin-top:4px;"><?= e(support_role_label((string) $selected['requester_role'])) ?></span>
+            </div>
+            <div class="detail">
+              <strong>Linked Platform Record</strong><br>
+              <?= e((string) ($selected['linked_record_type'] ?: 'Direct Inquiry')) ?><br>
+              <span class="meta"><?= e((string) ($selected['linked_record_ref'] ?: 'No reference ID attached')) ?></span>
+            </div>
+            <div class="detail">
+              <strong>Team Routing & SLA</strong><br>
+              <?= e((string) ($selected['assigned_team'] ?: 'General Support Desk')) ?><br>
+              <span class="meta">Agent: <?= e(sd_agent_label($supportAdmins, ((int) ($selected['assigned_admin_id'] ?? 0)) ?: null)) ?></span><br>
+              <span class="meta">Target SLA: <?= e(sd_short_date((string) ($selected['sla_due_at'] ?? ''))) ?></span>
+            </div>
+          </div>
+
+          <!-- Original Requester Statement -->
+          <div style="border-top:1px solid #e1efe5; padding-top:12px; margin-top:10px;">
+            <strong style="font-size:0.8rem; color:#06451f; text-transform:uppercase; letter-spacing:0.03em; display:block; margin-bottom:6px;">
+              <i class="fa-solid fa-file-lines me-1"></i> Original Requester Statement & Evidence (Immutable)
+            </strong>
+            <div style="background:#fff; border:1px solid #dbeae0; border-radius:6px; padding:12px; font-size:0.85rem; color:#1e3325; line-height:1.5;">
+              <?= nl2br(e((string) $selected['description'])) ?>
+            </div>
+          </div>
+        </div>
+
+        <!-- Communication History -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin:16px 0 8px;">
+          <h4 style="margin:0; font-size:1rem; color:#102033;"><i class="fa-solid fa-comments text-success me-1"></i> Communication Log & Response History</h4>
+          <small class="text-muted"><?= count($conversation) ?> entries recorded</small>
+        </div>
+
+        <div class="conversation">
+          <?php foreach ($conversation as $msg): ?>
+            <div class="msg <?= $msg['visibility'] === 'internal' ? 'internal' : ($msg['admin_id'] ? 'agent' : '') ?>">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <strong><?= e((string) $msg['author_name']) ?></strong>
+                <span class="meta">
+                  <?= $msg['visibility'] === 'internal' ? '<span class="sd-badge warn" style="font-size:0.68rem; margin-right:4px;">Internal Note</span>' : '' ?>
+                  <?= e((string) $msg['author_role']) ?> &bull; <?= e(date('M j, Y g:i A', strtotime((string) $msg['created_at']))) ?>
+                </span>
+              </div>
+              <p><?= nl2br(e((string) $msg['message'])) ?></p>
+              <?php if (!empty($msg['attachments'])): ?>
+                <div style="margin-top:10px; padding-top:8px; border-top:1px solid rgba(0,0,0,.08); display:flex; flex-wrap:wrap; gap:8px;">
+                  <strong style="display:block; width:100%; font-size:.75rem; color:var(--muted);"><i class="fa-solid fa-paperclip"></i> Attached Evidence (<?= count($msg['attachments']) ?>):</strong>
+                  <?php foreach ($msg['attachments'] as $att): $attUrl = '../support/attachment.php?id=' . (int) $att['id']; ?>
+                    <a href="<?= e($attUrl) ?>" target="_blank" style="display:inline-flex; align-items:center; gap:6px; padding:5px 10px; background:#fff; border:1px solid var(--line); border-radius:6px; font-size:.78rem; text-decoration:none; color:#102033; font-weight:700;">
+                      <i class="fa-solid fa-download" style="color:#087443;"></i>
+                      <span><?= e((string) $att['original_name']) ?></span>
+                      <small style="color:var(--muted);">(<?= e(support_format_bytes((int) ($att['file_size'] ?? 0))) ?>)</small>
+                    </a>
+                  <?php endforeach; ?>
+                </div>
+              <?php endif; ?>
+            </div>
+          <?php endforeach; ?>
+        </div>
+
+        <!-- Operational Lifecycle Management Form (GOVERNANCE - NOT GENERIC CRUD) -->
+        <div class="card mt-3 border-0 shadow-sm" style="border:1px solid #dbeae0 !important; border-radius:8px; background:#fff; padding:16px;">
+          <div style="border-bottom:1px solid #eef2f4; padding-bottom:10px; margin-bottom:14px;">
+            <h4 style="margin:0; font-size:1.05rem; color:#063f24;">
+              <i class="fa-solid fa-shield-halved me-1 text-success"></i> Ticket Lifecycle Governance
+            </h4>
+            <p class="text-muted small mb-0 mt-1">
+              Manage operational state, routing, official responses, and internal notes. Requester inquiries and historical audit records cannot be modified or deleted.
+            </p>
           </div>
 
           <form method="post" enctype="multipart/form-data">
             <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+            <input type="hidden" name="action" value="manage_lifecycle">
             <input type="hidden" name="ticket_ref" value="<?= e((string) $selected['ticket_ref']) ?>">
+
             <div class="form-grid">
-              <div><label>Status</label><select name="status"><?php foreach ($statuses as $key => $label): ?><option value="<?= e($key) ?>" <?= (string) $selected['status'] === $key ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?></select></div>
-              <div><label>Priority</label><select name="priority"><?php foreach ($priorities as $key => $label): ?><option value="<?= e($key) ?>" <?= (string) $selected['priority'] === $key ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?></select></div>
-              <div><label>Assigned Team</label><select name="assigned_team"><?php foreach ($teams as $team): ?><option value="<?= e($team) ?>" <?= (string) $selected['assigned_team'] === $team ? 'selected' : '' ?>><?= e($team) ?></option><?php endforeach; ?></select></div><div class="span2"><label>Assigned Agent</label><select name="assigned_admin_id"><option value="">Unassigned</option><?php foreach ($supportAdmins as $agent): ?><option value="<?= (int) $agent['id'] ?>" <?= (int) ($selected['assigned_admin_id'] ?? 0) === (int) $agent['id'] ? 'selected' : '' ?>><?= e((string) ($agent['name'] ?: $agent['email'])) ?> - <?= e((string) ($agent['platform_role'] ?: $agent['role'])) ?></option><?php endforeach; ?></select></div>
-              <div><label>Outcome</label><select name="outcome"><option value="">No final outcome</option><?php foreach ($outcomes as $key => $label): ?><option value="<?= e($key) ?>" <?= (string) ($selected['outcome'] ?? '') === $key ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?></select></div>
-              <div class="span2">
-                <label>Reply to requester</label>
-                <textarea name="reply" rows="5" placeholder="Visible to the requester."></textarea>
-                <label style="margin-top:8px;font-size:.8rem;color:var(--muted);"><i class="fa-solid fa-paperclip"></i> Attach File to Reply</label>
-                <input type="file" name="attachments[]" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx" style="padding:6px;font-size:.82rem;">
+              <div>
+                <label class="form-label small fw-bold">Lifecycle Status</label>
+                <select class="form-select form-select-sm" name="status">
+                  <?php foreach ($statuses as $key => $label): ?>
+                    <option value="<?= e($key) ?>" <?= (string) $selected['status'] === $key ? 'selected' : '' ?>><?= e($label) ?></option>
+                  <?php endforeach; ?>
+                </select>
               </div>
-              <div class="span2"><label>Internal note</label><textarea name="internal_note" rows="5" placeholder="Visible only to platform admins/support agents."></textarea></div>
-              <div class="span4"><button class="btn" type="submit">Update Ticket</button></div>
+              <div>
+                <label class="form-label small fw-bold">Priority Urgency</label>
+                <select class="form-select form-select-sm" name="priority">
+                  <?php foreach ($priorities as $key => $label): ?>
+                    <option value="<?= e($key) ?>" <?= (string) $selected['priority'] === $key ? 'selected' : '' ?>><?= e($label) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div>
+                <label class="form-label small fw-bold">Assigned Department / Team</label>
+                <select class="form-select form-select-sm" name="assigned_team">
+                  <?php foreach ($teams as $team): ?>
+                    <option value="<?= e($team) ?>" <?= (string) $selected['assigned_team'] === $team ? 'selected' : '' ?>><?= e($team) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div class="span2">
+                <label class="form-label small fw-bold">Assigned Support Agent</label>
+                <select class="form-select form-select-sm" name="assigned_admin_id">
+                  <option value="">Unassigned</option>
+                  <?php foreach ($supportAdmins as $agent): ?>
+                    <option value="<?= (int) $agent['id'] ?>" <?= (int) ($selected['assigned_admin_id'] ?? 0) === (int) $agent['id'] ? 'selected' : '' ?>>
+                      <?= e((string) ($agent['name'] ?: $agent['email'])) ?> &mdash; <?= e((string) ($agent['platform_role'] ?: $agent['role'])) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div>
+                <label class="form-label small fw-bold">Resolution Outcome</label>
+                <select class="form-select form-select-sm" name="outcome">
+                  <option value="">No final outcome</option>
+                  <?php foreach ($outcomes as $key => $label): ?>
+                    <option value="<?= e($key) ?>" <?= (string) ($selected['outcome'] ?? '') === $key ? 'selected' : '' ?>><?= e($label) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+
+              <div class="span2">
+                <label class="form-label small fw-bold"><i class="fa-regular fa-paper-plane me-1"></i> Public Reply to Requester</label>
+                <textarea class="form-control" name="reply" rows="4" placeholder="Type official response visible to the ticket requester..."></textarea>
+                <div class="mt-2">
+                  <label class="small text-muted fw-bold"><i class="fa-solid fa-paperclip me-1"></i> Attach Files / Supporting Evidence</label>
+                  <input class="form-control form-control-sm" type="file" name="attachments[]" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx">
+                  <small class="text-muted d-block mt-1">Accepted: Images (JPG, PNG, WEBP), PDF, Documents (DOC, DOCX, TXT), Spreadsheets (CSV, XLS, XLSX). Max 10MB per file.</small>
+                </div>
+              </div>
+
+              <div class="span2">
+                <label class="form-label small fw-bold"><i class="fa-solid fa-lock me-1"></i> Internal Staff Coordination Note</label>
+                <textarea class="form-control" name="internal_note" rows="4" placeholder="Private internal note visible ONLY to support agents and admins (hidden from requester)..."></textarea>
+                <small class="text-muted d-block mt-1">Use for supervisor escalations, verification findings, or internal handoffs.</small>
+              </div>
+
+              <div class="span4 d-flex justify-content-between align-items-center mt-2 pt-2 border-top">
+                <span class="small text-muted">
+                  <i class="fa-solid fa-shield-halved text-success me-1"></i> Non-destructive operation: all changes are appended to the permanent audit trail.
+                </span>
+                <button class="btn btn-success px-4 fw-bold" type="submit">
+                  <i class="fa-solid fa-check me-1"></i> Save Lifecycle Updates & Dispatch
+                </button>
+              </div>
             </div>
           </form>
-        <?php else: ?>
-          <p class="empty">Select a ticket to manage.</p>
-        <?php endif; ?>
+        </div>
       </section>
     </div>
   </section>
-
+  <?php elseif ($workspaceView === 'overview'): ?>
+  <div class="alert alert-info d-flex align-items-center justify-content-between gap-3 mb-3" style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; color:#14532d; padding:12px 18px;">
+    <div>
+      <strong class="d-block" style="font-size:0.95rem;"><i class="fa-solid fa-info-circle me-1"></i> Support Workbench Ready</strong>
+      <span class="small" style="color:#166534;">Select any ticket from the queue or search below to review its immutable audit history, assign agents, and dispatch replies.</span>
+    </div>
+    <a class="btn btn-sm btn-success" href="#ticket-queue"><i class="fa-solid fa-arrow-down me-1"></i> View Ticket Queue</a>
+  </div>
   <?php endif; ?>
 
   <section class="sd-grid">
@@ -421,72 +573,7 @@
     </div>
   </section>
 
-  <?php if (!$selected): ?>
-  <section class="sd-panel<?= $selected ? ' is-focused' : '' ?>" id="ticket-workbench">
-    <div class="sd-head"><h3>Ticket Workbench</h3><a href="<?= e(sd_url(['view' => 'public-entry'])) ?>">Public Entry Info</a></div>
-    <div class="support-work">
-      <aside>
-        <?php foreach ($tickets as $ticket): ?>
-          <a class="sd-action" href="<?= e(sd_ticket_url((string) $ticket['ticket_ref'])) ?>">
-            <i class="fa-solid fa-ticket"></i>
-            <span><strong><?= e((string) $ticket['ticket_ref']) ?></strong><small><?= e((string) $ticket['subject']) ?> / <?= e($statuses[(string) $ticket['status']] ?? (string) $ticket['status']) ?></small></span>
-          </a>
-        <?php endforeach; ?>
-      </aside>
-      <section>
-        <?php if ($selected): ?>
-          <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
-            <div><h2><?= e((string) $selected['subject']) ?></h2><p class="meta"><?= e((string) $selected['ticket_ref']) ?> / <?= e($categories[(string) $selected['category']]['label'] ?? (string) $selected['category']) ?> / <?= e((string) $selected['module']) ?></p></div>
-            <a class="btn light" href="<?= e(sd_url(['view' => 'public-entry'])) ?>">Public Entry</a>
-          </div>
-          <div class="detail-grid">
-            <div class="detail"><strong>Requester</strong><br><?= e((string) $selected['requester_name']) ?><br><span class="meta"><?= e((string) $selected['requester_email']) ?> / <?= e(support_role_label((string) $selected['requester_role'])) ?></span></div>
-            <div class="detail"><strong>Linked Record</strong><br><?= e((string) ($selected['linked_record_type'] ?: 'None')) ?><br><span class="meta"><?= e((string) ($selected['linked_record_ref'] ?: 'No reference')) ?></span></div>
-            <div class="detail"><strong>Team / Agent / SLA</strong><br><?= e((string) ($selected['assigned_team'] ?: 'Unassigned')) ?><br><span class="meta"><?= e(sd_agent_label($supportAdmins, ((int) ($selected['assigned_admin_id'] ?? 0)) ?: null)) ?> / <?= e(sd_short_date((string) ($selected['sla_due_at'] ?? ''))) ?></span></div>
-          </div>
 
-          <div class="conversation">
-            <?php foreach ($conversation as $msg): ?><div class="msg <?= $msg['visibility'] === 'internal' ? 'internal' : ($msg['admin_id'] ? 'agent' : '') ?>"><strong><?= e((string) $msg['author_name']) ?></strong> <span class="meta"><?= e((string) $msg['author_role']) ?> / <?= e(date('M j, Y g:i A', strtotime((string) $msg['created_at']))) ?></span><p><?= nl2br(e((string) $msg['message'])) ?></p></div><?php endforeach; ?>
-          </div>
-
-          <form method="post">
-            <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-            <input type="hidden" name="ticket_ref" value="<?= e((string) $selected['ticket_ref']) ?>">
-            <div class="form-grid">
-              <div><label>Status</label><select name="status"><?php foreach ($statuses as $key => $label): ?><option value="<?= e($key) ?>" <?= (string) $selected['status'] === $key ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?></select></div>
-              <div><label>Priority</label><select name="priority"><?php foreach ($priorities as $key => $label): ?><option value="<?= e($key) ?>" <?= (string) $selected['priority'] === $key ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?></select></div>
-              <div><label>Assigned Team</label><select name="assigned_team"><?php foreach ($teams as $team): ?><option value="<?= e($team) ?>" <?= (string) $selected['assigned_team'] === $team ? 'selected' : '' ?>><?= e($team) ?></option><?php endforeach; ?></select></div><div class="span2"><label>Assigned Agent</label><select name="assigned_admin_id"><option value="">Unassigned</option><?php foreach ($supportAdmins as $agent): ?><option value="<?= (int) $agent['id'] ?>" <?= (int) ($selected['assigned_admin_id'] ?? 0) === (int) $agent['id'] ? 'selected' : '' ?>><?= e((string) ($agent['name'] ?: $agent['email'])) ?> - <?= e((string) ($agent['platform_role'] ?: $agent['role'])) ?></option><?php endforeach; ?></select></div>
-              <div><label>Outcome</label><select name="outcome"><option value="">No final outcome</option><?php foreach ($outcomes as $key => $label): ?><option value="<?= e($key) ?>" <?= (string) ($selected['outcome'] ?? '') === $key ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?></select></div>
-              <div class="span2"><label>Reply to requester</label><textarea name="reply" rows="5" placeholder="Visible to the requester."></textarea></div>
-              <div class="span2"><label>Internal note</label><textarea name="internal_note" rows="5" placeholder="Visible only to platform admins/support agents."></textarea></div>
-              <div class="span4"><button class="btn" type="submit">Update Ticket</button></div>
-            </div>
-          </form>
-        <?php else: ?>
-          <p class="empty">Select a ticket to manage.</p>
-        <?php endif; ?>
-      </section>
-    </div>
-  </section>
-
-  <?php endif; ?>
-
-  <section class="sd-lower" id="support-settings">
-    <div class="sd-panel" id="support-public-entry">
-      <div class="sd-head"><h3>Public Entry Governance</h3><a href="<?= e(sd_url(['view' => 'tickets', 'status' => 'active'])) ?>">Back to Tickets</a></div>
-      <div class="sd-list">
-        <div class="sd-list-row"><div><strong>Public support portal</strong><small>Users create, track, reply to, and rate tickets from the public support page. Admins stay here to resolve them.</small></div><span class="sd-badge info">Public-facing</span></div>
-        <div class="sd-list-row"><div><strong>Ticket access rule</strong><small>Anonymous visitors must know both ticket reference and requester email. Logged-in users only see their own tickets.</small></div><span class="sd-badge ok">Protected</span></div>
-      </div>
-    </div>
-    <div class="sd-panel">
-      <div class="sd-head"><h3>Support Workspace Settings</h3><a href="<?= e(sd_url(['view' => 'sla'])) ?>">SLA</a></div>
-      <div class="sd-list">
-        <div class="sd-list-row"><div><strong>Routing</strong><small>Queue, team assignment, escalation, messages, complaints, and field issues are administered inside this workspace.</small></div><span class="sd-badge ok">Contained</span></div>
-        <div class="sd-list-row"><div><strong>SLA policy</strong><small>Use the SLA snapshot and escalation queue here before exporting or changing global policy elsewhere.</small></div><span class="sd-badge warn">Operator review</span></div>
-      </div>
-    </div>
-  </section>
   <section class="sd-actions">
     <a class="sd-action" href="<?= e(sd_url(['view' => 'tickets', 'status' => 'active'])) ?>"><i class="fa-solid fa-circle-plus"></i><span><strong>Work Tickets</strong><small>Open the support workbench</small></span></a>
     <a class="sd-action" href="<?= $selected ? e(sd_ticket_url((string) $selected['ticket_ref'])) : e(sd_url(['status' => 'active', 'scope' => 'all'])) ?>"><i class="fa-solid fa-user-check"></i><span><strong>Assign Agent</strong><small><?= $selected ? 'Assign the selected ticket' : 'Choose a ticket first' ?></small></span></a>

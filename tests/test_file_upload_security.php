@@ -12,7 +12,7 @@ declare(strict_types=1);
  */
 
 require_once __DIR__ . '/TestHarness.php';
-require_once __DIR__ . '/../lib/helpers.php';
+
 
 function run_file_upload_tests(): void
 {

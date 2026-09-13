@@ -3,7 +3,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../lib/admin-layout.php';
 
 // Prevent redirect loop if already on the login page
-if (str_contains($_SERVER['REQUEST_URI'], 'login.php')) {
+if (str_contains((string) ($_SERVER['REQUEST_URI'] ?? ''), 'login.php')) {
     return;
 }
 

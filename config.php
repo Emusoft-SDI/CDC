@@ -1374,3 +1374,6 @@ function generate_application_ref(): string
     return 'NAT-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
 }
 
+require_once __DIR__ . '/lib/helpers.php';
+
+

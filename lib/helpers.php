@@ -2,89 +2,96 @@
 
 declare(strict_types=1);
 
-function e(?string $value): string
-{
-    return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-}
-
-function json_response(array $payload, int $status = 200): void
-{
-    http_response_code($status);
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode($payload, JSON_UNESCAPED_SLASHES);
-    exit;
-}
-
-function redirect_to(string $path): void
-{
-    header('Location: ' . $path);
-    exit;
-}
-
-function csrf_token(): string
-{
-    if (session_status() !== PHP_SESSION_ACTIVE) {
-        session_start();
+if (!function_exists('e')) {
+    function e(?string $value): string
+    {
+        return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
-    if (empty($_SESSION['_csrf'])) {
-        $_SESSION['_csrf'] = bin2hex(random_bytes(32));
-    }
-    return $_SESSION['_csrf'];
 }
 
-function verify_csrf(?string $token): bool
-{
-    if (session_status() !== PHP_SESSION_ACTIVE) {
-        session_start();
+if (!function_exists('json_response')) {
+    function json_response(array $payload, int $status = 200): void
+    {
+        http_response_code($status);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode($payload, JSON_UNESCAPED_SLASHES);
+        exit;
     }
-    return is_string($token) && hash_equals($_SESSION['_csrf'] ?? '', $token);
 }
 
-function app_branded_email_html(
-    string $title,
-    string $contentHtml,
-    ?string $preheader = null,
-    ?string $actionButtonText = null,
-    ?string $actionButtonUrl = null,
-    ?string $otpCode = null
-): string {
-    $logoUrl = app_base_url() . '/assets/logo/natcodev.jpeg';
-    $year = date('Y');
-    $preheaderText = $preheader ?: $title;
+if (!function_exists('redirect_to')) {
+    function redirect_to(string $path): void
+    {
+        header('Location: ' . $path);
+        exit;
+    }
+}
 
-    $otpBlock = '';
-    if ($otpCode !== null && $otpCode !== '') {
-        $otpBlock = '
-            <div style="margin: 28px 0; text-align: center;">
-                <div style="display: inline-block; background: #eef8ef; border: 2px dashed #14733a; border-radius: 12px; padding: 18px 36px; text-align: center;">
-                    <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #14733a; font-weight: 800; margin-bottom: 6px;">Your One-Time Code</div>
-                    <div style="font-family: \'Courier New\', Courier, monospace; font-size: 38px; font-weight: 900; letter-spacing: 8px; color: #075f2a;">' . e($otpCode) . '</div>
-                    <div style="font-size: 12px; color: #66715f; margin-top: 6px;">Valid for 10 minutes &bull; Do not share with anyone</div>
+if (!function_exists('csrf_token')) {
+    function csrf_token(): string
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+        if (empty($_SESSION['_csrf'])) {
+            $_SESSION['_csrf'] = bin2hex(random_bytes(32));
+        }
+        return $_SESSION['_csrf'];
+    }
+}
+
+if (!function_exists('verify_csrf')) {
+    function verify_csrf(?string $token): bool
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+        return is_string($token) && hash_equals($_SESSION['_csrf'] ?? '', $token);
+    }
+}
+
+if (!function_exists('app_branded_email_html')) {
+    function app_branded_email_html(
+        string $title,
+        string $contentHtml,
+        ?string $preheader = null,
+        ?string $actionButtonText = null,
+        ?string $actionButtonUrl = null,
+        ?string $otpCode = null
+    ): string {
+        $logoUrl = app_base_url() . '/assets/logo/natcodev.jpeg';
+        $year = date('Y');
+        $preheaderText = $preheader ?: $title;
+
+        $otpBlock = '';
+        if ($otpCode !== null && $otpCode !== '') {
+            $otpBlock = '
+                <div style="margin: 28px 0; text-align: center;">
+                    <div style="display: inline-block; background: #eef8ef; border: 2px dashed #14733a; border-radius: 12px; padding: 18px 36px; text-align: center;">
+                        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #14733a; font-weight: 800; margin-bottom: 6px;">Your One-Time Code</div>
+                        <div style="font-size: 32px; font-weight: 900; letter-spacing: 6px; color: #14733a; font-family: monospace;">' . e($otpCode) . '</div>
+                        <div style="font-size: 11px; color: #667085; margin-top: 6px;">Valid for 10 minutes. Do not share with anyone.</div>
+                    </div>
                 </div>
-            </div>
-        ';
-    }
+            ';
+        }
 
-    $buttonBlock = '';
-    if ($actionButtonText !== null && $actionButtonUrl !== null && $actionButtonText !== '' && $actionButtonUrl !== '') {
-        $buttonBlock = '
-            <div style="margin: 28px 0; text-align: center;">
-                <a href="' . e($actionButtonUrl) . '" target="_blank" style="display: inline-block; background: #075f2a; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 700; font-size: 16px; box-shadow: 0 4px 12px rgba(7,95,42,0.25); text-align: center;">' . e($actionButtonText) . '</a>
-            </div>
-        ';
-    }
+        $actionBlock = '';
+        if ($actionButtonText !== null && $actionButtonUrl !== null && $actionButtonText !== '') {
+            $actionBlock = '
+                <div style="margin: 32px 0 24px; text-align: center;">
+                    <a href="' . e($actionButtonUrl) . '" style="display: inline-block; background: #14733a; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(20, 115, 58, 0.25);">' . e($actionButtonText) . '</a>
+                </div>
+            ';
+        }
 
-    return '<!DOCTYPE html>
-<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+        return '<!DOCTYPE html>
+<html lang="en">
 <head>
-    <meta charset="utf-8">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>' . e($title) . '</title>
     <style>
-        body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
-        table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
-        img { -ms-interpolation-mode: bicubic; border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
         table { border-collapse: collapse !important; }
         body { height: 100% !important; margin: 0 !important; padding: 0 !important; width: 100% !important; background-color: #f4faf2; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     </style>
@@ -149,7 +156,9 @@ function app_branded_email_html(
 </body>
 </html>';
 }
+}
 
+if (!function_exists('app_send_mail')) {
 function app_send_mail(string $to, string $subject, string $plainText, ?string $html = null): bool
 {
     $fromEmail = app_env('MAIL_FROM_ADDRESS', 'noreply@coconutventurehub.ng');
@@ -215,7 +224,9 @@ function app_send_mail(string $to, string $subject, string $plainText, ?string $
     app_log_notification('email', $to, $subject, $plainText, $sent ? 'sent' : 'failed', $transport, $sent ? 'mail() accepted message' : null, $sent ? null : 'mail() returned false');
     return $sent;
 }
+}
 
+if (!function_exists('app_log_notification')) {
 function app_log_notification(
     string $channel,
     string $recipient,
@@ -243,7 +254,9 @@ function app_log_notification(
         error_log('Notification audit log failed: ' . $e->getMessage());
     }
 }
+}
 
+if (!function_exists('app_csv_value')) {
 function app_csv_value(mixed $value): string
 {
     if ($value === null) {
@@ -263,7 +276,9 @@ function app_csv_value(mixed $value): string
 
     return $text;
 }
+}
 
+if (!function_exists('app_export_csv')) {
 function app_export_csv(string $filename, array $headers, iterable $rows): void
 {
     if (!str_ends_with(strtolower($filename), '.csv')) {
@@ -301,7 +316,9 @@ function app_export_csv(string $filename, array $headers, iterable $rows): void
     fclose($out);
     exit;
 }
+}
 
+if (!function_exists('app_csv_import_rows')) {
 function app_csv_import_rows(string $path, int $maxRows = 20000): array
 {
     $handle = fopen($path, 'rb');
@@ -336,7 +353,9 @@ function app_csv_import_rows(string $path, int $maxRows = 20000): array
     fclose($handle);
     return $rows;
 }
+}
 
+if (!function_exists('app_uploaded_file_info')) {
 function app_uploaded_file_info(array $file, array $allowedExtensions, int $maxBytes, string $label = 'File', array $allowedMimes = []): array
 {
     $error = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
@@ -414,7 +433,9 @@ function app_uploaded_file_info(array $file, array $allowedExtensions, int $maxB
         'type' => $detectedMime !== '' ? $detectedMime : (string) ($file['type'] ?? ''),
     ];
 }
+}
 
+if (!function_exists('app_safe_upload_name')) {
 function app_safe_upload_name(string $prefix, string $originalName, string $extension): string
 {
     $prefix = preg_replace('/[^a-z0-9_-]/i', '_', $prefix) ?: 'upload';
@@ -423,8 +444,11 @@ function app_safe_upload_name(string $prefix, string $originalName, string $exte
     $base = trim($base, '._-');
     return $prefix . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(5)) . '_' . substr($base, 0, 80) . '.' . strtolower($extension);
 }
+}
 
+if (!function_exists('generate_application_ref')) {
 function generate_application_ref(): string
 {
     return 'NAT-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
+}
 }
