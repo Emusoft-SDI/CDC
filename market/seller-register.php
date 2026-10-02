@@ -98,14 +98,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <h2>Create seller account</h2>
       <p>Use this for a public seller account. You can create your store profile after email verification.</p>
       <?= app_social_buttons('seller', 'market/seller-central.php') ?>
-      <form method="post">
+      <form method="post" action="../register-wizard.php">
         <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+        <input type="hidden" name="board" value="seller">
+        <input type="hidden" name="action" value="start">
         <label>Name<input name="name" required></label>
         <label>Email<input type="email" name="email" required></label>
         <label>Phone<input name="phone" placeholder="+234..."></label>
-        <label class="pass">Password<input id="seller-password" type="password" name="password" minlength="6" required><button type="button" data-toggle-password="seller-password">Show</button></label>
+        <label class="pass">Password<input id="seller-password" type="password" name="password" minlength="8" required><button type="button" data-toggle-password="seller-password">Show</button></label>
         <button class="btn">Register as Seller</button>
       </form>
+
+      <div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:16px">
+        <strong>Already started?</strong>
+        <p class="fineprint" style="margin:6px 0 10px">Enter the email you used and we will send a fresh code, then take you back to the step you stopped at.</p>
+        <form method="post" action="../register-wizard.php">
+          <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+          <input type="hidden" name="board" value="seller">
+          <input type="hidden" name="action" value="resume">
+          <label>Email you registered with<input type="email" name="email" required></label>
+          <button class="btn" type="submit">Send me a new code</button>
+        </form>
+      </div>
       <p class="fineprint">Your seller account unlocks Seller Central, store setup, products, orders, wallet payouts, promotions, and seller support after email verification.</p>
       <div class="links"><a href="seller-login.php">Already have account?</a><a href="seller-join.php">Compare seller/provider</a><a href="index.php">Browse marketplace</a></div>
     <?php endif; ?>

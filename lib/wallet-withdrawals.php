@@ -44,6 +44,10 @@ function wallet_withdrawals_ensure_schema(PDO $pdo): void
         'automation_eligible' => "TINYINT(1) NOT NULL DEFAULT 0",
         'automation_rule_snapshot' => "LONGTEXT NULL",
         'auto_processed_at' => "DATETIME NULL",
+        // Written only by an explicit cancel/refund action, so one withdrawal can never
+        // be refunded twice.
+        'funds_released' => "TINYINT(1) NOT NULL DEFAULT 0",
+        'failure_reason' => "VARCHAR(255) NULL",
     ] as $column => $definition) {
         app_add_column_if_missing($pdo, 'wallet_withdrawals', $column, $definition);
     }
@@ -387,7 +391,11 @@ function wallet_payout_banks(string $provider): array
         }
         $res = monnify_request('GET', '/api/v1/banks');
         if (!$res['success']) {
-            if (stripos($res['error'] ?? '', 'resolve host') !== false || stripos($res['error'] ?? '', 'timeout') !== false) {
+            $transportFailure = stripos($res['error'] ?? '', 'resolve host') !== false
+                || stripos($res['error'] ?? '', 'timeout') !== false;
+            // Sandbox convenience, outside production only, so the withdrawal form stays
+            // usable when Monnify is unreachable during development.
+            if ($transportFailure && !app_is_production()) {
                 return ['success' => true, 'banks' => [
                     ['name' => 'Access Bank (Mock Sandbox)', 'code' => '044'],
                     ['name' => 'First Bank (Mock Sandbox)', 'code' => '011'],
@@ -435,23 +443,46 @@ function wallet_resolve_payout_account(string $provider, string $accountNumber, 
         if (!monnify_is_configured()) {
             return ['success' => false, 'error' => monnify_configuration_error()];
         }
-        $res = monnify_request('GET', "/api/v1/disbursements/account/validate?accountNumber={$accountNumber}&bankCode={$bankCode}");
+        // Monnify deprecated v1 and now answers it with
+        // "This API endpoint has been deprecated ... migrate to the more secure endpoint:
+        //  /api/v2/disbursements/account/validate". v2 is a GET with query parameters —
+        // POST is rejected with HTTP 405. Verified against the live sandbox.
+        $res = monnify_request(
+            'GET',
+            '/api/v2/disbursements/account/validate?accountNumber=' . rawurlencode($accountNumber)
+                . '&bankCode=' . rawurlencode($bankCode)
+        );
         if (!$res['success']) {
-            if (stripos($res['error'] ?? '', 'resolve host') !== false || stripos($res['error'] ?? '', 'timeout') !== false) {
+            $transportFailure = stripos($res['error'] ?? '', 'resolve host') !== false
+                || stripos($res['error'] ?? '', 'timeout') !== false;
+            // Sandbox convenience, outside production only: a fabricated account name
+            // must never be recorded as though the bank had confirmed it.
+            if ($transportFailure && !app_is_production()) {
                 return [
                     'success' => true,
                     'account_number' => $accountNumber,
                     'account_name' => 'Sandbox Mock User',
                     'provider' => 'monnify',
+                    'sandbox_fallback' => true,
                 ];
             }
-            return ['success' => false, 'error' => $res['error'] ?? 'Unable to resolve Monnify account'];
+            // Pass Monnify's own wording through — it distinguishes bad details
+            // ("Invalid account details supplied") from a real outage.
+            return ['success' => false, 'error' => 'Monnify: ' . (string) ($res['error'] ?? 'unable to resolve that account')];
         }
         $data = $res['data']['responseBody'] ?? [];
+        $resolvedName = trim((string) ($data['accountName'] ?? ''));
+        if ($resolvedName === '') {
+            // Returning success with no name left "Verified Account Name" blank, so the
+            // withdrawal form could never be submitted.
+            return ['success' => false, 'error' => 'Monnify could not confirm a name for that account. Check the account number and bank.'];
+        }
         return [
             'success' => true,
             'account_number' => (string) ($data['accountNumber'] ?? $accountNumber),
-            'account_name' => (string) ($data['accountName'] ?? ''),
+            'account_name' => $resolvedName,
+            'bank_name' => (string) ($data['bankName'] ?? ''),
+            'bank_code' => (string) ($data['bankCode'] ?? $bankCode),
             'provider' => 'monnify',
         ];
     }
@@ -475,8 +506,14 @@ function wallet_admin_process_withdrawal(PDO $pdo, int $withdrawalId, int $admin
         if (!$withdrawal) {
             throw new RuntimeException('Withdrawal request was not found.');
         }
-        if ((string) $withdrawal['status'] !== 'pending') {
-            throw new RuntimeException('Only pending withdrawals can be processed.');
+        if (!in_array((string) $withdrawal['status'], ['pending', 'failed'], true)) {
+            // 'failed' is retryable: nothing left the account, so an operator may resend.
+            throw new RuntimeException('Only pending or failed withdrawals can be processed.');
+        }
+        if ((int) ($withdrawal['funds_released'] ?? 0) === 1) {
+            // The held money has already gone back to the user, so paying it out now
+            // would move funds twice.
+            throw new RuntimeException('The held funds for this withdrawal were already returned to the wallet, so it cannot be paid out.');
         }
         $walletStmt = $pdo->prepare("SELECT * FROM wallets WHERE id = ? FOR UPDATE");
         $walletStmt->execute([(int) $withdrawal['wallet_id']]);
@@ -576,3 +613,130 @@ function wallet_admin_process_withdrawal(PDO $pdo, int $withdrawalId, int $admin
     }
 }
 
+/**
+ * Return a withdrawal's held amount to the available balance.
+ *
+ * A withdrawal request moves money out of `balance` into `hold_balance`. When a payout
+ * never happens, that money used to sit in hold with nothing the user could do about it.
+ * This is the single place that undoes the hold, and it runs ONLY when an explicit
+ * action asks for it — a failed payout never calls this on its own, because whether the
+ * transfer reached the bank is not always known.
+ *
+ * Guarded by `funds_released`, so calling it twice cannot pay twice.
+ *
+ * @param string $status terminal status to record: failed | cancelled
+ * @return array{success: bool, released: bool, amount: float, error?: string}
+ */
+function wallet_release_withdrawal_funds(PDO $pdo, int $withdrawalId, string $status, string $reason = '', int $actorId = 0): array
+{
+    $status = in_array($status, ['failed', 'cancelled'], true) ? $status : 'cancelled';
+    $ownsTransaction = !$pdo->inTransaction();
+
+    try {
+        if ($ownsTransaction) {
+            $pdo->beginTransaction();
+        }
+
+        $stmt = $pdo->prepare('SELECT * FROM wallet_withdrawals WHERE id = ? FOR UPDATE');
+        $stmt->execute([$withdrawalId]);
+        $withdrawal = $stmt->fetch();
+        if (!$withdrawal) {
+            if ($ownsTransaction) {
+                $pdo->rollBack();
+            }
+            return ['success' => false, 'released' => false, 'amount' => 0.0, 'error' => 'Withdrawal not found.'];
+        }
+
+        if ((int) ($withdrawal['funds_released'] ?? 0) === 1) {
+            if ($ownsTransaction) {
+                $pdo->rollBack();
+            }
+            return ['success' => true, 'released' => false, 'amount' => 0.0, 'duplicate' => true];
+        }
+
+        // A payout that actually completed must never be reversed here.
+        if ((string) $withdrawal['status'] === 'approved') {
+            if ($ownsTransaction) {
+                $pdo->rollBack();
+            }
+            return ['success' => false, 'released' => false, 'amount' => 0.0, 'error' => 'This withdrawal was already paid out.'];
+        }
+
+        $walletStmt = $pdo->prepare('SELECT * FROM wallets WHERE id = ? FOR UPDATE');
+        $walletStmt->execute([(int) $withdrawal['wallet_id']]);
+        $wallet = $walletStmt->fetch();
+        if (!$wallet) {
+            if ($ownsTransaction) {
+                $pdo->rollBack();
+            }
+            return ['success' => false, 'released' => false, 'amount' => 0.0, 'error' => 'Linked wallet not found.'];
+        }
+
+        $amount = (float) $withdrawal['amount'];
+        $newBalance = (float) $wallet['balance'] + $amount;
+        $newHold = max(0, (float) ($wallet['hold_balance'] ?? 0) - $amount);
+
+        $pdo->prepare('UPDATE wallets SET balance = ?, hold_balance = ?, last_activity_at = NOW() WHERE id = ?')
+            ->execute([$newBalance, $newHold, (int) $wallet['id']]);
+
+        $note = trim($reason) !== '' ? trim($reason) : 'Withdrawal ' . $status . '; funds returned to your balance.';
+        $pdo->prepare("UPDATE wallet_withdrawals
+            SET status = ?, funds_released = 1, failure_reason = ?, admin_note = ?, updated_at = NOW()
+            WHERE id = ?")
+            ->execute([$status, $note, $note, $withdrawalId]);
+
+        // wallet_transactions.description is a legacy latin1 column, so it is not
+        // appended to: mixing it with a utf8mb4 binding threw
+        // "Illegal mix of collations ... for operation 'concat'".
+        $pdo->prepare("UPDATE wallet_transactions SET status = ?, completed_at = NOW() WHERE reference = ?")
+            ->execute([$status, (string) $withdrawal['reference']]);
+
+        if ($ownsTransaction) {
+            $pdo->commit();
+        }
+
+        return ['success' => true, 'released' => true, 'amount' => $amount, 'balance' => $newBalance, 'status' => $status];
+    } catch (Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        error_log('wallet_release_withdrawal_funds failed: ' . $e->getMessage());
+
+        return ['success' => false, 'released' => false, 'amount' => 0.0, 'error' => 'Unable to return the funds right now.'];
+    }
+}
+
+/**
+ * Let a user withdraw their own stuck request and get the money back.
+ *
+ * Only ever called from an explicit button. Allowed while nothing has been sent, or
+ * after a payout failed. A withdrawal whose transfer state is unknown stays with an
+ * operator, because the money may already be with the bank.
+ *
+ * @return array{success: bool, error?: string, amount?: float, status?: string}
+ */
+function wallet_cancel_withdrawal(PDO $pdo, int $withdrawalId, int $userId, string $reason = ''): array
+{
+    wallet_ensure_schema($pdo);
+    wallet_withdrawals_ensure_schema($pdo);
+
+    $stmt = $pdo->prepare('SELECT * FROM wallet_withdrawals WHERE id = ? AND user_id = ? LIMIT 1');
+    $stmt->execute([$withdrawalId, $userId]);
+    $withdrawal = $stmt->fetch();
+    if (!$withdrawal) {
+        return ['success' => false, 'error' => 'Withdrawal request not found.'];
+    }
+    if ((int) ($withdrawal['funds_released'] ?? 0) === 1) {
+        return ['success' => true, 'amount' => (float) $withdrawal['amount'], 'status' => (string) $withdrawal['status'], 'duplicate' => true];
+    }
+    if (!in_array((string) $withdrawal['status'], ['pending', 'failed'], true)) {
+        return ['success' => false, 'error' => 'This withdrawal cannot be cancelled now — it has already been sent.'];
+    }
+    if ((string) ($withdrawal['payout_status'] ?? '') === 'unconfirmed') {
+        return ['success' => false, 'error' => 'We are still confirming this transfer with the bank. Please contact support so we can resolve it.'];
+    }
+
+    $note = trim($reason) !== '' ? trim($reason) : 'Cancelled by the account holder; funds returned to the wallet.';
+
+    return wallet_release_withdrawal_funds($pdo, $withdrawalId, 'cancelled', $note, $userId);
+}

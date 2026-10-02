@@ -194,6 +194,7 @@ $registerUrl = 'register.php' . ($course ? '?course_id=' . $courseId : '');
   </section>
 </main>
 <script>document.querySelectorAll('[data-toggle-password]').forEach(function(button){button.addEventListener('click',function(){var input=document.getElementById(button.getAttribute('data-toggle-password'));if(!input)return;var show=input.type==='password';input.type=show?'text':'password';button.textContent=show?'Hide':'Show';});});</script>
+<?= public_footer() ?>
 </body>
 </html>
 

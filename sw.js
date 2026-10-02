@@ -17,7 +17,8 @@ const CORE_ASSETS = [
   scoped('/mobile/app.js'),
   scoped('/mobile/db.js'),
   scoped('/assets/css/style.css'),
-  scoped('/assets/logo/natcodev-logo.png')
+  // natcodev-logo.png is a 0-byte placeholder; cache the logo that actually exists.
+  scoped('/assets/logo/natcodev.jpeg')
 ];
 
 self.addEventListener('install', event => {

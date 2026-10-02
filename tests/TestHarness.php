@@ -78,11 +78,50 @@ class TestHarness
     }
 
     /**
+     * Refuse to run against anything that is not clearly a test database.
+     *
+     * The suites do not just read: they insert users, articles, listings, orders and
+     * payments. Run without DB_DATABASE set they wrote all of that into the live
+     * database — it was found holding 732 generated fixture accounts, 69 fixture
+     * rows repeating the same three news posts 31/26/15 times, and 33 copies of one
+     * marketplace listing. This makes that impossible to do by accident.
+     *
+     * A database qualifies only if its name is test-scoped, e.g. natcodevcom_data_test.
+     * Set NC_ALLOW_NON_TEST_DB=1 to override, for a database you accept losing.
+     */
+    public static function assertTestDatabase(PDO $pdo): void
+    {
+        $name = (string) $pdo->query('SELECT DATABASE()')->fetchColumn();
+
+        // A test-scoped name is always fine, no override needed.
+        if ($name !== '' && preg_match('/(^|_)test(_|$)/i', $name)) {
+            return;
+        }
+
+        if (getenv('NC_ALLOW_NON_TEST_DB') === '1') {
+            // To STDERR: the suites call session_start(), which warns if anything has
+            // already been written to STDOUT.
+            fwrite(STDERR, "\033[1;33m[WARN] NC_ALLOW_NON_TEST_DB=1: writing fixtures into '{$name}'.\033[0m\n");
+            return;
+        }
+
+        $message = "REFUSING TO RUN: the connected database is '{$name}', which is not a test database.\n"
+            . "These suites INSERT users, news, listings, orders and payments.\n\n"
+            . "Point them at an isolated database instead:\n"
+            . "  DB_DATABASE=<your_test_db> php tests/run_security_suite.php\n\n"
+            . "Only set NC_ALLOW_NON_TEST_DB=1 for a database you are willing to lose.\n";
+
+        fwrite(STDERR, "\033[1;31m" . $message . "\033[0m");
+        exit(2);
+    }
+
+    /**
      * Return active MySQL database PDO instance and prepare test schema
      */
     public static function createTestDb(): PDO
     {
         $pdo = db();
+        self::assertTestDatabase($pdo);
         app_ensure_core_schema($pdo);
         
         $pdo->exec("
@@ -108,3 +147,13 @@ class TestHarness
         return $pdo;
     }
 }
+
+/*
+ * Guard at include time, not just inside createTestDb().
+ *
+ * Not every suite goes through createTestDb(): four of them call db() directly, and
+ * three of those did not load this file at all. Putting the check here means any
+ * suite that includes the harness is protected before it can write anything, however
+ * it obtains its connection.
+ */
+TestHarness::assertTestDatabase(db());

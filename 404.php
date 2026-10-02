@@ -82,5 +82,6 @@ $logoPath = app_primary_logo_url();
     </section>
   </main>
 </div>
+<?= public_footer() ?>
 </body>
 </html>

@@ -39,6 +39,34 @@ if (isset($_POST['request_withdrawal']) && verify_csrf($_POST['_csrf'] ?? null))
     }
 }
 
+// Explicit self-service recovery: a withdrawal that never paid out used to hold the
+// money with no action available to the user.
+if (isset($_POST['cancel_withdrawal']) && verify_csrf($_POST['_csrf'] ?? null)) {
+    $cancelResult = wallet_cancel_withdrawal($pdo, (int) ($_POST['withdrawal_id'] ?? 0), $userId, (string) ($_POST['cancel_reason'] ?? ''));
+    if (!empty($cancelResult['success'])) {
+        $returned = (float) ($cancelResult['amount'] ?? 0);
+        $walletNotice = $returned > 0
+            ? 'Withdrawal cancelled. ' . buyer_money($returned) . ' is back in your available balance.'
+            : 'That withdrawal was already cancelled.';
+        $wallet = wallet_get_or_create($pdo, $userId);
+    } else {
+        $walletError = (string) ($cancelResult['error'] ?? 'Unable to cancel that withdrawal.');
+    }
+}
+
+// Explicit re-check for a deposit whose webhook never arrived.
+if (isset($_POST['recheck_payment']) && verify_csrf($_POST['_csrf'] ?? null)) {
+    $verification = monnify_verify_wallet_funding($pdo, $userId, (string) ($_POST['recheck_reference'] ?? ''));
+    if (($verification['status'] ?? '') === 'completed') {
+        $walletNotice = 'Payment confirmed. Your wallet has been credited.';
+        $wallet = wallet_get_or_create($pdo, $userId);
+    } elseif (!empty($verification['success'])) {
+        $walletNotice = 'The bank still shows this payment as ' . e((string) ($verification['status'] ?? 'pending')) . '. Please check again shortly.';
+    } else {
+        $walletError = (string) ($verification['error'] ?? 'Unable to check that payment right now.');
+    }
+}
+
 $stmt = $pdo->prepare("SELECT * FROM wallet_transactions WHERE wallet_id = ? ORDER BY created_at DESC LIMIT 80");
 $stmt->execute([(int) $wallet['id']]);
 $transactions = $stmt->fetchAll();
@@ -74,7 +102,19 @@ buyer_page_start('Buyer Wallet & Finance', 'wallet', $user, buyer_counts($pdo, $
     <div class="card-head"><h2>Wallet Transactions</h2><span class="badge">Buyer finance</span></div>
     <div class="list">
       <?php foreach ($transactions as $tx): ?>
-        <div class="row"><span><strong><?= e((string) ($tx['description'] ?: $tx['reference'])) ?></strong><br><small><?= e((string) $tx['created_at']) ?> / <?= e((string) $tx['reference']) ?></small></span><span><strong><?= e(buyer_money((float) $tx['amount'])) ?></strong><br><?= buyer_status_badge((string) $tx['status']) ?></span></div>
+        <?php $txRecheckable = strtolower((string) $tx['status']) === 'pending'
+            && strtolower((string) ($tx['provider'] ?? '')) === 'monnify'
+            && (string) ($tx['direction'] ?? '') !== 'outflow'; ?>
+        <div class="row">
+          <span><strong><?= e((string) ($tx['description'] ?: $tx['reference'])) ?></strong><br><small><?= e((string) $tx['created_at']) ?> / <?= e((string) $tx['reference']) ?></small>
+            <?php if ($txRecheckable): ?><br><small>Already paid? Check the status with Monnify.</small><?php endif; ?>
+          </span>
+          <span><strong><?= e(buyer_money((float) $tx['amount'])) ?></strong><br><?= buyer_status_badge((string) $tx['status']) ?>
+            <?php if ($txRecheckable): ?>
+              <form method="post" style="margin-top:8px"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="recheck_reference" value="<?= e((string) $tx['reference']) ?>"><button class="btn" type="submit" name="recheck_payment" style="padding:6px 11px;font-size:.82rem">Check again</button></form>
+            <?php endif; ?>
+          </span>
+        </div>
       <?php endforeach; ?>
       <?php if (!$transactions): ?><div class="alert ok">No wallet transactions yet.</div><?php endif; ?>
     </div>
@@ -105,7 +145,21 @@ buyer_page_start('Buyer Wallet & Finance', 'wallet', $user, buyer_counts($pdo, $
     <div class="card-head"><h2>Withdrawal Requests</h2><span class="badge"><?= count($withdrawals) ?></span></div>
     <div class="list">
       <?php foreach ($withdrawals as $wd): ?>
-        <div class="row"><span><strong><?= e((string) $wd['reference']) ?></strong><br><small><?= e((string) $wd['provider']) ?> / <?= e((string) $wd['requested_at']) ?></small></span><span><strong><?= e(buyer_money((float) $wd['final_amount'])) ?></strong><br><?= buyer_status_badge((string) $wd['status']) ?></span></div>
+        <?php $wdReleased = (int) ($wd['funds_released'] ?? 0) === 1;
+        $wdUnderReview = strtolower((string) ($wd['payout_status'] ?? '')) === 'unconfirmed';
+        $wdCancellable = !$wdReleased && in_array((string) $wd['status'], ['pending', 'failed'], true) && !$wdUnderReview; ?>
+        <div class="row">
+          <span><strong><?= e((string) $wd['reference']) ?></strong><br><small><?= e((string) $wd['provider']) ?> / <?= e((string) $wd['requested_at']) ?></small>
+            <?php if (!empty($wd['failure_reason'])): ?><br><small style="color:#b42318"><?= e((string) $wd['failure_reason']) ?></small><?php endif; ?>
+            <?php if ($wdReleased): ?><br><small style="color:#075c34">Funds returned to your available balance.</small><?php endif; ?>
+            <?php if ($wdUnderReview): ?><br><small style="color:#9a6500">Being confirmed with the bank. <a href="../support/index.php?category=wallet">Contact support</a> if this takes long.</small><?php endif; ?>
+          </span>
+          <span><strong><?= e(buyer_money((float) $wd['final_amount'])) ?></strong><br><?= buyer_status_badge((string) $wd['status']) ?>
+            <?php if ($wdCancellable): ?>
+              <form method="post" style="margin-top:8px"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="withdrawal_id" value="<?= (int) $wd['id'] ?>"><button class="btn" type="submit" name="cancel_withdrawal" style="padding:6px 11px;font-size:.82rem">Cancel &amp; return funds</button></form>
+            <?php endif; ?>
+          </span>
+        </div>
       <?php endforeach; ?>
       <?php if (!$withdrawals): ?><div class="alert ok">No withdrawal requests yet.</div><?php endif; ?>
     </div>

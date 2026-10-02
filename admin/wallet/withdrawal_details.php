@@ -86,6 +86,10 @@ $platformTotalCertificateEarnings = $platformEarnings['total'] ?? 0.0;
 $notice = trim((string) ($_GET['msg'] ?? ''));
 $error = trim((string) ($_GET['error'] ?? ''));
 $isPending = (string) ($wd['status'] ?? '') === 'pending';
+// A failed payout never moved any money, so an operator can explicitly send it again.
+$isFailed = (string) ($wd['status'] ?? '') === 'failed';
+$fundsReleased = (int) ($wd['funds_released'] ?? 0) === 1;
+$isDecidable = ($isPending || $isFailed) && !$fundsReleased;
 $roleLabel = ucwords(str_replace('_', ' ', (string) (($wd['platform_role'] ?? '') ?: ($wd['role'] ?? 'Public user'))));
 $provider = strtolower((string) ($wd['provider'] ?? 'manual'));
 $reviewDueInput = wx_dt_input($wd['review_due_at'] ?? null);
@@ -111,6 +115,6 @@ $reviewDueInput = wx_dt_input($wd['review_due_at'] ?? null);
         </div>
     </div>
     <?php endif; ?>
-    <div class="card shadow-sm decision-panel"><div class="card-body"><h2 class="h5 mb-2">Operator Decision</h2><p class="text-secondary small">Approve only after the bank details and review rule are acceptable. Rejecting returns the held funds to the user's wallet.</p><?php if ($isPending): ?><form method="post" class="d-grid gap-3"><input type="hidden" name="_csrf" value="<?= wx_e(csrf_token()) ?>"><label class="form-label">Admin note</label><textarea class="form-control" name="admin_note" rows="5" maxlength="1000"></textarea><button class="btn btn-approve btn-lg" name="action" value="approve" onclick="return confirm('Approve this withdrawal and initiate payout?')">Approve & Initiate Payout</button><button class="btn btn-reject" name="action" value="reject" onclick="return confirm('Reject this withdrawal and release held funds back to the wallet?')">Reject & Release Hold</button></form><?php else: ?><div class="alert alert-secondary mb-0">This withdrawal is no longer pending.</div><?php endif; ?></div></div>
+    <div class="card shadow-sm decision-panel"><div class="card-body"><h2 class="h5 mb-2">Operator Decision</h2><p class="text-secondary small">Approve only after the bank details and review rule are acceptable. Rejecting returns the held funds to the user's wallet.</p><?php if ($isDecidable): ?><?php if ($isFailed): ?><div class="alert alert-warning small"><strong>Previous payout attempt failed.</strong><br><?= wx_e((string) ($wd['failure_reason'] ?? '')) ?></div><?php endif; ?><form method="post" class="d-grid gap-3"><input type="hidden" name="_csrf" value="<?= wx_e(csrf_token()) ?>"><label class="form-label">Admin note</label><textarea class="form-control" name="admin_note" rows="5" maxlength="1000"></textarea><button class="btn btn-approve btn-lg" name="action" value="approve" onclick="return confirm('<?= $isFailed ? 'Retry this payout now?' : 'Approve this withdrawal and initiate payout?' ?>')"><?= $isFailed ? 'Retry Payout' : 'Approve &amp; Initiate Payout' ?></button><button class="btn btn-reject" name="action" value="reject" onclick="return confirm('Reject this withdrawal and release held funds back to the wallet?')">Reject & Release Hold</button></form><?php else: ?><div class="alert alert-secondary mb-0">This withdrawal is <?= wx_e((string) $wd['status']) ?> and needs no further decision.<?php if ($fundsReleased): ?> The held funds were returned to the user's wallet, so it must not be paid out again.<?php endif; ?></div><?php endif; ?></div></div>
 </div>
 </div></main><script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script></body></html>

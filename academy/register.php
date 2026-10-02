@@ -105,20 +105,35 @@ $loginNext = '../academy/dashboard.php' . ($course ? '?screen=course&course_id='
     <?php if ($error): ?><div class="alert err"><?= e($error) ?></div><?php endif; ?>
     <?php if ($message): ?><div class="alert ok"><?= e($message) ?></div><?php endif; ?>
     <?= app_social_buttons('learner', $oauthNext) ?>
-    <form method="post">
+    <form method="post" action="../register-wizard.php">
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+      <input type="hidden" name="board" value="learner">
+      <input type="hidden" name="action" value="start">
       <input type="hidden" name="course_id" value="<?= $courseId ?>">
       <label>Name<input name="name" required></label>
       <label>Email<input type="email" name="email" required></label>
       <label>Phone<input name="phone" placeholder="+234..."></label>
-      <label class="pass">Password<input id="academy-register-password" type="password" name="password" minlength="6" required><button type="button" data-toggle-password="academy-register-password">Show</button></label>
+      <label class="pass">Password<input id="academy-register-password" type="password" name="password" minlength="8" required><button type="button" data-toggle-password="academy-register-password">Show</button></label>
       <button class="btn">Register as Learner</button>
     </form>
+
+    <div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:16px">
+      <strong>Already started?</strong>
+      <p class="fineprint" style="margin:6px 0 10px">Enter the email you used and we will send a fresh code, then take you back to the step you stopped at.</p>
+      <form method="post" action="../register-wizard.php">
+        <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+        <input type="hidden" name="board" value="learner">
+        <input type="hidden" name="action" value="resume">
+        <label>Email you registered with<input type="email" name="email" required></label>
+        <button class="btn" type="submit">Send me a new code</button>
+      </form>
+    </div>
     <p class="fineprint">Learner registration does not grant seller, provider, grower, field, coordinator, or admin privileges. Those are requested from inside your account and reviewed before approval.</p>
     <div class="links"><a href="login.php<?= $course ? '?course_id=' . (int) $courseId : '' ?>">Already registered?</a><a href="index.php">Back to Academy</a></div>
   </section>
 </main>
 <script>document.querySelectorAll('[data-toggle-password]').forEach(function(button){button.addEventListener('click',function(){var input=document.getElementById(button.getAttribute('data-toggle-password'));if(!input)return;var show=input.type==='password';input.type=show?'text':'password';button.textContent=show?'Hide':'Show';});});</script>
+<?= public_footer() ?>
 </body>
 </html>
 

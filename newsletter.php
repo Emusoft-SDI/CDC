@@ -118,10 +118,7 @@ try {
     </div>
     <p>You can unsubscribe at any time.</p>
     <a class="home-link" href="index.php">Return to NATCODEV</a>
-    <div class="footer">
-      <p>NATCODEV - National Coconut Development & Propagation Initiative</p>
-      <p>info@natcodev.com.ng | www.natcodev.com.ng</p>
-    </div>
   </div>
+<?= public_footer() ?>
 </body>
 </html>

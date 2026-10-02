@@ -288,5 +288,6 @@ function escapeHtml(value) {
 stateSelect.addEventListener('change', loadLgas);
 if (window.lucide) { lucide.createIcons(); }
 </script>
+<?= public_footer() ?>
 </body>
 </html>

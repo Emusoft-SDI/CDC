@@ -214,7 +214,7 @@ $upgradePaths = [
   </div>
 </main>
 
-<footer class="footer"><div class="bar"><span><i class="fas fa-shield-halved"></i> Your data is secure and confidential.</span><span><i class="fas fa-location-dot"></i> <?= e(implode(', ', $office['address_lines'])) ?></span><span><a href="tel:<?= e($office['phone_tel']) ?>"><?= e($office['phone_display']) ?></a> / <a href="mailto:<?= e($office['email']) ?>"><?= e($office['email']) ?></a></span></div></footer>
+<?= public_footer() ?>
 <script src="../assets/js/support-public.js"></script></body>
 </html>
 

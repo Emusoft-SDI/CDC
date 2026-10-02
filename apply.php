@@ -1,21 +1,38 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Grower registration entry point.
+ *
+ * This page used to ask for roughly eighteen fields on one screen and drew a
+ * decorative "Step 1 of 6" strip whose steps 2-6 did not exist. Now it collects only
+ * what is needed to create the account: name, email, phone, password. Verification and
+ * the six substantive steps live in the shared wizard (register-wizard.php?board=grower),
+ * which is gated behind the emailed OTP and can be resumed at any time.
+ */
+
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/lib/nigeria-locations.php';
-require_once __DIR__ . '/lib/otp-delivery.php';
+
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
 
 $pdo = db();
 app_ensure_core_schema($pdo);
-$states = app_table_exists($pdo, 'nigeria_states')
-    ? $pdo->query("SELECT id, state_name FROM nigeria_states ORDER BY state_name")->fetchAll()
-    : [];
+
 $applicationType = strtolower((string) ($_GET['type'] ?? 'farmer'));
 $applicationTypeLabel = match ($applicationType) {
     'outgrower' => 'Commercial Coconut Outgrowers Registration',
     'cooperative' => 'Coconut Farmers Cooperative Registration',
     default => 'Coconut Grower Registration',
 };
+$seedMemberType = match ($applicationType) {
+    'cooperative' => 'cooperative',
+    'corporate' => 'corporate',
+    default => 'individual',
+};
+
 $error = '';
 if (isset($_GET['social'])) {
     app_oauth_begin((string) $_GET['social'], 'grower', 'dashboard/index.php');
@@ -36,6 +53,12 @@ if (isset($_GET['oauth_callback'])) {
 if (isset($_GET['oauth_error'])) {
     $error = app_oauth_missing_credentials_message((string) ($_GET['provider'] ?? 'google'));
 }
+
+$logo = app_primary_logo_url();
+$stepPreview = [];
+foreach (registration_wizard_steps((array) registration_wizard_board('grower')) as $step) {
+    $stepPreview[] = (string) $step['title'];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -43,67 +66,151 @@ if (isset($_GET['oauth_error'])) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Register as a Grower - NATCODEV</title>
+  <meta name="description" content="Register as a coconut grower with NATCODEV. Four fields to start, verify your email, then complete your farm profile step by step.">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <style>
-    :root{--green:#06451f;--green2:#08753a;--mint:#eef8ef;--gold:#d89b10;--blue:#0e7490;--ink:#101828;--muted:#667085;--line:#dfe8d8;--bg:#fbfcf8;--soft:#f7fbf4;--shadow:0 18px 48px rgba(16,24,40,.08)}*{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:"Segoe UI",Arial,sans-serif;color:var(--ink)}a{text-decoration:none;color:inherit}.top{height:82px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 36px;position:sticky;top:0;z-index:20}.brand{display:flex;gap:12px;align-items:center}.brand img{width:62px;height:62px;border-radius:50%;object-fit:contain}.brand strong{font-size:1.65rem;color:var(--green)}.brand small{display:block;font-weight:800;color:#344054}.nav{display:flex;gap:28px;font-weight:900}.nav a.active{color:var(--green);border-bottom:3px solid var(--green);padding-bottom:27px}.actions{display:flex;gap:12px;align-items:center}.btn{display:inline-flex;gap:10px;align-items:center;justify-content:center;border:1px solid var(--green);border-radius:8px;background:var(--green);color:#fff;font-weight:950;padding:12px 18px;cursor:pointer}.btn.light{background:#fff;color:var(--green)}.icon-btn{width:48px;height:48px;border:1px solid var(--line);border-radius:9px;display:grid;place-items:center;color:var(--green)}.hero{min-height:255px;background:linear-gradient(90deg,rgba(4,38,16,.86),rgba(4,38,16,.58) 48%,rgba(4,38,16,.12)),url("assets/public/grower-registration-hero.png") center/cover;color:#fff;padding:42px 58px;display:flex;align-items:center}.hero h1{font-size:clamp(2.2rem,4vw,4.25rem);line-height:1;margin:0 0 12px}.hero p{font-size:1.1rem;line-height:1.5;max-width:720px;font-weight:750}.wrap{padding:0 52px 34px}.shell{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:0;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);margin-top:-42px;position:relative;z-index:2;overflow:hidden}.form{padding:30px 36px}.form h2,.side h2{color:var(--green);margin:0}.form-head{display:flex;gap:18px;align-items:flex-start;margin-bottom:18px}.form-head i{width:54px;height:54px;border-radius:50%;display:grid;place-items:center;background:#e8f6ec;color:var(--green);font-size:1.35rem;flex:0 0 auto}.form-head p{color:var(--muted);font-weight:750;line-height:1.5;margin:7px 0 0;max-width:700px}.progress-strip{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:18px 0 22px}.progress-step{border:1px solid var(--line);border-radius:9px;background:#fff;padding:10px;min-height:68px}.progress-step.active{background:var(--mint);border-color:#b9e3c3}.progress-step span{width:26px;height:26px;border-radius:50%;background:#d0d5dd;color:#344054;display:grid;place-items:center;font-size:.8rem;font-weight:950;margin-bottom:6px}.progress-step.active span{background:var(--green);color:#fff}.progress-step strong{display:block;font-size:.86rem;line-height:1.2}.form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}label{display:block;font-weight:850;color:#1f2937}input,select,textarea{width:100%;border:1px solid var(--line);border-radius:9px;padding:13px;margin-top:7px;font:inherit;background:#fff}input:focus,select:focus,textarea:focus{outline:3px solid #dff3e5;border-color:#7ccf94}.wide{grid-column:1/-1}.pass{position:relative}.pass button{position:absolute;right:9px;top:36px;border:0;background:#eef8ef;color:var(--green);border-radius:8px;padding:8px 10px;font-weight:900;cursor:pointer}.safe{display:flex;gap:14px;align-items:center;background:#f5fbf4;border:1px solid #cbe8cd;border-radius:10px;padding:14px;margin:16px 0;color:#06451f}.submit-row{display:flex;gap:16px;align-items:center;flex-wrap:wrap}.side{border-left:1px solid var(--line);padding:24px;background:var(--soft)}.guide-card{position:sticky;top:106px}.guide-intro{color:var(--muted);font-weight:750;line-height:1.5;margin:8px 0 16px}.mini-help{display:flex;gap:12px;align-items:center;border:1px solid #cbe8cd;border-radius:10px;background:#fff;padding:14px;margin-bottom:14px}.mini-help i{color:var(--green);font-size:1.35rem}.guide-section{border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:10px;overflow:hidden}.guide-section summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 15px;font-weight:950;color:#1f2937}.guide-section summary::-webkit-details-marker{display:none}.guide-section summary:after{content:"+";width:24px;height:24px;border-radius:50%;background:#eef8ef;color:var(--green);display:grid;place-items:center}.guide-section[open] summary:after{content:"-"}.guide-body{border-top:1px solid var(--line);padding:13px 15px;color:#475467;font-weight:750;line-height:1.45}.guide-list{display:grid;gap:10px;margin:0;padding:0;list-style:none}.guide-list li{display:flex;gap:10px;align-items:flex-start}.guide-list i{color:var(--green);margin-top:3px}.doc-row{display:flex;justify-content:space-between;gap:10px;margin:10px 0}.badge{border-radius:999px;background:#fff3d6;color:#9a6500;padding:4px 8px;font-size:.78rem;font-weight:950;white-space:nowrap}.next-list{counter-reset:next;margin:0;padding:0;list-style:none;display:grid;gap:10px}.next-list li{counter-increment:next;display:flex;gap:10px}.next-list li:before{content:counter(next);width:24px;height:24px;border-radius:50%;background:#e8f6ec;color:var(--green);display:grid;place-items:center;font-weight:950;flex:0 0 auto}.trust{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;margin-top:18px}.trust-item{display:flex;gap:12px;align-items:center}.trust-item i{font-size:1.55rem;color:var(--green)}.trust-item strong{display:block}.trust-item span{color:#475467;font-weight:750}.footer{background:#052d15;color:#e8f6ec;display:flex;justify-content:space-between;gap:20px;align-items:center;padding:20px 52px;font-weight:900}.footer span{display:flex;gap:10px;align-items:center}.alert{padding:13px;border-radius:10px;margin-bottom:14px;font-weight:850;display:none}.alert.ok{background:#e8f6ec;color:var(--green);border:1px solid #b9e3c3}.alert.err{background:#fff1f2;color:#b42318;border:1px solid #fecdd3}.social{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 18px}.social a{border:1px solid var(--line);border-radius:8px;padding:10px 12px;color:var(--green);font-weight:900}.social span{color:var(--muted);font-weight:800;padding:10px 0}
-    @media(max-width:1180px){.shell{grid-template-columns:1fr}.side{border-left:0;border-top:1px solid var(--line)}.guide-card{position:static}.progress-strip,.trust{grid-template-columns:repeat(3,1fr)}}@media(max-width:760px){.top{height:auto;padding:14px;align-items:flex-start;flex-direction:column}.nav{gap:14px;flex-wrap:wrap}.hero{min-height:230px;padding:32px 18px}.wrap{padding:0 14px 28px}.form{padding:22px}.form-head{align-items:flex-start}.form-grid,.progress-strip,.trust{grid-template-columns:1fr}.footer{align-items:flex-start;flex-direction:column;padding:20px}}
+    :root{--green:#06451f;--green2:#08753a;--mint:#eef8ef;--gold:#d89b10;--ink:#101828;--muted:#667085;--line:#dfe8d8;--bg:#fbfcf8;--soft:#f7fbf4;--shadow:0 18px 48px rgba(16,24,40,.08)}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);font-family:"Segoe UI",Arial,sans-serif;color:var(--ink)}
+    a{text-decoration:none;color:inherit}
+    .top{min-height:78px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 36px;position:sticky;top:0;z-index:20}
+    .brand{display:flex;gap:12px;align-items:center}
+    .brand img{width:58px;height:58px;border-radius:50%;object-fit:contain}
+    .brand strong{font-size:1.5rem;color:var(--green);display:block;line-height:1}
+    .brand small{display:block;font-weight:800;color:#344054;font-size:.68rem}
+    .nav{display:flex;gap:24px;font-weight:800;flex-wrap:wrap}
+    .nav a:hover{color:var(--green2)}
+    .hero{min-height:230px;background:linear-gradient(90deg,rgba(4,38,16,.88),rgba(4,38,16,.6) 48%,rgba(4,38,16,.15)),url("assets/public/grower-registration-hero.png") center/cover;color:#fff;padding:40px 56px;display:flex;align-items:center}
+    .hero h1{font-size:clamp(2rem,4vw,3.6rem);line-height:1.05;margin:0 0 12px}
+    .hero p{font-size:1.08rem;line-height:1.55;max-width:660px;font-weight:600;margin:0}
+    .wrap{padding:0 52px 34px}
+    .shell{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:0;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);margin-top:-38px;position:relative;z-index:2;overflow:hidden}
+    .form{padding:30px 34px}
+    .form h2{color:var(--green);margin:0 0 8px;font-size:1.4rem}
+    .form h3{color:var(--green);margin:0 0 10px;font-size:1.05rem}
+    .lead{color:#344054;font-weight:600;line-height:1.6;margin:0 0 22px}
+    .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+    .wide{grid-column:1/-1}
+    label{display:block;font-weight:800;color:#1f2937;font-size:.93rem}
+    input{width:100%;border:1px solid var(--line);border-radius:9px;padding:13px;margin-top:7px;font:inherit;background:#fff}
+    input:focus{outline:3px solid #dff3e5;border-color:#7ccf94}
+    .submit-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:20px}
+    .btn{display:inline-flex;gap:10px;align-items:center;justify-content:center;border:1px solid var(--green);border-radius:8px;background:var(--green);color:#fff;padding:13px 20px;cursor:pointer;font:inherit;font-weight:800}
+    .btn:hover{background:var(--green2);border-color:var(--green2)}
+    .btn.light{background:#fff;color:var(--green)}
+    .btn.light:hover{background:var(--soft);color:var(--green)}
+    .hint{color:var(--muted);font-size:.88rem;font-weight:600;line-height:1.5}
+    .safe{display:flex;gap:14px;align-items:center;background:#f5fbf4;border:1px solid #cbe8cd;border-radius:10px;padding:14px;margin:18px 0}
+    .safe i{color:var(--green);font-size:1.2rem}
+    .divider{border:0;border-top:1px solid var(--line);margin:28px 0}
+    .steps-preview{display:grid;gap:8px;margin:0;padding:0;list-style:none;counter-reset:sp}
+    .steps-preview li{counter-increment:sp;display:flex;gap:10px;align-items:flex-start;font-weight:700;color:#344054;font-size:.93rem}
+    .steps-preview li:before{content:counter(sp);width:24px;height:24px;border-radius:50%;background:var(--mint);color:var(--green);display:grid;place-items:center;font-weight:800;flex:0 0 auto;font-size:.78rem}
+    .side{border-left:1px solid var(--line);padding:24px;background:var(--soft)}
+    .guide-card{position:sticky;top:100px}
+    .mini-help{display:flex;gap:12px;align-items:center;border:1px solid #cbe8cd;border-radius:10px;background:#fff;padding:14px;margin-bottom:14px}
+    .mini-help i{color:var(--green);font-size:1.3rem}
+    .guide-section{border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:10px;overflow:hidden}
+    .guide-section summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 15px;font-weight:800;color:#1f2937}
+    .guide-section summary::-webkit-details-marker{display:none}
+    .guide-section summary:after{content:"+";width:24px;height:24px;border-radius:50%;background:var(--mint);color:var(--green);display:grid;place-items:center}
+    .guide-section[open] summary:after{content:"-"}
+    .guide-body{border-top:1px solid var(--line);padding:13px 15px;color:#475467;font-weight:600;line-height:1.5;font-size:.92rem}
+    .guide-list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+    .guide-list li{display:flex;gap:10px;align-items:flex-start}
+    .guide-list i{color:var(--green);margin-top:3px}
+    .doc-row{display:flex;justify-content:space-between;gap:10px;margin:10px 0}
+    .badge{border-radius:999px;background:#fff3d6;color:#9a6500;padding:4px 8px;font-size:.78rem;font-weight:800;white-space:nowrap}
+    .trust{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;margin-top:18px}
+    .trust-item{display:flex;gap:12px;align-items:center}
+    .trust-item i{font-size:1.5rem;color:var(--green)}
+    .trust-item strong{display:block}
+    .trust-item span{color:#475467;font-weight:600}
+    .alert{padding:13px;border-radius:10px;margin-bottom:16px;font-weight:700;line-height:1.5}
+    .alert.err{background:#fff1f2;color:#b42318;border:1px solid #fecdd3}
+    a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--green2);outline-offset:2px}
+    @media(max-width:900px){.shell{grid-template-columns:1fr}.side{border-left:0;border-top:1px solid var(--line)}.wrap{padding:0 20px 24px}.top{padding:0 18px}.hero{padding:32px 22px}.grid2,.trust{grid-template-columns:1fr}.nav{display:none}}
   </style>
 </head>
 <body>
 <header class="top">
-  <a class="brand" href="index.php"><img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV"><span><strong>NATCODEV</strong><small>National Coconut Development & Propagation Initiative</small></span></a>
-  <nav class="nav"><a href="index.php">Home</a><a href="market/index.php">Marketplace</a><a href="academy/index.php?screen=catalog">Academy</a><a class="active" href="apply.php">Registry</a><a href="verify-certificate.php">Certificates</a><a href="support/index.php?category=account">Support</a></nav>
-  <div class="actions"><a class="icon-btn" href="market/index.php"><i class="fas fa-search"></i></a><a class="btn light" href="login.php">Login</a><a class="btn" href="#grower-form"><i class="fas fa-user-plus"></i> Register</a></div>
+  <a class="brand" href="index.php"><img src="<?= e($logo) ?>" alt="NATCODEV"><span><strong>NATCODEV</strong><small>National Coconut Development &amp; Propagation Initiative</small></span></a>
+  <nav class="nav" aria-label="Main navigation">
+    <a href="index.php">Home</a>
+    <a href="market/index.php">Marketplace</a>
+    <a href="academy/index.php">Academy</a>
+    <a href="verify-certificate.php">Certificates</a>
+    <a href="support/index.php?category=account">Support</a>
+    <a href="login.php">Sign in</a>
+  </nav>
 </header>
+
 <section class="hero">
   <div>
-    <h1>Register as a Grower</h1>
-    <p>Start your NATCODEV grower profile with a few basic details. You can complete verification, documents, and farm updates from your dashboard after registration.</p>
+    <h1><?= e($applicationTypeLabel) ?></h1>
+    <p>Four details to begin. Confirm your email, then complete the rest step by step &mdash; stopping whenever you need to and picking up exactly where you left off.</p>
   </div>
 </section>
+
 <main class="wrap">
   <section class="shell">
     <section class="form">
-      <div class="form-head"><i class="fas fa-user"></i><div><h2>Step 1 of 6: Personal Details</h2><p>Start with your basic details. You can complete deeper profile, documents, and verification from your dashboard later.</p></div></div>
-      <div class="progress-strip" aria-label="Registration progress">
-        <?php foreach (['Personal Details','Farm Location','Coconut Stands','Intercrops','Documents','Verification'] as $i => $step): ?>
-          <div class="progress-step <?= $i === 0 ? 'active' : '' ?>"><span><?= $i + 1 ?></span><strong><?= e($step) ?></strong></div>
-        <?php endforeach; ?>
-      </div>
-      <?php if ($error): ?><div class="alert err" style="display:block"><?= e($error) ?></div><?php endif; ?>
-      <div id="formAlert" class="alert"></div>
+      <?php if ($error): ?><div class="alert err"><?= e($error) ?></div><?php endif; ?>
+
+      <h2>Start your registration</h2>
+      <p class="lead">We will email you a 6-digit code to confirm your address. After that you work through the six steps at your own pace.</p>
+
       <?= app_social_buttons('grower', 'dashboard/index.php') ?>
-      <form id="grower-form">
+
+      <form method="post" action="register-wizard.php">
         <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-        <input type="hidden" id="application_type" name="application_type" value="<?= e($applicationTypeLabel) ?>">
-        <input type="hidden" id="location" name="location" value="">
-        <input type="hidden" id="state_id" name="state_id" value="">
-        <input type="hidden" id="lga_id" name="lga_id" value="">
-        <input type="hidden" id="commitments" name="commitments" value="">
-        <div class="form-grid">
-          <label>Full Name *<input name="name" id="name" required placeholder="Enter your full name"></label>
-          <label>Phone Number *<input name="phone" id="phone" required placeholder="08012345678"></label>
-          <label>Email Address *<input type="email" name="email" id="email" required placeholder="Enter your email address"></label>
-          <label>Registration Type *<select name="member_type" id="memberType" required><option value="individual">Individual Farmer</option><option value="corporate">Corporate Farm / Company</option><option value="cooperative">Cooperative</option></select></label>
-          <div class="wide" id="corporateFields" style="display:none"><div class="form-grid"><label>Business / Farm Company Name *<input name="business_name" id="business_name" placeholder="Registered business or farm name"></label><label>Business Registration Number *<input name="business_registration_number" id="business_registration_number" placeholder="CAC / registration number"></label><label>Representative Name *<input name="representative_name" id="representative_name" placeholder="Authorized representative"></label><label>Business Address<input name="business_address" id="business_address" placeholder="Registered office or farm business address"></label></div></div>
-          <div class="wide" id="cooperativeFields" style="display:none"><div class="form-grid"><label>Cooperative Name *<input name="cooperative_name" id="cooperative_name" placeholder="Registered cooperative name"></label><label>Cooperative Registration Number *<input name="cooperative_registration_number" id="cooperative_registration_number" placeholder="Cooperative registration number"></label><label>Number of Members<input type="number" min="1" name="cooperative_members_count" id="cooperative_members_count" placeholder="e.g., 125"></label><label>Representative Name<input name="cooperative_representative_name" placeholder="Chairperson or secretary"></label></div></div>
-          <label class="pass">Password *<input id="password" type="password" name="password" minlength="6" required placeholder="Create dashboard password"><button type="button" data-toggle-password="password">Show</button></label>
-          <label>State *<select id="stateSelect" required><option value="">Select your state</option><?php foreach ($states as $state): ?><option value="<?= e((string) $state['state_name']) ?>" data-state-id="<?= (int) $state['id'] ?>"><?= e((string) $state['state_name']) ?></option><?php endforeach; ?></select></label>
-          <label>LGA *<select id="lgaSelect" required><option value="">Select your LGA</option></select></label>
-          <label>Farm Size (in Hectares) *<input type="number" min="0.1" max="1000" step="0.1" name="farm_size" id="farm_size" required placeholder="e.g., 2.5"></label>
-          <label>Number of Coconut Seedlings/Stands *<input type="number" min="0" step="1" id="stands" placeholder="e.g., 200"></label>
-          <label>Intercrop Activities <input id="intercrops" placeholder="e.g., Cassava, Plantain, Vegetables"></label>
-          <label>Livestock Activities <input id="livestock" placeholder="e.g., Poultry, Goats, Fish Farming"></label>
+        <input type="hidden" name="board" value="grower">
+        <input type="hidden" name="action" value="start">
+        <input type="hidden" name="member_type" value="<?= e($seedMemberType) ?>">
+        <div class="grid2">
+          <div class="wide"><label for="ap-name">Full Name *<input id="ap-name" name="name" required autocomplete="name" placeholder="Enter your full name"></label></div>
+          <label for="ap-phone">Phone Number *<input id="ap-phone" name="phone" type="tel" required autocomplete="tel" placeholder="08012345678"></label>
+          <label for="ap-email">Email Address *<input id="ap-email" name="email" type="email" required autocomplete="email" placeholder="you@example.com"></label>
+          <div class="wide"><label for="ap-password">Create a Password *<input id="ap-password" name="password" type="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters"></label></div>
         </div>
-        <div class="safe"><i class="fas fa-seedling"></i><span><strong>Your Data is Safe</strong><br>Your information is protected and used only for NATCODEV program purposes.</span></div>
-        <div class="submit-row"><button class="btn" type="submit" id="submitBtn">Start Registration <i class="fas fa-arrow-right"></i></button><span>Already have an account? <a style="color:var(--green);font-weight:950" href="login.php">Login here</a></span></div>
+        <div class="submit-row">
+          <button class="btn" type="submit">Continue &amp; verify email <i class="fas fa-arrow-right"></i></button>
+          <span class="hint">Already have an account? <a style="color:var(--green);font-weight:800" href="login.php">Sign in</a></span>
+        </div>
       </form>
+
+      <div class="safe"><i class="fas fa-seedling"></i><span><strong>Your Data is Safe</strong><br>Your information is protected and used only for NATCODEV programme purposes.</span></div>
+
+      <hr class="divider">
+
+      <h3>Already started?</h3>
+      <p class="lead" style="margin-bottom:14px">Enter the email you used and we will send a fresh code, then return you to the step you stopped at.</p>
+      <form method="post" action="register-wizard.php">
+        <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+        <input type="hidden" name="board" value="grower">
+        <input type="hidden" name="action" value="resume">
+        <div class="grid2">
+          <div class="wide"><label for="ap-resume">Email you registered with<input id="ap-resume" name="email" type="email" required placeholder="you@example.com"></label></div>
+        </div>
+        <div class="submit-row"><button class="btn light" type="submit">Send me a new code</button></div>
+      </form>
+
+      <hr class="divider">
+
+      <h3>What the six steps cover</h3>
+      <p class="lead" style="margin-bottom:14px">Each step saves as you finish it. Close the page at any point and come back later.</p>
+      <ol class="steps-preview">
+        <?php foreach ($stepPreview as $title): ?>
+          <li><span><?= e($title) ?></span></li>
+        <?php endforeach; ?>
+      </ol>
     </section>
+
     <aside class="side">
       <div class="guide-card">
         <h2>Registration Guide</h2>
-        <p class="guide-intro">Useful details are here when you need them, while the form stays clear for completion.</p>
-        <div class="mini-help"><i class="fas fa-headset"></i><span><strong>Need help?</strong><br><a style="color:var(--green);font-weight:950" href="support/index.php?category=account">Contact support</a></span></div>
+        <p class="hint" style="margin-bottom:16px">Useful details are here when you need them, while the form stays clear.</p>
+        <div class="mini-help"><i class="fas fa-headset"></i><span><strong>Need help?</strong><br><a style="color:var(--green);font-weight:800" href="support/index.php?category=account">Contact support</a></span></div>
         <details class="guide-section" open>
           <summary>Why register?</summary>
           <div class="guide-body">
@@ -120,38 +227,36 @@ if (isset($_GET['oauth_error'])) {
             <div class="doc-row"><span><i class="fas fa-id-card"></i> Valid ID Card</span><span class="badge">Required</span></div>
             <div class="doc-row"><span><i class="fas fa-camera"></i> Farm Evidence</span><span class="badge">Required</span></div>
             <div class="doc-row"><span><i class="fas fa-users"></i> Cooperative Membership</span><span class="badge">Optional</span></div>
-            <p>Uploads can be completed after your dashboard is created.</p>
+            <p style="margin:10px 0 0">Uploads can be completed after your dashboard is created.</p>
           </div>
         </details>
         <details class="guide-section">
           <summary>What happens next?</summary>
           <div class="guide-body">
-            <ol class="next-list">
-              <li>Submit this starter application.</li>
-              <li>Login to complete documents and farm profile.</li>
-              <li>NATCODEV reviews and verifies your record.</li>
+            <ol style="margin:0;padding-left:18px">
+              <li>Enter four details and confirm your email.</li>
+              <li>Work through the six steps &mdash; each one saves.</li>
+              <li>Submit for review.</li>
               <li>Your certificate becomes available when approved.</li>
             </ol>
+          </div>
+        </details>
+        <details class="guide-section">
+          <summary>Stopped part-way?</summary>
+          <div class="guide-body">
+            Nothing is lost. Return to this page, enter your email and we will send a new code so you can continue from where you stopped. Codes last 10 minutes.
           </div>
         </details>
       </div>
     </aside>
   </section>
-  <section class="trust"><div class="trust-item"><i class="fas fa-shield-heart"></i><span><strong>Free registration</strong>No hidden charges.</span></div><div class="trust-item"><i class="fas fa-lock"></i><span><strong>Secure records</strong>Shared only with authorized officials.</span></div><div class="trust-item"><i class="fas fa-seedling"></i><span><strong>Built for growers</strong>Designed for Nigerian farmers.</span></div></section>
+
+  <section class="trust">
+    <div class="trust-item"><i class="fas fa-shield-heart"></i><span><strong>Free registration</strong>No hidden charges.</span></div>
+    <div class="trust-item"><i class="fas fa-lock"></i><span><strong>Secure records</strong>Shared only with authorized officials.</span></div>
+    <div class="trust-item"><i class="fas fa-seedling"></i><span><strong>Built for growers</strong>Designed for Nigerian farmers.</span></div>
+  </section>
 </main>
-<footer class="footer"><span><i class="fas fa-leaf"></i> Empowering coconut farmers and communities across Nigeria.</span><span><i class="fas fa-building-columns"></i> Trusted by Government</span><span><i class="fas fa-shield-halved"></i> Secure Platform</span><span>&copy; <?= e(date('Y')) ?> NATCODEV.</span></footer>
-<script>
-document.querySelectorAll('[data-toggle-password]').forEach(function(button){button.addEventListener('click',function(){var input=document.getElementById(button.getAttribute('data-toggle-password'));var visible=input.type==='text';input.type=visible?'password':'text';button.textContent=visible?'Show':'Hide';});});
-document.addEventListener('DOMContentLoaded', function(){
-  const form=document.getElementById('grower-form');const stateSelect=document.getElementById('stateSelect');const lgaSelect=document.getElementById('lgaSelect');const alertBox=document.getElementById('formAlert');const memberType=document.getElementById('memberType');const corporateFields=document.getElementById('corporateFields');const cooperativeFields=document.getElementById('cooperativeFields');
-  function syncMemberTypeFields(){const type=memberType?.value||'individual';if(corporateFields)corporateFields.style.display=type==='corporate'?'block':'none';if(cooperativeFields)cooperativeFields.style.display=type==='cooperative'?'block':'none';}
-  memberType?.addEventListener('change',syncMemberTypeFields);syncMemberTypeFields();
-  function showAlert(type,msg){alertBox.className='alert '+type;alertBox.textContent=msg;alertBox.style.display='block';alertBox.scrollIntoView({behavior:'smooth',block:'center'});}
-  function escapeHtml(value){return String(value||'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]));}
-  stateSelect.addEventListener('change', async function(){const option=stateSelect.options[stateSelect.selectedIndex];const stateId=option?option.dataset.stateId:'';document.getElementById('state_id').value=Number(stateId)>0?stateId:'';document.getElementById('lga_id').value='';lgaSelect.innerHTML='<option>Loading LGAs...</option>';if(!stateSelect.value){lgaSelect.innerHTML='<option value="">Select your LGA</option>';return;}try{const response=await fetch('api/get-lgas.php?state_id='+encodeURIComponent(stateId));const payload=await response.json();const items=payload.items||[];lgaSelect.innerHTML='<option value="">Select your LGA</option>'+items.map(item=>'<option value="'+escapeHtml(item.lga_name)+'" data-lga-id="'+(Number(item.id)||'')+'">'+escapeHtml(item.lga_name)+'</option>').join('');}catch(e){lgaSelect.innerHTML='<option value="">Unable to load LGAs</option>';}}); 
-  lgaSelect.addEventListener('change',function(){const option=lgaSelect.options[lgaSelect.selectedIndex];document.getElementById('lga_id').value=option?(option.dataset.lgaId||''):'';document.getElementById('location').value=stateSelect.value&&lgaSelect.value?stateSelect.value+', '+lgaSelect.value:'';});
-  form.addEventListener('submit',async function(e){e.preventDefault();if(!stateSelect.value||!lgaSelect.value){showAlert('err','Please select your state and LGA.');return;}document.getElementById('location').value=stateSelect.value+', '+lgaSelect.value;const details=[];details.push('Application Type: '+document.getElementById('application_type').value);details.push('Member Type: '+(memberType?.value||'individual'));details.push('Grower Registry');details.push('Farm Assessment');details.push('Dashboard Activation');const stands=document.getElementById('stands').value;if(stands)details.push('Coconut stands: '+stands);const intercrops=document.getElementById('intercrops').value;if(intercrops)details.push('Intercrops: '+intercrops);const livestock=document.getElementById('livestock').value;if(livestock)details.push('Livestock: '+livestock);if((memberType?.value||'')==='corporate'){const business=document.getElementById('business_name')?.value||'';if(business)details.push('Business: '+business);}if((memberType?.value||'')==='cooperative'){const coop=document.getElementById('cooperative_name')?.value||'';if(coop)details.push('Cooperative: '+coop);}document.getElementById('commitments').value=details.join(', ');const submitBtn=document.getElementById('submitBtn');const original=submitBtn.innerHTML;submitBtn.disabled=true;submitBtn.innerHTML='<i class="fas fa-spinner fa-spin"></i> Registering...';try{const response=await fetch('send_email.php',{method:'POST',body:new FormData(form)});const result=await response.json();if(result.success){showAlert('ok','Registration started successfully. Reference: '+result.app_ref+'. Please confirm your email before logging in.');setTimeout(()=>{window.location.href='login.php';},1800);}else{showAlert('err',result.message||'Registration failed.');}}catch(err){showAlert('err','Network error. Please try again.');}finally{submitBtn.disabled=false;submitBtn.innerHTML=original;}});
-});
-</script>
+<?= public_footer() ?>
 </body>
 </html>

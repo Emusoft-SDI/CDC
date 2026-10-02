@@ -2,7 +2,7 @@
         <div class="container">
             <div class="contact-container">
                 <div class="contact-image">
-                    <img src="https://natcodev.com.ng/images/25.jpg?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&q=80" alt="Coconut Farming">
+                    <img src="assets/market/checkout-coconut-bg.png" alt="Coconut Farming">
                 </div>
                 <div class="contact-form">
                     <h2>Ready to embark on a journey of growth and innovation? Join NATCODEV today!</h2>

@@ -14,6 +14,9 @@ declare(strict_types=1);
  * 7. Secure Attachment Access Control (Authorized vs Unauthorized Rejection)
  */
 
+// Load the harness first: it refuses to run against a non-test database, so a
+// suite can never write its fixtures into the live one.
+require_once __DIR__ . '/TestHarness.php';
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../lib/support.php';
 

@@ -278,11 +278,6 @@ function public_academy_course_image(array $course, array $images): string
     <?php endif; ?>
   </main>
 
-  <footer class="footer">
-    <div class="footer-inner">
-      <div><strong>NATCODEV Academy</strong><br><span>Learn first. Request operating access when ready.</span></div>
-      <div><a href="dashboard.php">Learner Dashboard</a> / <a href="../verify-certificate.php">Verify Certificate</a> / <a href="<?= $user ? 'dashboard.php?screen=support' : '../support/index.php?category=academy' ?>">Support</a></div>
-    </div>
-  </footer>
+  <?= public_footer() ?>
 </body>
 </html>

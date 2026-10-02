@@ -8,10 +8,10 @@ function auth_page_start(string $title, string $description = ''): void
     $lowerTitle = strtolower($title);
     $isOtp = str_contains($lowerTitle, 'otp') || str_contains($lowerTitle, 'access code');
     $image = str_contains($lowerTitle, 'forgot')
-        ? 'https://natcodev.com.ng/images/nuts.jpg?auto=format&fit=crop&w=1100&q=85'
+        ? app_base_url() . '/assets/market/dwarf-coconut-seedlings.png'
         : ($isOtp
             ? app_base_url() . '/assets/public/grower-registration-hero.png'
-            : 'https://natcodev.com.ng/images/26.jpg?auto=format&fit=crop&w=1100&q=85');
+            : app_base_url() . '/assets/public/natcodev-home-hero.png');
     ?>
 <!DOCTYPE html>
 <html lang="en">

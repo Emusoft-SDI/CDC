@@ -152,18 +152,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?php if ($message): ?><div class="alert ok"><?= e($message) ?></div><?php endif; ?>
     <?php if ($socialNotice): ?><div class="alert ok"><?= e($socialNotice) ?></div><?php endif; ?>
     <?= app_social_buttons('provider', 'provider/dashboard.php') ?>
-    <form id="registration" method="post">
+    <form id="registration" method="post" action="../register-wizard.php">
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+      <input type="hidden" name="board" value="provider">
+      <input type="hidden" name="action" value="start">
       <div class="form-grid">
-        <label>Business / Organization Name *<input name="company_name" required placeholder="e.g., Green Palm Supplies"></label>
-        <label>Provider Pathway *<select name="provider_intent" required><option value="">Select one</option><?php foreach ($providerIntents as $intent => $description): ?><option value="<?= e($intent) ?>"><?= e($intent) ?></option><?php endforeach; ?></select></label>
-        <label>Contact Person *<input name="contact_person" required placeholder="Full name"></label>
+        <label>Full Name *<input name="name" required placeholder="Your full name"></label>
         <label>Phone Number *<input name="phone" required placeholder="+234..."></label>
         <label>Email Address *<input type="email" name="email" required placeholder="name@example.com"></label>
-        <label class="pass">Password *<input id="provider-password" type="password" name="password" minlength="6" required placeholder="Create password"><button type="button" data-toggle-password="provider-password">Show</button></label>
+        <label class="pass">Password *<input id="provider-password" type="password" name="password" minlength="8" required placeholder="At least 8 characters"><button type="button" data-toggle-password="provider-password">Show</button></label>
       </div>
-      <div class="submit-row"><button class="btn" type="submit">Create Provider Workspace <i class="fas fa-arrow-right"></i></button><span>Already registered? <a style="color:var(--green);font-weight:950" href="login.php">Sign in</a></span></div>
+      <p class="fineprint">Your company details, coverage and capability are collected in the next steps, once your email is verified.</p>
+      <div class="submit-row"><button class="btn" type="submit">Create Provider Workspace <i class="fas fa-arrow-right"></i></button><span>Already registered? <a style="color:var(--green);font-weight:800" href="login.php">Sign in</a></span></div>
     </form>
+
+    <div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:16px">
+      <strong>Already started?</strong>
+      <p class="fineprint" style="margin:6px 0 10px">Enter the email you used and we will send a fresh code, then take you back to the step you stopped at.</p>
+      <form method="post" action="../register-wizard.php">
+        <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+        <input type="hidden" name="board" value="provider">
+        <input type="hidden" name="action" value="resume">
+        <label>Email you registered with<input type="email" name="email" required></label>
+        <button class="btn" type="submit">Send me a new code</button>
+      </form>
+    </div>
     </section>
     <aside class="entry-guide">
       <div class="guide-card">

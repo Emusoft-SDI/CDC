@@ -1375,5 +1375,8 @@ function generate_application_ref(): string
 }
 
 require_once __DIR__ . '/lib/helpers.php';
+require_once __DIR__ . '/lib/public-footer.php';
+require_once __DIR__ . '/lib/otp-delivery.php';
+require_once __DIR__ . '/lib/registration-wizard.php';
 
 

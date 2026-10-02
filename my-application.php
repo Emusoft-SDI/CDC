@@ -1,6 +1,12 @@
 <!-- my-application.php -->
 <?php
-session_start();
+// Loads config (and therefore the shared footer). Without this the page had no access
+// to any framework helper.
+require_once __DIR__ . '/config.php';
+
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = filter_var($_POST['email'] ?? '', FILTER_VALIDATE_EMAIL);
     if ($email) {
@@ -30,5 +36,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
     <button type="submit">Continue</button>
   </form>
+<?= public_footer() ?>
 </body>
 </html>

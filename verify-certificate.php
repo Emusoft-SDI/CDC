@@ -222,6 +222,6 @@ $verificationId = $lookupAttempted ? 'VER-' . strtoupper(substr(hash('sha256', $
     <div class="panel"><h3>Why Trust NATCODEV Certificates?</h3><div class="trust-grid"><div class="mini"><i class="fas fa-shield-halved"></i><h4>Government Backed</h4><p>Issued under recognized coconut development programs.</p></div><div class="mini"><i class="fas fa-certificate"></i><h4>Secure & Verifiable</h4><p>Each certificate has a unique online reference.</p></div><div class="mini"><i class="fas fa-handshake"></i><h4>Widely Recognized</h4><p>Accepted across the coconut value chain.</p></div><div class="mini"><i class="fas fa-users"></i><h4>Empowering Farmers</h4><p>Promotes access to finance, markets, and opportunities.</p></div></div></div>
   </section>
 </main>
-<footer class="footer"><span><i class="fas fa-lock"></i> Secure. Transparent. Trusted.</span><span>&copy; <?= e(date('Y')) ?> NATCODEV. All rights reserved.</span><span>Need help? <a style="color:#fcd34d" href="support/index.php?category=verification">Contact Support</a> <i class="fas fa-arrow-right"></i></span></footer>
+<?= public_footer() ?>
 </body>
 </html>

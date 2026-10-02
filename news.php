@@ -193,32 +193,6 @@ try {
     </div>
   </main>
 
-  <footer id="contact" class="footer">
-    <div class="footer-inner">
-      <div>
-        <div class="footer-brand"><img src="<?= e($logo) ?>" alt="NATCODEV"><strong>NATCODEV</strong></div>
-        <p>National Coconut Development & Propagation Initiative. Building productive coconut communities and a sustainable coconut value chain.</p>
-        <div style="margin-top:12px;display:grid;gap:8px;font-size:.92rem;line-height:1.45;max-width:360px">
-          <div>
-            <strong style="display:block;color:#fff;margin-bottom:2px">Head Office</strong>
-            <span style="display:block"><?= e(implode(', ', $office['address_lines'])) ?></span>
-          </div>
-          <div>
-            <strong style="display:block;color:#fff;margin-bottom:2px">Call Us</strong>
-            <a href="tel:<?= e($office['phone_tel']) ?>"><?= e($office['phone_display']) ?></a>
-          </div>
-          <div>
-            <strong style="display:block;color:#fff;margin-bottom:2px">Email</strong>
-            <a href="mailto:<?= e($office['email']) ?>"><?= e($office['email']) ?></a>
-          </div>
-        </div>
-      </div>
-      <div><h3>Registry</h3><a href="apply.php?type=farmer">Grower Registration</a><a href="provider/index.php">Provider Registration</a><a href="field-agent/login.php">Field Network</a></div>
-      <div><h3>Marketplace</h3><a href="market/index.php">Browse Marketplace</a><a href="market/stores.php">Seller Directory</a><a href="provider/login.php">Seller Central</a></div>
-      <div><h3>Academy</h3><a href="academy/index.php#catalog">Course Catalog</a><a href="academy/">My Learning</a><a href="academy/register.php">Certificates</a></div>
-      <div><h3>Support</h3><a href="verify-certificate.php">Verify Certificate</a><a href="login.php">Login</a><a href="support/index.php">Support Desk</a></div>
-    </div>
-    <div class="footer-bottom">&copy; <?= e($year) ?> NATCODEV. All rights reserved.</div>
-  </footer>
+  <?= public_footer() ?>
 </body>
 </html>

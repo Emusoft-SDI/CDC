@@ -171,12 +171,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </section>
   </main>
 
-  <footer class="footer">
-    <div class="footer-inner">
-      <strong>NATCODEV</strong>
-      <div><a href="index.php">Home</a> &nbsp; <a href="support/index.php">Support</a> &nbsp; <a href="verify-certificate.php">Verify</a></div>
-    </div>
-    <div class="footer-bottom">&copy; <?= e($year) ?> NATCODEV. All rights reserved.</div>
-  </footer>
+  <?= public_footer() ?>
 </body>
 </html>

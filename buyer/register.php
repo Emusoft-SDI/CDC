@@ -100,14 +100,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?php if ($error): ?><div class="alert err"><?= e($error) ?></div><?php endif; ?>
     <?php if ($message): ?><div class="alert ok"><?= e($message) ?></div><?php endif; ?>
     <?= app_social_buttons('buyer', 'buyer/index.php') ?>
-    <form method="post">
+    <form method="post" action="../register-wizard.php">
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+      <input type="hidden" name="board" value="buyer">
+      <input type="hidden" name="action" value="start">
       <label>Name<input name="name" required></label>
       <label>Email<input type="email" name="email" required></label>
       <label>Phone<input name="phone" placeholder="+234..."></label>
-      <label class="pass">Password<input id="buyer-password" type="password" name="password" minlength="6" required><button type="button" data-toggle-password="buyer-password">Show</button></label>
+      <label class="pass">Password<input id="buyer-password" type="password" name="password" minlength="8" required><button type="button" data-toggle-password="buyer-password">Show</button></label>
       <button class="btn">Register as Buyer</button>
     </form>
+
+    <div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:16px">
+      <strong>Already started?</strong>
+      <p class="fineprint" style="margin:6px 0 10px">Enter the email you used and we will send a fresh code, then take you back to the step you stopped at.</p>
+      <form method="post" action="../register-wizard.php">
+        <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+        <input type="hidden" name="board" value="buyer">
+        <input type="hidden" name="action" value="resume">
+        <label>Email you registered with<input type="email" name="email" required></label>
+        <button class="btn" type="submit">Send me a new code</button>
+      </form>
+    </div>
     <p class="fineprint">Your buyer account unlocks order tracking, wallet finance, private buyer support, and profile-managed delivery details.</p>
     <div class="links"><a href="login.php">Already have account?</a><a href="../market/index.php">Browse first</a></div>
     <?php endif; ?>

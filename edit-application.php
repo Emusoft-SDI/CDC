@@ -110,5 +110,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   </form>
 
   <p><a href="my-application.php">Change Email</a></p>
+<?= public_footer() ?>
 </body>
 </html>

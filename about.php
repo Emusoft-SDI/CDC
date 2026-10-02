@@ -22,7 +22,7 @@ require_once __DIR__ . '/config.php';
     <header>
         <div class="container header-container">
             <div class="logo">
-                <img src="https://natcodev.com.ng/images/logo.jpg" alt="Natcodev Logo">
+                <img src="assets/logo/natcodev.jpeg" alt="Natcodev Logo">
                 <span class="logo-text">NATCODEV</span>
             </div>
             <nav>
@@ -31,9 +31,9 @@ require_once __DIR__ . '/config.php';
                     <li><a href="#registration">Farmers</a></li>
                     <li><a href="https://investors.natcodev.com.ng">Investors</a></li>
                     <li><a href="#registration">Service Providers</a></li>
-                    <li><a href="#platform-access">Portals</a></li>
+                    <li><a href="login.php">Portals</a></li>
                     <li><a href="recruitment.php">Recruitment</a></li>
-                    <li><a href="#contact">Contact Us</a></li>
+                    <li><a href="contact.php">Contact Us</a></li>
                 </ul>
             </nav>
             <a class="login-btn" href="dashboard/login.php">LOGIN</a>
@@ -54,9 +54,7 @@ require_once __DIR__ . '/config.php';
 
     <?php require 'about-partials/platform-access.php'; ?>
 
-    <!-- Contact Section -->
-    <?php require 'about-partials/contact.php'; ?>
-
+    
     <!-- Newsletter Section -->
     <?php require 'about-partials/newsletter.php'; ?>
 

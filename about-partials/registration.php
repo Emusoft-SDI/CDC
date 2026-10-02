@@ -7,7 +7,7 @@
                 <!-- Farmers Registration -->
                 <div class="reg-card animate-on-scroll">
                     <div class="reg-image">
-                        <img src="https://natcodev.com.ng/images/26.jpg?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&q=80" alt="Farmers Registration">
+                        <img src="assets/market/dwarf-coconut-seedlings.png" alt="Farmers Registration">
                     </div>
                     <div class="reg-content">
                         <h3>Coconut Farmers Registration</h3>
@@ -18,7 +18,7 @@
                 <!-- Commercial Coconut OutGrowers Registration -->
                 <div class="reg-card animate-on-scroll">
                     <div class="reg-image">
-                        <img src="https://natcodev.com.ng/images/nuts.jpg?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&q=80" alt="Farmers Registration">
+                        <img src="assets/public/grower-registration-hero.png" alt="Farmers Registration">
                     </div>
                     <div class="reg-content">
                         <h3>Commercial Coconut OutGrowers Registration</h3>
@@ -30,7 +30,7 @@
                 <!-- Coconut Farmers Cooperative Registration -->
                 <div class="reg-card animate-on-scroll">
                     <div class="reg-image">
-                        <img src="https://natcodev.com.ng/images/coco1.jpg?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&q=80" alt="Farmers Registration">
+                        <img src="assets/seals/co-op.jpg" alt="Farmers Registration">
                     </div>
                     <div class="reg-content">
                         <h3>Coconut Farmers Cooperative Registration</h3>
@@ -42,7 +42,7 @@
                 <!-- Investor Registration -->
                 <div class="reg-card animate-on-scroll">
                     <div class="reg-image">
-                        <img src="https://natcodev.com.ng/images/23.jpg??ixlib=rb-4.0.3&auto=format&fit=crop&w=600&q=80" alt="Investor Registration">
+                        <img src="assets/public/natcodev-home-hero.png" alt="Investor Registration">
                     </div>
                     <div class="reg-content">
                         <h3>Investor Registration</h3>
@@ -54,7 +54,7 @@
                 <!-- Agricultural Services Providers -->
                 <div class="reg-card animate-on-scroll">
                     <div class="reg-image">
-                        <img src="https://natcodev.com.ng/images/28.jpg??ixlib=rb-4.0.3&auto=format&fit=crop&w=600&q=80" alt="Agricultural Services Providers">
+                        <img src="assets/public/provider-commerce-hero.png" alt="Agricultural Services Providers">
                     </div>
                     <div class="reg-content">
                         <h3>Agricultural Services Providers registration</h3>
@@ -66,7 +66,7 @@
                 <!-- Agricultural Input Providers -->
                 <div class="reg-card animate-on-scroll">
                     <div class="reg-image">
-                        <img src="https://natcodev.com.ng/images/24.jpg?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&q=80" alt="Agricultural Input Providers">
+                        <img src="assets/market/farm-tools-pruning.png" alt="Agricultural Input Providers">
                     </div>
                     <div class="reg-content">
                         <h3>Agricultural Input providers registration</h3>
@@ -76,7 +76,7 @@
                 </div>
                 <div class="reg-card animate-on-scroll">
                     <div class="reg-image">
-                        <img src="https://natcodev.com.ng/images/28.jpg??ixlib=rb-4.0.3&auto=format&fit=crop&w=600&q=80" alt="Field Network Recruitment">
+                        <img src="assets/public/field-agent-operations-hero.png" alt="Field Network Recruitment">
                     </div>
                     <div class="reg-content">
                         <h3>Field Network Recruitment</h3>

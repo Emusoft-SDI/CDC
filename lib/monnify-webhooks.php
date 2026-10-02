@@ -173,10 +173,26 @@ function monnify_initiate_wallet_withdrawal(array $withdrawal): array
         'destinationAccountNumber' => (string) $withdrawal['account_number'],
         'currency' => 'NGN',
     ];
-    $sourceAccount = monnify_env('MONNIFY_SOURCE_ACCOUNT_NUMBER');
+
+    // Monnify requires destinationAccountName on a single disbursement; without it the
+    // transfer was rejected outright. It is only added when the account name was
+    // actually resolved, so an unresolved account behaves exactly as it did before.
+    $destinationAccountName = trim((string) ($withdrawal['account_name'] ?? ''));
+    if ($destinationAccountName !== '') {
+        $payload['destinationAccountName'] = $destinationAccountName;
+    }
+
+    // MONNIFY_WALLET_ACCOUNT_NUMBER is the documented setting; the SOURCE_* names are
+    // accepted too so either convention works.
+    $sourceAccount = trim((string) (monnify_env('MONNIFY_WALLET_ACCOUNT_NUMBER') ?: monnify_env('MONNIFY_SOURCE_ACCOUNT_NUMBER')));
     if ($sourceAccount !== '') {
         $payload['sourceAccountNumber'] = $sourceAccount;
     }
+    $sourceAccountName = trim((string) (monnify_env('MONNIFY_WALLET_ACCOUNT_NAME') ?: monnify_env('MONNIFY_SOURCE_ACCOUNT_NAME')));
+    if ($sourceAccountName !== '') {
+        $payload['sourceAccountName'] = $sourceAccountName;
+    }
+
     $res = monnify_request('POST', '/api/v2/disbursements/single', $payload);
     if (!$res['success']) {
         return ['success' => false, 'error' => $res['error'] ?? 'Monnify transfer failed', 'response' => $res];
