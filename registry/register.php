@@ -1,3 +1,6 @@
 <?php
 declare(strict_types=1);
-require __DIR__ . '/index.php';
+
+require_once __DIR__ . '/../config.php';
+
+\Natcodev\Modules\ModuleRegistry::dispatch($_SERVER['REQUEST_URI']);

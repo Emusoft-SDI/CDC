@@ -6,6 +6,11 @@ if (defined('NATCODEV_BOOTSTRAPPED')) {
 }
 define('NATCODEV_BOOTSTRAPPED', true);
 
+require_once __DIR__ . '/app/autoload.php';
+
+// Feature modules: each owns its own request paths (see app/Modules).
+\Natcodev\Modules\ModuleRegistry::register(new \Natcodev\Modules\Registry\Module());
+
 app_load_env(__DIR__ . '/.env');
 
 // Break-glass: only the operator-configured MAINTENANCE_BYPASS_KEY opens maintenance mode.
