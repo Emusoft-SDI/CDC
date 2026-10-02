@@ -13,6 +13,8 @@ certificates/*.html
 !certificates/.htaccess
 
 # BACKUP/TEMP FILES
+private_backups/
+*.sql
 * - Copy.php
 * - Copy.txt
 * - Copy.jpeg
