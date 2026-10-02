@@ -6,7 +6,11 @@ if (defined('NATCODEV_BOOTSTRAPPED')) {
 }
 define('NATCODEV_BOOTSTRAPPED', true);
 
-if (isset($_GET['admin_bypass']) && $_GET['admin_bypass'] === 'natcodev_rescue') {
+app_load_env(__DIR__ . '/.env');
+
+// Break-glass: only the operator-configured MAINTENANCE_BYPASS_KEY opens maintenance mode.
+$maintenance_bypass_key = (string) (app_env('MAINTENANCE_BYPASS_KEY') ?? '');
+if ($maintenance_bypass_key !== '' && isset($_GET['admin_bypass']) && hash_equals($maintenance_bypass_key, (string) $_GET['admin_bypass'])) {
     setcookie('natcodev_bypass', '1', time() + 86400 * 7, '/');
     $_COOKIE['natcodev_bypass'] = '1';
 }
@@ -42,8 +46,6 @@ function app_load_env(string $path): void
         }
     }
 }
-
-app_load_env(__DIR__ . '/.env');
 
 // Harden session cookie security
 ini_set('session.cookie_httponly', '1');

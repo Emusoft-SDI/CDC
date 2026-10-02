@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    name: Lint PHP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - name: php -l on all files
+        run: |
+          set -e
+          find . -path ./.git -prune -o -name '*.php' -print0 \
+            | xargs -0 -n1 -P4 php -l > /dev/null
+          echo "All PHP files passed php -l"
+
+  test:
+    name: Security suite
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: natcodev_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      APP_ENV: testing
+      APP_DEBUG: 'true'
+      APP_URL: http://localhost
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_DATABASE: natcodev_test
+      DB_USERNAME: root
+      DB_PASSWORD: root
+      JWT_SECRET: ci-only-secret
+      MAIL_TRANSPORT: log
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql, mbstring, curl, gd
+      - name: Run security suite
+        run: DB_DATABASE=natcodev_test php tests/run_security_suite.php

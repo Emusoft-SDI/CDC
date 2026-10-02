@@ -18,6 +18,8 @@ certificates/*.html
 * - Copy.jpeg
 "New Text Document*.txt"
 *.bak
+*.codex-bak
+*.zip
 *.tmp
 refactor*.php
 refactor*.py
@@ -35,6 +37,7 @@ reset.php
 git_commit.php
 info.php
 1.maintenance
+.maintenance
 
 # IDE & OS
 .DS_Store

@@ -11,7 +11,6 @@ ErrorDocument 503 /WIN/404.php?code=503
   RewriteCond %{DOCUMENT_ROOT}/win/.maintenance -f
   RewriteCond %{REQUEST_URI} !^/win/maintenance\.html$
   RewriteCond %{REQUEST_URI} !^/win/assets/
-  RewriteCond %{QUERY_STRING} !admin_bypass=natcodev_rescue
   RewriteCond %{HTTP_COOKIE} !natcodev_bypass=1
   # Serve maintenance.html directly, ignoring normal 503 ErrorDocument
   RewriteRule ^(.*)$ /win/maintenance.html [L]
@@ -19,7 +18,7 @@ ErrorDocument 503 /WIN/404.php?code=503
   RewriteRule (^|/)\. - [F,L]
   RewriteRule ^(config\.php|composer\.(json|lock)|package(-lock)?\.json)$ - [F,L,NC]
   RewriteRule ^(test_db\.php|run_schema_update\.php)$ - [F,L,NC]
-  RewriteRule ^(lib|cron|tests|tools|private_backups|database|resources|prototype-handoff|cocopay-ui-visuals|Microsoft|CDC)(/|$) - [F,L,NC]
+  RewriteRule ^(app|lib|cron|tests|tools|private_backups|database|resources|prototype-handoff|cocopay-ui-visuals|Microsoft|CDC)(/|$) - [F,L,NC]
   RewriteRule ^documents(/|$) - [F,L,NC]
   RewriteRule \.(env|log|bak|backup|old|orig|save|sql|sqlite|ini|ps1|sh|bat|cmd|txt|md|zip|rar|7z|tar|gz|codex-bak)$ - [F,L,NC]
 </IfModule>
