@@ -146,9 +146,9 @@ function hub_recent_rows(PDO $pdo): array
 }
 
 $totalGrowers = hub_count($pdo, 'users', "role = 'grower'");
-$activeProviders = hub_count($pdo, 'provider_registry', "status IN ('approved','active','verified')");
+$activeProviders = hub_count($pdo, 'provider_registry', "status IN ('approved','active','verified') AND deleted_at IS NULL");
 if ($activeProviders === 0) {
-    $activeProviders = hub_count($pdo, 'provider_registry');
+    $activeProviders = hub_count($pdo, 'provider_registry', 'deleted_at IS NULL');
 }
 $orders = hub_count($pdo, 'marketplace_orders');
 $walletNetPosition = hub_sum($pdo, 'wallets', 'balance');

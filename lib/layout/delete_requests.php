@@ -143,7 +143,11 @@ function admin_execute_approved_delete(PDO $pdo, array $request): void
     }
 
     if ($table === 'provider_registry') {
-        $pdo->prepare('DELETE FROM provider_registry WHERE id = ?')->execute([$id]);
+        if (app_column_exists($pdo, 'provider_registry', 'deleted_at')) {
+            $pdo->prepare('UPDATE provider_registry SET deleted_at = NOW() WHERE id = ?')->execute([$id]);
+        } else {
+            $pdo->prepare('DELETE FROM provider_registry WHERE id = ?')->execute([$id]);
+        }
         return;
     }
 

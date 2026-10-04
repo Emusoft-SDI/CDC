@@ -254,8 +254,8 @@ $verifiedFarms = report_count($pdo, "
     LEFT JOIN nigeria_lgas nl ON nl.id = COALESCE(gf.lga_id, a.lga_id)
     WHERE fv.status = 'verified' AND fv.deleted_at IS NULL AND {$locationFilterSql}
 ", $locationFilterParams);
-$providersApproved = report_count($pdo, "SELECT COUNT(*) FROM provider_registry WHERE status IN ('approved','verified')");
-$providersPending = report_count($pdo, "SELECT COUNT(*) FROM provider_registry WHERE status IN ('pending','pending_review')");
+$providersApproved = report_count($pdo, "SELECT COUNT(*) FROM provider_registry WHERE status IN ('approved','verified') AND deleted_at IS NULL");
+$providersPending = report_count($pdo, "SELECT COUNT(*) FROM provider_registry WHERE status IN ('pending','pending_review') AND deleted_at IS NULL");
 $sellerCount = report_count($pdo, "SELECT COUNT(*) FROM marketplace_sellers WHERE approval_status = 'approved'");
 $listingCount = report_count($pdo, "SELECT COUNT(*) FROM marketplace_listings WHERE approval_status = 'approved'");
 $registered = report_count($pdo, "SELECT COUNT(*) FROM webinar_registrations");

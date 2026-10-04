@@ -21,6 +21,7 @@ function provider_boot(): PDO
         app_add_column_if_missing($pdo, 'users', $column, $definition);
     }
     app_add_column_if_missing($pdo, 'provider_registry', 'user_id', 'INT NULL');
+    app_add_column_if_missing($pdo, 'provider_registry', 'deleted_at', "DATETIME NULL");
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS provider_accreditation_documents (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -105,7 +106,7 @@ function provider_accreditation_certificate_by_ref(PDO $pdo, string $ref): ?arra
     if ($ref === '' || !app_table_exists($pdo, 'provider_accreditation_certificates')) {
         return null;
     }
-    $stmt = $pdo->prepare("SELECT c.*, pr.company_name, pr.contact_person FROM provider_accreditation_certificates c JOIN provider_registry pr ON pr.id = c.provider_id WHERE c.certificate_ref = ? LIMIT 1");
+    $stmt = $pdo->prepare("SELECT c.*, pr.company_name, pr.contact_person FROM provider_accreditation_certificates c JOIN provider_registry pr ON pr.id = c.provider_id" . (app_column_exists($pdo, 'provider_registry', 'deleted_at') ? " AND pr.deleted_at IS NULL" : "") . " WHERE c.certificate_ref = ? LIMIT 1");
     $stmt->execute([$ref]);
     return $stmt->fetch() ?: null;
 }
@@ -390,6 +391,7 @@ function provider_records(PDO $pdo, ?array $user): array
         return [];
     }
     $email = (string) ($user['email'] ?? '');
+    $prSoft = app_column_exists($pdo, 'provider_registry', 'deleted_at') ? ' AND pr.deleted_at IS NULL' : '';
     $stmt = $pdo->prepare("
         SELECT pr.*, COALESCE(oc.offerings, 0) offerings
         FROM provider_registry pr
@@ -399,7 +401,7 @@ function provider_records(PDO $pdo, ?array $user): array
             WHERE status = 'active'
             GROUP BY provider_id
         ) oc ON oc.provider_id = pr.id
-        WHERE pr.user_id = ? OR pr.email = ?
+        WHERE (pr.user_id = ? OR pr.email = ?){$prSoft}
         ORDER BY pr.created_at DESC
     ");
     $stmt->execute([(int) $user['id'], $email]);
@@ -436,7 +438,7 @@ function provider_counts(PDO $pdo, ?array $provider, ?array $user): array
         $stmt = $pdo->prepare("SELECT COUNT(*) FROM provider_offerings WHERE provider_id = ? AND status = 'active'");
         $stmt->execute([$providerId]);
         $counts['activeListings'] = (int) $stmt->fetchColumn();
-        $stmt = $pdo->prepare("SELECT state_ids, lga_ids, nationwide FROM provider_registry WHERE id = ? LIMIT 1");
+        $stmt = $pdo->prepare("SELECT state_ids, lga_ids, nationwide FROM provider_registry WHERE id = ?" . (app_column_exists($pdo, 'provider_registry', 'deleted_at') ? " AND deleted_at IS NULL" : "") . " LIMIT 1");
         $stmt->execute([$providerId]);
         $coverage = $stmt->fetch() ?: [];
         // If provider is nationwide, count all states and LGAs

@@ -8,7 +8,7 @@ $pdo = db();
 admin_ensure_schema($pdo);
 admin_require($pdo);
 
-$stmt = $pdo->query("SELECT c.*, pr.company_name, pr.email as provider_email FROM provider_accreditation_certificates c JOIN provider_registry pr ON pr.id = c.provider_id ORDER BY c.issued_at DESC");
+$stmt = $pdo->query("SELECT c.*, pr.company_name, pr.email as provider_email FROM provider_accreditation_certificates c JOIN provider_registry pr ON pr.id = c.provider_id AND pr.deleted_at IS NULL ORDER BY c.issued_at DESC");
 $rows = $stmt->fetchAll();
 
 admin_page_start('Provider Certificates', [

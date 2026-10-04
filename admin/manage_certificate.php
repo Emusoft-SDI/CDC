@@ -29,7 +29,7 @@ if ($ref === '') {
 
 $certificate = provider_accreditation_certificate_by_ref($pdo, $ref);
 // load provider row for contact/email
-$providerRow = $pdo->prepare('SELECT * FROM provider_registry WHERE id = ? LIMIT 1');
+$providerRow = $pdo->prepare('SELECT * FROM provider_registry WHERE id = ?' . (app_column_exists($pdo, 'provider_registry', 'deleted_at') ? ' AND deleted_at IS NULL' : '') . ' LIMIT 1');
 $providerRow->execute([(int) ($certificate['provider_id'] ?? 0)]);
 $providerRow = $providerRow->fetch() ?: null;
 if (!$certificate) {

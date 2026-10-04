@@ -29,7 +29,7 @@ $update->execute(['', 'Nationwide (All States)', $userId]);
 echo "Updated rows: " . $update->rowCount() . "\n";
 
 // Output the provider row
-$stmt = $pdo->prepare('SELECT * FROM provider_registry WHERE user_id = ? LIMIT 1');
+$stmt = $pdo->prepare('SELECT * FROM provider_registry WHERE user_id = ?' . (app_column_exists($pdo, 'provider_registry', 'deleted_at') ? ' AND deleted_at IS NULL' : '') . ' LIMIT 1');
 $stmt->execute([$userId]);
 $prov = $stmt->fetch();
 print_r($prov);

@@ -26,7 +26,7 @@ if (!$provider) {
         http_response_code(403);
         exit('Access denied.');
     }
-    $provider = $pdo->prepare('SELECT * FROM provider_registry WHERE id = ? LIMIT 1');
+    $provider = $pdo->prepare('SELECT * FROM provider_registry WHERE id = ?' . (app_column_exists($pdo, 'provider_registry', 'deleted_at') ? ' AND deleted_at IS NULL' : '') . ' LIMIT 1');
     $provider->execute([(int) $certificate['provider_id']]);
     $provider = $provider->fetch() ?: null;
     if (!$provider) {

@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * NATCODEV Super Admin Governance Test Suite
  * Covers the governance controls added to the console:
- * - Soft-delete (notification_templates, staff_profiles, farm_verifications, user_import_records, document_requirements, grower_farms) read isolation + reactivation
+ * - Soft-delete (notification_templates, staff_profiles, farm_verifications, user_import_records, document_requirements, grower_farms, provider_registry) read isolation + reactivation
  * - Recycle-bin snapshot + restore
  * - Console-managed secrets (settings-first, .env fallback)
  * - Module mode kill-switch (paused/setup disables a module)
@@ -19,6 +19,7 @@ require_once __DIR__ . '/../lib/super-admin-console.php';
 require_once __DIR__ . '/../lib/notification-dispatch.php';
 require_once __DIR__ . '/../lib/field-management.php';
 require_once __DIR__ . '/../lib/admin-user-import.php';
+require_once __DIR__ . '/../lib/platform-governance.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     // Start before any suite output so requiring this file cannot emit a warning.
@@ -238,4 +239,33 @@ function run_governance_tests(): void
     $pdo->prepare("UPDATE grower_farms SET deleted_at = NULL WHERE id = ?")->execute([$govSoftFarmId]);
     $restoredFarm = (int) $pdo->query("SELECT COUNT(*) FROM grower_farms WHERE id = {$govSoftFarmId} AND deleted_at IS NULL")->fetchColumn();
     TestHarness::assertEqual(1, $restoredFarm, 'Soft-delete: restored grower farm is visible again');
+
+    // =====================================================================
+    // 12. Soft-delete: provider_registry read isolation + restore
+    // =====================================================================
+    pg_ensure_schema($pdo);
+    $govCompany = 'gov_provider_' . bin2hex(random_bytes(3));
+    $pdo->prepare("INSERT INTO provider_registry (company_name, provider_type, status) VALUES (?, 'service', 'pending_review')")->execute([$govCompany]);
+    $govProviderId = (int) $pdo->lastInsertId();
+
+    $liveProvider = (int) $pdo->query("SELECT COUNT(*) FROM provider_registry WHERE id = {$govProviderId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $liveProvider, 'Soft-delete: live provider is visible to the filtered read');
+
+    // The approved-delete path must soft-delete (set deleted_at), never remove the row,
+    // so the payment and certificate rows that reference the provider survive.
+    admin_execute_approved_delete($pdo, [
+        'id' => 0,
+        'target_table' => 'provider_registry',
+        'target_id' => $govProviderId,
+        'target_key' => null,
+        'payload_json' => null,
+    ]);
+    $hiddenProvider = (int) $pdo->query("SELECT COUNT(*) FROM provider_registry WHERE id = {$govProviderId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(0, $hiddenProvider, 'Soft-delete: approved delete hides the provider from the filtered read');
+    TestHarness::assertEqual(1, (int) $pdo->query("SELECT COUNT(*) FROM provider_registry WHERE id = {$govProviderId}")->fetchColumn(), 'Soft-delete: approved delete keeps the provider_registry row');
+    TestHarness::assert($pdo->query("SELECT deleted_at FROM provider_registry WHERE id = {$govProviderId}")->fetchColumn() !== false, 'Soft-delete: approved delete stamps deleted_at on provider_registry');
+
+    $pdo->prepare("UPDATE provider_registry SET deleted_at = NULL WHERE id = ?")->execute([$govProviderId]);
+    $restoredProvider = (int) $pdo->query("SELECT COUNT(*) FROM provider_registry WHERE id = {$govProviderId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $restoredProvider, 'Soft-delete: restored provider is visible again');
 }

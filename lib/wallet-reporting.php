@@ -75,6 +75,7 @@ function wallet_reporting_refresh(PDO $pdo, string $from, string $to): void
 
     $pdo->prepare("DELETE FROM wallet_report_daily_summary WHERE report_date BETWEEN ? AND ?")->execute([$from, $to]);
     $roleCase = wallet_reporting_role_case();
+    $prSoft = app_column_exists($pdo, 'provider_registry', 'deleted_at') ? ' AND pr.deleted_at IS NULL' : '';
     $pdo->prepare("
         INSERT INTO wallet_report_daily_summary
             (report_date, provider, status, stakeholder_role, transactions, inflow, outflow, failed_count)
@@ -90,7 +91,7 @@ function wallet_reporting_refresh(PDO $pdo, string $from, string $to): void
         FROM wallet_transactions wt
         LEFT JOIN users u ON u.id = wt.user_id
         LEFT JOIN marketplace_sellers ms ON ms.user_id = u.id
-        LEFT JOIN provider_registry pr ON pr.user_id = u.id
+        LEFT JOIN provider_registry pr ON pr.user_id = u.id{$prSoft}
         WHERE wt.created_at >= ? AND wt.created_at < DATE_ADD(?, INTERVAL 1 DAY)
         GROUP BY DATE(wt.created_at), COALESCE(NULLIF(wt.provider,''),'manual'), COALESCE(NULLIF(wt.status,''),'unknown'), {$roleCase}
     ")->execute([$from, $to]);

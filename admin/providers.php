@@ -96,6 +96,7 @@ $providers = $pdo->query("
         FROM provider_offerings
         GROUP BY provider_id
     ) offering_counts ON offering_counts.provider_id = pr.id
+    WHERE pr.deleted_at IS NULL
     ORDER BY FIELD(pr.status,'pending_review','approved','verified','suspended','rejected'), pr.created_at DESC
     LIMIT 80
 ")->fetchAll();

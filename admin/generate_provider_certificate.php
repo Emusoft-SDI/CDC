@@ -9,7 +9,7 @@ header('Content-Type: text/plain; charset=utf-8');
 $providerId = (int) ($argv[1] ?? 1);
 $pdo = provider_boot();
 
-$stmt = $pdo->prepare('SELECT * FROM provider_registry WHERE id = ? LIMIT 1');
+$stmt = $pdo->prepare('SELECT * FROM provider_registry WHERE id = ?' . (app_column_exists($pdo, 'provider_registry', 'deleted_at') ? ' AND deleted_at IS NULL' : '') . ' LIMIT 1');
 $stmt->execute([$providerId]);
 $provider = $stmt->fetch();
 if (!$provider) {

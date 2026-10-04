@@ -36,7 +36,7 @@ if ($selectedStates) {
                 ->execute([$stateIdsString, $statesServed, $nationwide, (int) $provider['id']]);
             $message = 'Coverage areas updated successfully.';
             // Refresh provider record and counts so the summary updates immediately
-            $stmt = $pdo->prepare("SELECT * FROM provider_registry WHERE id = ? LIMIT 1");
+            $stmt = $pdo->prepare("SELECT * FROM provider_registry WHERE id = ?" . (app_column_exists($pdo, 'provider_registry', 'deleted_at') ? " AND deleted_at IS NULL" : "") . " LIMIT 1");
             $stmt->execute([(int) $provider['id']]);
             $provider = $stmt->fetch() ?: $provider;
             $counts = provider_counts($pdo, $provider, $user);

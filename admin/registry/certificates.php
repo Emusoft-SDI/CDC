@@ -138,8 +138,8 @@ if ($tab === 'grower') {
     $rows = rx_rows($pdo, "SELECT c.*, a.name, a.email, a.app_ref, u.role, u.platform_role FROM certificates c JOIN applications a ON a.id=c.application_id LEFT JOIN users u ON u.id=c.user_id WHERE {$where} ORDER BY c.issued_at DESC, c.id DESC LIMIT {$limit} OFFSET {$offset}", $params);
 } elseif ($tab === 'provider' && $hasProviderCertificates) {
     $where = cert_query_clause('c', $search, $statusFilter, $params, ['c.certificate_ref', 'pr.company_name', 'pr.contact_person', 'u.email']);
-    $totalRows = rx_scalar($pdo, "SELECT COUNT(*) FROM provider_accreditation_certificates c LEFT JOIN provider_registry pr ON pr.id=c.provider_id LEFT JOIN users u ON u.id=c.user_id WHERE {$where}", $params);
-    $rows = rx_rows($pdo, "SELECT c.*, pr.company_name, pr.contact_person, u.email, u.name user_name FROM provider_accreditation_certificates c LEFT JOIN provider_registry pr ON pr.id=c.provider_id LEFT JOIN users u ON u.id=c.user_id WHERE {$where} ORDER BY c.issued_at DESC, c.id DESC LIMIT {$limit} OFFSET {$offset}", $params);
+    $totalRows = rx_scalar($pdo, "SELECT COUNT(*) FROM provider_accreditation_certificates c LEFT JOIN provider_registry pr ON pr.id=c.provider_id AND pr.deleted_at IS NULL LEFT JOIN users u ON u.id=c.user_id WHERE {$where}", $params);
+    $rows = rx_rows($pdo, "SELECT c.*, pr.company_name, pr.contact_person, u.email, u.name user_name FROM provider_accreditation_certificates c LEFT JOIN provider_registry pr ON pr.id=c.provider_id AND pr.deleted_at IS NULL LEFT JOIN users u ON u.id=c.user_id WHERE {$where} ORDER BY c.issued_at DESC, c.id DESC LIMIT {$limit} OFFSET {$offset}", $params);
 } elseif ($tab === 'academy' && app_table_exists($pdo, 'academy_certificates')) {
     $where = cert_query_clause('c', $search, $statusFilter, $params, ['c.certificate_ref', 'u.name', 'u.email', 'w.title']);
     $totalRows = rx_scalar($pdo, "SELECT COUNT(*) FROM academy_certificates c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN webinars w ON w.id=c.webinar_id WHERE {$where}", $params);

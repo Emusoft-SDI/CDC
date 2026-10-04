@@ -72,7 +72,7 @@ $livestockUnits = nd_sum($pdo, 'grower_farms', 'livestock_count', 'deleted_at IS
 $intercropFarms = nd_count($pdo, 'grower_farms', "COALESCE(intercrops, '') <> '' AND deleted_at IS NULL");
 $marketplaceGMV = nd_sum($pdo, 'marketplace_orders', 'total_amount', "status <> 'cancelled'");
 $activeListings = nd_count($pdo, 'marketplace_listings', "approval_status = 'approved'");
-$providers = nd_count($pdo, 'provider_registry', "status IN ('approved','verified','active')");
+$providers = nd_count($pdo, 'provider_registry', "status IN ('approved','verified','active') AND deleted_at IS NULL");
 $academyRegistrations = nd_count($pdo, 'webinar_registrations');
 $academyCompleted = nd_count($pdo, 'webinar_registrations', "completion_status = 'completed'");
 $academyCompletion = nd_pct($academyCompleted, $academyRegistrations);
@@ -102,7 +102,7 @@ $topStates = array_slice($stateRows, 0, 5);
 $backlogStates = $stateRows;
 usort($backlogStates, static fn(array $a, array $b): int => (int) $b['backlog'] <=> (int) $a['backlog']);
 $backlogStates = array_slice($backlogStates, 0, 5);
-$providerRows = nd_rows($pdo, "SELECT provider_type, status, COUNT(*) total FROM provider_registry GROUP BY provider_type, status ORDER BY total DESC LIMIT 8");
+$providerRows = nd_rows($pdo, "SELECT provider_type, status, COUNT(*) total FROM provider_registry WHERE deleted_at IS NULL GROUP BY provider_type, status ORDER BY total DESC LIMIT 8");
 $activityRows = nd_rows($pdo, "
     SELECT name, created_at, 'New grower registered nationwide' activity
     FROM users

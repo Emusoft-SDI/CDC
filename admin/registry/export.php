@@ -15,7 +15,7 @@ $rows = [];
 
 if ($type === 'providers') {
     $headers = ['Provider ID', 'Company', 'Contact Person', 'Email', 'Phone', 'Type', 'Status', 'Coverage', 'Created At'];
-    $stmt = $pdo->query("SELECT id, company_name, contact_person, email, phone, provider_type, status, coverage_area, created_at FROM provider_registry ORDER BY created_at DESC");
+    $stmt = $pdo->query("SELECT id, company_name, contact_person, email, phone, provider_type, status, coverage_area, created_at FROM provider_registry WHERE deleted_at IS NULL ORDER BY created_at DESC");
     $rows = (function () use ($stmt): Generator {
         while ($row = $stmt->fetch()) {
             yield [
@@ -73,7 +73,7 @@ if ($type === 'providers') {
             yield [$row['type'], $row['reference'], $row['name'], $row['email'], $row['phone'], $row['status'], $row['created_at']];
         }
         if (app_table_exists($pdo, 'provider_registry')) {
-            $stmt2 = $pdo->query("SELECT 'Provider' type, CONCAT('PRV-', id) reference, company_name name, email, phone, status, created_at FROM provider_registry WHERE status IN ('pending_review','under_review','needs_confirmation') ORDER BY created_at DESC");
+            $stmt2 = $pdo->query("SELECT 'Provider' type, CONCAT('PRV-', id) reference, company_name name, email, phone, status, created_at FROM provider_registry WHERE status IN ('pending_review','under_review','needs_confirmation') AND deleted_at IS NULL ORDER BY created_at DESC");
             while ($row = $stmt2->fetch()) {
                 yield [$row['type'], $row['reference'], $row['name'], $row['email'], $row['phone'], $row['status'], $row['created_at']];
             }

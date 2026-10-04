@@ -161,6 +161,7 @@ function pg_ensure_schema(PDO $pdo): void
     ] as $column => $definition) {
         app_add_column_if_missing($pdo, 'provider_registry', $column, $definition);
     }
+    app_add_column_if_missing($pdo, 'provider_registry', 'deleted_at', "DATETIME NULL");
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS provider_offerings (

@@ -10,7 +10,7 @@ if (!$user) {
     exit('Authentication required.');
 }
 
-$stmt = $pdo->prepare("SELECT d.*, pr.user_id provider_user_id, pr.email provider_email FROM provider_accreditation_documents d JOIN provider_registry pr ON pr.id=d.provider_id WHERE d.id=? LIMIT 1");
+$stmt = $pdo->prepare("SELECT d.*, pr.user_id provider_user_id, pr.email provider_email FROM provider_accreditation_documents d JOIN provider_registry pr ON pr.id=d.provider_id AND pr.deleted_at IS NULL WHERE d.id=? LIMIT 1");
 $stmt->execute([max(0, (int) ($_GET['id'] ?? 0))]);
 $document = $stmt->fetch();
 if (!$document) {

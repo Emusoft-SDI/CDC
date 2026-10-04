@@ -2,6 +2,7 @@
 $providerRows = report_rows($pdo, "
     SELECT provider_type, status, COUNT(*) total
     FROM provider_registry
+    WHERE deleted_at IS NULL
     GROUP BY provider_type, status
     ORDER BY provider_type, status
 ");

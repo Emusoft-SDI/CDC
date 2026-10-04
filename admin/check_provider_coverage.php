@@ -20,7 +20,7 @@ if (!$user) {
 
 echo "User: id={$user['id']}, name={$user['name']}\n";
 
-$stmt = $pdo->prepare('SELECT * FROM provider_registry WHERE user_id = ? OR email = ? LIMIT 1');
+$stmt = $pdo->prepare('SELECT * FROM provider_registry WHERE (user_id = ? OR email = ?)' . (app_column_exists($pdo, 'provider_registry', 'deleted_at') ? ' AND deleted_at IS NULL' : '') . ' LIMIT 1');
 $stmt->execute([(int) $user['id'], $email]);
 $provider = $stmt->fetch();
 if (!$provider) {
