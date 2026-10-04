@@ -163,7 +163,7 @@ $farmersTotal = report_count($pdo, "
     SELECT COUNT(DISTINCT u.id)
     FROM users u
     LEFT JOIN applications a ON a.id = u.application_id
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
     LEFT JOIN nigeria_lgas nl ON nl.id = COALESCE(gf.lga_id, a.lga_id)
     WHERE u.role = 'grower' AND {$locationFilterSql}
@@ -172,7 +172,7 @@ $farmersNew = report_count($pdo, "
     SELECT COUNT(DISTINCT u.id)
     FROM users u
     LEFT JOIN applications a ON a.id = u.application_id
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
     LEFT JOIN nigeria_lgas nl ON nl.id = COALESCE(gf.lga_id, a.lga_id)
     WHERE u.role = 'grower' AND u.created_at BETWEEN ? AND ? AND {$locationFilterSql}
@@ -184,7 +184,7 @@ $farmsTotal = report_count($pdo, "
     LEFT JOIN applications a ON a.id = u.application_id
     LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
     LEFT JOIN nigeria_lgas nl ON nl.id = COALESCE(gf.lga_id, a.lga_id)
-    WHERE {$locationFilterSql}
+    WHERE {$locationFilterSql} AND gf.deleted_at IS NULL
 ", $locationFilterParams);
 $hectares = report_sum($pdo, "
     SELECT COALESCE(SUM(gf.farm_size), 0)
@@ -193,13 +193,13 @@ $hectares = report_sum($pdo, "
     LEFT JOIN applications a ON a.id = u.application_id
     LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
     LEFT JOIN nigeria_lgas nl ON nl.id = COALESCE(gf.lga_id, a.lga_id)
-    WHERE {$locationFilterSql}
+    WHERE {$locationFilterSql} AND gf.deleted_at IS NULL
 ", $locationFilterParams);
 $accredited = report_count($pdo, "
     SELECT COUNT(DISTINCT u.id)
     FROM users u
     LEFT JOIN applications a ON a.id = u.application_id
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
     LEFT JOIN nigeria_lgas nl ON nl.id = COALESCE(gf.lga_id, a.lga_id)
     WHERE u.role = 'grower' AND COALESCE(u.accreditation_status, 'not_accredited') = 'accredited' AND {$locationFilterSql}
@@ -209,7 +209,7 @@ $pendingDocs = report_count($pdo, "
     FROM document_requirements dr
     JOIN users u ON u.id = dr.user_id
     LEFT JOIN applications a ON a.id = u.application_id
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
     LEFT JOIN nigeria_lgas nl ON nl.id = COALESCE(gf.lga_id, a.lga_id)
     WHERE dr.verification_status IN ('pending','needs_review') AND dr.deleted_at IS NULL AND {$locationFilterSql}
@@ -219,7 +219,7 @@ $openSupport = report_count($pdo, "
     FROM messages m
     JOIN users u ON u.id = m.user_id
     LEFT JOIN applications a ON a.id = u.application_id
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
     LEFT JOIN nigeria_lgas nl ON nl.id = COALESCE(gf.lga_id, a.lga_id)
     WHERE m.status IN ('open','in_progress') AND {$locationFilterSql}
@@ -227,7 +227,7 @@ $openSupport = report_count($pdo, "
 $fieldVisits = report_count($pdo, "
     SELECT COUNT(DISTINCT fv.id)
     FROM farm_visits fv
-    JOIN grower_farms gf ON gf.id = fv.farm_id
+    JOIN grower_farms gf ON gf.id = fv.farm_id AND gf.deleted_at IS NULL
     JOIN users u ON u.id = gf.user_id
     LEFT JOIN applications a ON a.id = u.application_id
     LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
@@ -237,7 +237,7 @@ $fieldVisits = report_count($pdo, "
 $pendingTasks = report_count($pdo, "
     SELECT COUNT(DISTINCT ft.id)
     FROM field_tasks ft
-    JOIN grower_farms gf ON gf.id = ft.farm_id
+    JOIN grower_farms gf ON gf.id = ft.farm_id AND gf.deleted_at IS NULL
     JOIN users u ON u.id = gf.user_id
     LEFT JOIN applications a ON a.id = u.application_id
     LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
@@ -247,7 +247,7 @@ $pendingTasks = report_count($pdo, "
 $verifiedFarms = report_count($pdo, "
     SELECT COUNT(DISTINCT fv.id)
     FROM farm_verifications fv
-    JOIN grower_farms gf ON gf.id = fv.farm_id
+    JOIN grower_farms gf ON gf.id = fv.farm_id AND gf.deleted_at IS NULL
     JOIN users u ON u.id = gf.user_id
     LEFT JOIN applications a ON a.id = u.application_id
     LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
@@ -313,7 +313,7 @@ $stateRows = report_rows($pdo, "
            SUM(CASE WHEN COALESCE(u.accreditation_status, 'not_accredited') = 'accredited' THEN 1 ELSE 0 END) accredited
     FROM users u
     LEFT JOIN applications a ON a.id = u.application_id
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
     LEFT JOIN nigeria_lgas nl ON nl.id = COALESCE(gf.lga_id, a.lga_id)
     WHERE u.role = 'grower' AND {$locationFilterSql}

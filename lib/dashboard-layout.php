@@ -251,12 +251,13 @@ function dashboard_page_start(string $title, array $options = []): void
             if ($current && !array_key_exists('location', $options)) {
                 $options['location'] = 'Location pending';
                 if (app_table_exists($pdo, 'grower_farms')) {
+                    $gfSoft = app_column_exists($pdo, 'grower_farms', 'deleted_at') ? ' AND gf.deleted_at IS NULL' : '';
                     $locStmt = $pdo->prepare("
                         SELECT COALESCE(nl.lga_name, '') lga_name, COALESCE(ns.state_name, '') state_name
                         FROM grower_farms gf
                         LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
                         LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id
-                        WHERE gf.user_id = ?
+                        WHERE gf.user_id = ?{$gfSoft}
                         ORDER BY gf.is_primary DESC, gf.created_at ASC
                         LIMIT 1
                     ");

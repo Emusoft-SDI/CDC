@@ -32,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new RuntimeException('Select a grower and enter a case title.');
                 }
                 if ($farmId !== null) {
-                    $farmOwner = $pdo->prepare("SELECT user_id FROM grower_farms WHERE id = ? LIMIT 1");
+                    $farmOwner = $pdo->prepare("SELECT user_id FROM grower_farms WHERE id = ? AND deleted_at IS NULL LIMIT 1");
                     $farmOwner->execute([$farmId]);
                     $ownerId = (int) ($farmOwner->fetchColumn() ?: 0);
                     if ($ownerId > 0 && $ownerId !== $growerId) {
@@ -142,7 +142,7 @@ $cases = $pdo->query("
            assignee.name assigned_name
     FROM agronomy_cases ac
     JOIN users u ON u.id = ac.grower_id
-    LEFT JOIN grower_farms gf ON gf.id = ac.farm_id
+    LEFT JOIN grower_farms gf ON gf.id = ac.farm_id AND gf.deleted_at IS NULL
     LEFT JOIN users assignee ON assignee.id = ac.assigned_to
     WHERE {$where}
     ORDER BY FIELD(ac.priority, 'urgent','high','normal','low'), ac.updated_at DESC, ac.created_at DESC
@@ -185,6 +185,7 @@ $farms = $pdo->query("
     SELECT gf.id, gf.user_id, gf.farm_name, u.name grower_name
     FROM grower_farms gf
     JOIN users u ON u.id = gf.user_id
+    WHERE gf.deleted_at IS NULL
     ORDER BY u.name, gf.farm_name
     LIMIT 800
 ")->fetchAll();
@@ -199,7 +200,7 @@ $stats = [
 $recentObservations = $pdo->query("
     SELECT afc.*, gf.farm_name, u.name grower_name, agent.name agent_name
     FROM agronomy_field_checklists afc
-    JOIN grower_farms gf ON gf.id = afc.farm_id
+    JOIN grower_farms gf ON gf.id = afc.farm_id AND gf.deleted_at IS NULL
     JOIN users u ON u.id = gf.user_id
     LEFT JOIN users agent ON agent.id = afc.agent_id
     ORDER BY afc.created_at DESC

@@ -560,7 +560,7 @@ $totalStmt = $pdo->prepare("
     FROM users u
     LEFT JOIN applications a ON u.application_id = a.id
     LEFT JOIN staff_profiles sp ON sp.user_id = u.id AND sp.deleted_at IS NULL
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id OR ns.id = a.state_id
     {$whereSql}
 ");
@@ -572,7 +572,7 @@ $usersStmt = $pdo->prepare("
     FROM users u
     LEFT JOIN applications a ON u.application_id = a.id
     LEFT JOIN staff_profiles sp ON sp.user_id = u.id AND sp.deleted_at IS NULL
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id OR ns.id = a.state_id
     {$whereSql}
     GROUP BY u.id

@@ -358,12 +358,13 @@ foreach ($filesByType as $files) {
 
 $primaryFarm = null;
 if (app_table_exists($pdo, 'grower_farms')) {
+    $gfSoft = app_column_exists($pdo, 'grower_farms', 'deleted_at') ? ' AND gf.deleted_at IS NULL' : '';
     $farmStmt = $pdo->prepare("
         SELECT gf.*, ns.state_name, nl.lga_name
         FROM grower_farms gf
         LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
         LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id
-        WHERE gf.user_id = ?
+        WHERE gf.user_id = ?{$gfSoft}
         ORDER BY gf.is_primary DESC, gf.created_at ASC
         LIMIT 1
     ");

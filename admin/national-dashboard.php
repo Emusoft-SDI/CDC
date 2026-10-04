@@ -66,10 +66,10 @@ $lgasTotal = nd_count($pdo, 'nigeria_lgas');
 $registeredGrowers = nd_count($pdo, 'users', "role = 'grower'");
 $verifiedGrowers = nd_count($pdo, 'users', "role = 'grower' AND COALESCE(accreditation_status, 'not_accredited') = 'accredited'");
 $fieldAgents = nd_count($pdo, 'users', "role = 'field_agent' OR platform_role = 'field_agent'");
-$farms = nd_count($pdo, 'grower_farms');
-$coconutStands = nd_sum($pdo, 'grower_farms', 'coconut_stands');
-$livestockUnits = nd_sum($pdo, 'grower_farms', 'livestock_count');
-$intercropFarms = nd_count($pdo, 'grower_farms', "COALESCE(intercrops, '') <> ''");
+$farms = nd_count($pdo, 'grower_farms', 'deleted_at IS NULL');
+$coconutStands = nd_sum($pdo, 'grower_farms', 'coconut_stands', 'deleted_at IS NULL');
+$livestockUnits = nd_sum($pdo, 'grower_farms', 'livestock_count', 'deleted_at IS NULL');
+$intercropFarms = nd_count($pdo, 'grower_farms', "COALESCE(intercrops, '') <> '' AND deleted_at IS NULL");
 $marketplaceGMV = nd_sum($pdo, 'marketplace_orders', 'total_amount', "status <> 'cancelled'");
 $activeListings = nd_count($pdo, 'marketplace_listings', "approval_status = 'approved'");
 $providers = nd_count($pdo, 'provider_registry', "status IN ('approved','verified','active')");
@@ -90,7 +90,7 @@ $stateRows = nd_rows($pdo, "
            COALESCE(SUM(gf.farm_size), 0) hectares
     FROM users u
     LEFT JOIN applications a ON a.id = u.application_id
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id AND fv.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id OR ns.id = a.state_id
     WHERE u.role = 'grower'

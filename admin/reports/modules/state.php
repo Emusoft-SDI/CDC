@@ -7,7 +7,7 @@ $stateRows = report_rows($pdo, "
            SUM(CASE WHEN COALESCE(u.accreditation_status, 'not_accredited') = 'accredited' THEN 1 ELSE 0 END) accredited
     FROM users u
     LEFT JOIN applications a ON a.id = u.application_id
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
     LEFT JOIN nigeria_lgas nl ON nl.id = COALESCE(gf.lga_id, a.lga_id)
     WHERE u.role = 'grower' AND {$locationFilterSql}

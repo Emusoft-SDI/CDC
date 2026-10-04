@@ -21,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $action = (string) ($_POST['action'] ?? '');
             $farmId = (int) ($_POST['farm_id'] ?? 0);
-            $farmStmt = $pdo->prepare("SELECT * FROM grower_farms WHERE id = ? LIMIT 1");
+            $farmStmt = $pdo->prepare("SELECT * FROM grower_farms WHERE id = ? AND deleted_at IS NULL LIMIT 1");
             $farmStmt->execute([$farmId]);
             $farm = $farmStmt->fetch();
             if (!$farm) {
@@ -110,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $status = (string) ($_GET['status'] ?? '');
-$where = [];
+$where = ['gf.deleted_at IS NULL'];
 $params = [];
 if ($status !== '') {
     $where[] = 'COALESCE(fv.status, "pending") = ?';

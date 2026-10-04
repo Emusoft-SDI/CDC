@@ -70,7 +70,7 @@ $farmStmt = $pdo->prepare("
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
     LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id
     LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id{$fvSoft}
-    WHERE gf.user_id = ?
+    WHERE gf.user_id = ? AND gf.deleted_at IS NULL
     ORDER BY gf.is_primary DESC, gf.created_at ASC
 ");
 $farmStmt->execute([$userId]);
@@ -114,7 +114,7 @@ if ($farmIds && app_table_exists($pdo, 'field_tasks')) {
     $taskStmt = $pdo->prepare("
         SELECT ft.*, gf.farm_name, agent.name agent_name
         FROM field_tasks ft
-        JOIN grower_farms gf ON gf.id = ft.farm_id
+        JOIN grower_farms gf ON gf.id = ft.farm_id AND gf.deleted_at IS NULL
         LEFT JOIN users agent ON agent.id = ft.assigned_to
         WHERE ft.farm_id IN ({$placeholders})
         ORDER BY FIELD(ft.status, 'in_progress', 'assigned', 'pending', 'completed', 'cancelled'), ft.due_date IS NULL, ft.due_date ASC, ft.created_at DESC
@@ -129,7 +129,7 @@ if ($farmIds && app_table_exists($pdo, 'farm_visits')) {
     $visitStmt = $pdo->prepare("
         SELECT fv.*, gf.farm_name, agent.name agent_name
         FROM farm_visits fv
-        JOIN grower_farms gf ON gf.id = fv.farm_id
+        JOIN grower_farms gf ON gf.id = fv.farm_id AND gf.deleted_at IS NULL
         LEFT JOIN users agent ON agent.id = fv.agent_id
         WHERE fv.farm_id IN ({$placeholders})
         ORDER BY fv.visited_at DESC, fv.created_at DESC
@@ -150,7 +150,7 @@ if (app_table_exists($pdo, 'agronomy_cases')) {
         SELECT ac.*, gf.farm_name,
                (SELECT COUNT(*) FROM agronomy_recommendations ar WHERE ar.case_id = ac.id AND ar.is_visible_to_grower = 1) visible_recommendations
         FROM agronomy_cases ac
-        LEFT JOIN grower_farms gf ON gf.id = ac.farm_id
+        LEFT JOIN grower_farms gf ON gf.id = ac.farm_id AND gf.deleted_at IS NULL
         WHERE ac.grower_id = ?
         ORDER BY ac.created_at DESC
         LIMIT 5

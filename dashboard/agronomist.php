@@ -17,7 +17,7 @@ $userId = (int) $_SESSION['user_id'];
 $message = '';
 $error = '';
 
-$farmsStmt = $pdo->prepare("SELECT id, farm_name FROM grower_farms WHERE user_id = ? ORDER BY is_primary DESC, farm_name");
+$farmsStmt = $pdo->prepare("SELECT id, farm_name FROM grower_farms WHERE user_id = ? AND deleted_at IS NULL ORDER BY is_primary DESC, farm_name");
 $farmsStmt->execute([$userId]);
 $farms = $farmsStmt->fetchAll();
 
@@ -63,7 +63,7 @@ $casesStmt = $pdo->prepare("
     SELECT ac.*, gf.farm_name,
            (SELECT COUNT(*) FROM agronomy_recommendations ar WHERE ar.case_id = ac.id AND ar.is_visible_to_grower = 1) visible_recommendations
     FROM agronomy_cases ac
-    LEFT JOIN grower_farms gf ON gf.id = ac.farm_id
+    LEFT JOIN grower_farms gf ON gf.id = ac.farm_id AND gf.deleted_at IS NULL
     WHERE ac.grower_id = ?
     ORDER BY ac.created_at DESC
     LIMIT 30

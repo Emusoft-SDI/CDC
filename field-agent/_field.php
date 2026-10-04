@@ -123,7 +123,7 @@ function fa_task_rows(PDO $pdo, array $user, ?string $status = null): array
     $where .= $status ? ' AND ft.status = ?' : " AND ft.status IN ('pending','assigned','in_progress')";
     if ($status) { $params[] = $status; }
     try {
-        $stmt = $pdo->prepare("SELECT ft.*, gf.farm_name, gf.street_address, gf.latitude, gf.longitude, u.name grower_name, u.phone grower_phone, s.state_name, l.lga_name FROM field_tasks ft JOIN grower_farms gf ON gf.id = ft.farm_id JOIN users u ON u.id = gf.user_id LEFT JOIN nigeria_states s ON s.id = gf.state_id LEFT JOIN nigeria_lgas l ON l.id = gf.lga_id WHERE {$where} ORDER BY FIELD(ft.priority, 'urgent','high','normal','low'), ft.due_date IS NULL, ft.due_date, ft.created_at DESC");
+        $stmt = $pdo->prepare("SELECT ft.*, gf.farm_name, gf.street_address, gf.latitude, gf.longitude, u.name grower_name, u.phone grower_phone, s.state_name, l.lga_name FROM field_tasks ft JOIN grower_farms gf ON gf.id = ft.farm_id AND gf.deleted_at IS NULL JOIN users u ON u.id = gf.user_id LEFT JOIN nigeria_states s ON s.id = gf.state_id LEFT JOIN nigeria_lgas l ON l.id = gf.lga_id WHERE {$where} ORDER BY FIELD(ft.priority, 'urgent','high','normal','low'), ft.due_date IS NULL, ft.due_date, ft.created_at DESC");
         $stmt->execute($params);
         return $stmt->fetchAll();
     } catch (Throwable $e) {
@@ -135,7 +135,7 @@ function fa_visit_rows(PDO $pdo, array $user, int $limit = 8): array
 {
     if (!app_table_exists($pdo, 'farm_visits')) { return []; }
     try {
-        $stmt = $pdo->prepare("SELECT fv.*, gf.farm_name, u.name grower_name, s.state_name, l.lga_name FROM farm_visits fv JOIN grower_farms gf ON gf.id = fv.farm_id JOIN users u ON u.id = gf.user_id LEFT JOIN nigeria_states s ON s.id = gf.state_id LEFT JOIN nigeria_lgas l ON l.id = gf.lga_id WHERE (fv.agent_id = ? OR ? = 'admin') ORDER BY fv.visited_at DESC LIMIT {$limit}");
+        $stmt = $pdo->prepare("SELECT fv.*, gf.farm_name, u.name grower_name, s.state_name, l.lga_name FROM farm_visits fv JOIN grower_farms gf ON gf.id = fv.farm_id AND gf.deleted_at IS NULL JOIN users u ON u.id = gf.user_id LEFT JOIN nigeria_states s ON s.id = gf.state_id LEFT JOIN nigeria_lgas l ON l.id = gf.lga_id WHERE (fv.agent_id = ? OR ? = 'admin') ORDER BY fv.visited_at DESC LIMIT {$limit}");
         $stmt->execute([(int) $user['id'], fa_role_key($user)]);
         return $stmt->fetchAll();
     } catch (Throwable $e) {

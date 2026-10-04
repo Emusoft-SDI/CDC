@@ -14,7 +14,8 @@ if (!$currentUser) {
 }
 
 // Ensure the table exists or schema is ready, just in case
-$stmt = $pdo->prepare("SELECT * FROM grower_farms WHERE user_id = ? LIMIT 1");
+$gfSoft = app_column_exists($pdo, 'grower_farms', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+$stmt = $pdo->prepare("SELECT * FROM grower_farms WHERE user_id = ?{$gfSoft} LIMIT 1");
 $stmt->execute([$userId]);
 $farm = $stmt->fetch();
 

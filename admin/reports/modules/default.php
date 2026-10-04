@@ -2,7 +2,7 @@
 $exportRows = report_rows($pdo, "
     SELECT u.id, u.name, u.email, u.created_at, u.account_status, u.accreditation_status, COUNT(gf.id) farms
     FROM users u
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     WHERE u.role = 'grower'
     GROUP BY u.id, u.name, u.email, u.created_at, u.account_status, u.accreditation_status
     ORDER BY u.created_at DESC

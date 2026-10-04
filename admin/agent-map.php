@@ -44,7 +44,7 @@ $farmPoints = app_table_exists($pdo, 'grower_farms') ? fmap_rows($pdo, "
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
     LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id
     LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id AND fv.deleted_at IS NULL
-    WHERE gf.latitude IS NOT NULL AND gf.longitude IS NOT NULL
+    WHERE gf.latitude IS NOT NULL AND gf.longitude IS NOT NULL AND gf.deleted_at IS NULL
     ORDER BY gf.updated_at DESC, gf.id DESC
     LIMIT 500
 ") : [];
@@ -53,7 +53,7 @@ $visitPoints = app_table_exists($pdo, 'farm_visits') ? fmap_rows($pdo, "
     SELECT fv.id, fv.visit_latitude latitude, fv.visit_longitude longitude, fv.result, fv.visited_at,
            gf.farm_name, u.name agent_name
     FROM farm_visits fv
-    LEFT JOIN grower_farms gf ON gf.id = fv.farm_id
+    LEFT JOIN grower_farms gf ON gf.id = fv.farm_id AND gf.deleted_at IS NULL
     LEFT JOIN users u ON u.id = fv.agent_id
     WHERE fv.visit_latitude IS NOT NULL AND fv.visit_longitude IS NOT NULL
     ORDER BY fv.visited_at DESC
@@ -76,7 +76,7 @@ $fieldTickets = app_table_exists($pdo, 'support_tickets') ? fmap_rows($pdo, "
     SELECT t.id, t.ticket_ref, t.subject, t.description, t.priority, t.status, t.requester_name, t.created_at,
            t.linked_record_type, t.linked_record_ref, gf.latitude, gf.longitude, gf.farm_name
     FROM support_tickets t
-    LEFT JOIN grower_farms gf ON t.linked_record_type IN ('farm','grower_farm','farm_id') AND CAST(t.linked_record_ref AS UNSIGNED) = gf.id
+    LEFT JOIN grower_farms gf ON t.linked_record_type IN ('farm','grower_farm','farm_id') AND CAST(t.linked_record_ref AS UNSIGNED) = gf.id AND gf.deleted_at IS NULL
     WHERE t.category = 'field'
     ORDER BY FIELD(t.status,'open','in_progress','waiting_on_user','escalated','resolved','closed'), t.created_at DESC
     LIMIT 200

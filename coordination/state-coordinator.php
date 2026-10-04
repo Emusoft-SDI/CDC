@@ -19,10 +19,10 @@ $stateApps = $stateId > 0 ? coord_scalar($pdo, 'SELECT COUNT(*) FROM application
 $stateLgaMapped = $stateId > 0 ? coord_scalar($pdo, 'SELECT COUNT(*) FROM applications WHERE state_id = ? AND lga_id IS NOT NULL', [$stateId]) : 0;
 $stateConfirmed = $stateId > 0 ? coord_scalar($pdo, 'SELECT COUNT(*) FROM applications WHERE state_id = ? AND confirmed = 1', [$stateId]) : 0;
 $stateActive = $stateId > 0 ? coord_scalar($pdo, "SELECT COUNT(*) FROM applications WHERE state_id = ? AND (review_status IN ('active','verified','approved','confirmed') OR confirmed = 1)", [$stateId]) : 0;
-$stateFarms = $stateId > 0 && app_table_exists($pdo, 'grower_farms') ? coord_scalar($pdo, 'SELECT COUNT(*) FROM grower_farms WHERE state_id = ?', [$stateId]) : 0;
-$stateFarmGps = $stateId > 0 && app_table_exists($pdo, 'grower_farms') ? coord_scalar($pdo, 'SELECT COUNT(*) FROM grower_farms WHERE state_id = ? AND latitude IS NOT NULL AND longitude IS NOT NULL', [$stateId]) : 0;
-$fieldOpen = $stateId > 0 && app_table_exists($pdo, 'field_tasks') && app_table_exists($pdo, 'grower_farms') ? coord_scalar($pdo, "SELECT COUNT(*) FROM field_tasks ft JOIN grower_farms gf ON gf.id = ft.farm_id WHERE gf.state_id = ? AND ft.status IN ('pending','assigned','in_progress')", [$stateId]) : 0;
-$visits30 = $stateId > 0 && app_table_exists($pdo, 'farm_visits') && app_table_exists($pdo, 'grower_farms') ? coord_scalar($pdo, "SELECT COUNT(*) FROM farm_visits fv JOIN grower_farms gf ON gf.id = fv.farm_id WHERE gf.state_id = ? AND fv.visited_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)", [$stateId]) : 0;
+$stateFarms = $stateId > 0 && app_table_exists($pdo, 'grower_farms') ? coord_scalar($pdo, 'SELECT COUNT(*) FROM grower_farms WHERE state_id = ? AND deleted_at IS NULL', [$stateId]) : 0;
+$stateFarmGps = $stateId > 0 && app_table_exists($pdo, 'grower_farms') ? coord_scalar($pdo, 'SELECT COUNT(*) FROM grower_farms WHERE state_id = ? AND latitude IS NOT NULL AND longitude IS NOT NULL AND deleted_at IS NULL', [$stateId]) : 0;
+$fieldOpen = $stateId > 0 && app_table_exists($pdo, 'field_tasks') && app_table_exists($pdo, 'grower_farms') ? coord_scalar($pdo, "SELECT COUNT(*) FROM field_tasks ft JOIN grower_farms gf ON gf.id = ft.farm_id AND gf.deleted_at IS NULL WHERE gf.state_id = ? AND ft.status IN ('pending','assigned','in_progress')", [$stateId]) : 0;
+$visits30 = $stateId > 0 && app_table_exists($pdo, 'farm_visits') && app_table_exists($pdo, 'grower_farms') ? coord_scalar($pdo, "SELECT COUNT(*) FROM farm_visits fv JOIN grower_farms gf ON gf.id = fv.farm_id AND gf.deleted_at IS NULL WHERE gf.state_id = ? AND fv.visited_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)", [$stateId]) : 0;
 $legacyTerms = array_values(array_unique(array_filter(array_merge([$assignedLabel, $canonicalState], coord_state_aliases($selectedState)))));
 $legacyHints = [];
 foreach ($legacyTerms as $term) {

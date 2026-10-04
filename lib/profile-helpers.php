@@ -202,6 +202,7 @@ function profile_helpers_ensure_schema(PDO $pdo): void
     ] as $column => $definition) {
         app_add_column_if_missing($pdo, 'grower_farms', $column, $definition);
     }
+    app_add_column_if_missing($pdo, 'grower_farms', 'deleted_at', "DATETIME NULL");
 }
 
 function profile_ensure_otp_schema(PDO $pdo): void

@@ -166,7 +166,11 @@ function admin_execute_approved_delete(PDO $pdo, array $request): void
     }
 
     if ($table === 'grower_farms') {
-        $pdo->prepare('DELETE FROM grower_farms WHERE id = ?')->execute([$id]);
+        if (app_column_exists($pdo, 'grower_farms', 'deleted_at')) {
+            $pdo->prepare('UPDATE grower_farms SET deleted_at = NOW() WHERE id = ?')->execute([$id]);
+        } else {
+            $pdo->prepare('DELETE FROM grower_farms WHERE id = ?')->execute([$id]);
+        }
         return;
     }
 

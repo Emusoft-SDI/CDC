@@ -97,7 +97,7 @@ $farmStmt = $pdo->prepare("
     LEFT JOIN nigeria_states s ON s.id = gf.state_id
     LEFT JOIN nigeria_lgas l ON l.id = gf.lga_id
     LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id AND fv.deleted_at IS NULL
-    WHERE gf.user_id = ?
+    WHERE gf.user_id = ? AND gf.deleted_at IS NULL
     ORDER BY gf.is_primary DESC, gf.created_at ASC, gf.id ASC
 ");
 $farmStmt->execute([$userId]);
@@ -195,7 +195,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 $message = 'Farm added successfully.';
             } else {
-                $ownership = $pdo->prepare("SELECT id, is_primary, application_id FROM grower_farms WHERE id = ? AND user_id = ? LIMIT 1");
+                $ownership = $pdo->prepare("SELECT id, is_primary, application_id FROM grower_farms WHERE id = ? AND user_id = ? AND deleted_at IS NULL LIMIT 1");
                 $ownership->execute([$farmId, $userId]);
                 $farm = $ownership->fetch();
                 if (!$farm) {
@@ -257,7 +257,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 LEFT JOIN nigeria_states s ON s.id = gf.state_id
                 LEFT JOIN nigeria_lgas l ON l.id = gf.lga_id
                 LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id AND fv.deleted_at IS NULL
-                WHERE gf.user_id = ?
+                WHERE gf.user_id = ? AND gf.deleted_at IS NULL
                 ORDER BY gf.is_primary DESC, gf.created_at ASC, gf.id ASC
             ");
             $farmStmt->execute([$userId]);

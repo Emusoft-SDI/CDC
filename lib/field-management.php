@@ -60,6 +60,7 @@ function fm_ensure_schema(PDO $pdo): void
     ] as $column => $definition) {
         app_add_column_if_missing($pdo, 'grower_farms', $column, $definition);
     }
+    app_add_column_if_missing($pdo, 'grower_farms', 'deleted_at', "DATETIME NULL");
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS farm_verifications (
@@ -206,10 +207,11 @@ function fm_haversine_m(float $lat1, float $lng1, float $lat2, float $lng2): flo
 function fm_record_task_visit(PDO $pdo, array $user, array $payload): array
 {
     $taskId = (int) ($payload['task_id'] ?? 0);
+    $gfSoft = app_column_exists($pdo, 'grower_farms', 'deleted_at') ? ' AND gf.deleted_at IS NULL' : '';
     $taskStmt = $pdo->prepare("
         SELECT ft.*, gf.latitude submitted_latitude, gf.longitude submitted_longitude
         FROM field_tasks ft
-        JOIN grower_farms gf ON gf.id = ft.farm_id
+        JOIN grower_farms gf ON gf.id = ft.farm_id{$gfSoft}
         WHERE ft.id = ? AND (ft.assigned_to = ? OR ? = 'admin')
         LIMIT 1
     ");

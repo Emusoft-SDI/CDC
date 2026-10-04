@@ -9,7 +9,7 @@ $visitRows = [];
 try {
     $where = "(fv.agent_id = ? OR ? = 'admin')";
     $params = [(int) $user['id'], $role];
-    $stmt = $pdo->prepare("SELECT fv.*, gf.farm_name, u.name grower_name, s.state_name, l.lga_name FROM farm_visits fv JOIN grower_farms gf ON gf.id=fv.farm_id JOIN users u ON u.id=gf.user_id LEFT JOIN nigeria_states s ON s.id=gf.state_id LEFT JOIN nigeria_lgas l ON l.id=gf.lga_id WHERE {$where} ORDER BY fv.visited_at DESC, fv.id DESC LIMIT 40");
+    $stmt = $pdo->prepare("SELECT fv.*, gf.farm_name, u.name grower_name, s.state_name, l.lga_name FROM farm_visits fv JOIN grower_farms gf ON gf.id=fv.farm_id AND gf.deleted_at IS NULL JOIN users u ON u.id=gf.user_id LEFT JOIN nigeria_states s ON s.id=gf.state_id LEFT JOIN nigeria_lgas l ON l.id=gf.lga_id WHERE {$where} ORDER BY fv.visited_at DESC, fv.id DESC LIMIT 40");
     $stmt->execute($params);
     $visitRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Throwable $e) {

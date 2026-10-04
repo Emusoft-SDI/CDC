@@ -72,7 +72,7 @@ $totalStmt = $pdo->prepare("
     SELECT COUNT(DISTINCT u.id)
     FROM users u
     LEFT JOIN applications a ON u.application_id = a.id
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id OR ns.id = a.state_id
     WHERE u.role = 'grower' {$growerScopeSql}
 ");
@@ -82,7 +82,7 @@ $growerStmt = $pdo->prepare("
     SELECT u.id, u.name, u.email, a.app_ref
     FROM users u
     LEFT JOIN applications a ON u.application_id = a.id
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id OR ns.id = a.state_id
     WHERE u.role = 'grower' {$growerScopeSql}
     GROUP BY u.id

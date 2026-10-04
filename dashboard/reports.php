@@ -73,24 +73,24 @@ $periodEnd = $endDate . ' 23:59:59';
 $seller = marketplace_current_seller($pdo, $userId);
 $sellerId = $seller ? (int) $seller['id'] : 0;
 
-$farmCount = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM grower_farms WHERE user_id = ?", [$userId]);
-$farmHectares = stakeholder_scalar($pdo, "SELECT COALESCE(SUM(farm_size), 0) FROM grower_farms WHERE user_id = ?", [$userId], true);
+$farmCount = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM grower_farms WHERE user_id = ? AND deleted_at IS NULL", [$userId]);
+$farmHectares = stakeholder_scalar($pdo, "SELECT COALESCE(SUM(farm_size), 0) FROM grower_farms WHERE user_id = ? AND deleted_at IS NULL", [$userId], true);
 $verifiedFarms = stakeholder_scalar($pdo, "
     SELECT COUNT(*)
     FROM farm_verifications fv
-    JOIN grower_farms gf ON gf.id = fv.farm_id
+    JOIN grower_farms gf ON gf.id = fv.farm_id AND gf.deleted_at IS NULL
     WHERE gf.user_id = ? AND fv.status = 'verified' AND fv.deleted_at IS NULL
 ", [$userId]);
 $openFieldTasks = stakeholder_scalar($pdo, "
     SELECT COUNT(*)
     FROM field_tasks ft
-    JOIN grower_farms gf ON gf.id = ft.farm_id
+    JOIN grower_farms gf ON gf.id = ft.farm_id AND gf.deleted_at IS NULL
     WHERE gf.user_id = ? AND ft.status NOT IN ('completed','cancelled')
 ", [$userId]);
 $fieldVisits = stakeholder_scalar($pdo, "
     SELECT COUNT(*)
     FROM farm_visits fv
-    JOIN grower_farms gf ON gf.id = fv.farm_id
+    JOIN grower_farms gf ON gf.id = fv.farm_id AND gf.deleted_at IS NULL
     WHERE gf.user_id = ? AND fv.visited_at BETWEEN ? AND ?
 ", [$userId, $periodStart, $periodEnd]);
 $documentsTotal = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM document_requirements WHERE user_id = ?{$docSoft}", [$userId]);
@@ -122,7 +122,7 @@ $farmRows = stakeholder_rows($pdo, "
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
     LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id
     LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id AND fv.deleted_at IS NULL
-    WHERE gf.user_id = ?
+    WHERE gf.user_id = ? AND gf.deleted_at IS NULL
     ORDER BY gf.is_primary DESC, gf.created_at DESC
 ", [$userId]);
 $buyerRows = stakeholder_rows($pdo, "

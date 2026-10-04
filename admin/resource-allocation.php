@@ -84,7 +84,7 @@ $farmersStmt = $pdo->prepare("
     SELECT DISTINCT u.id, u.name, u.email
     FROM users u
     LEFT JOIN applications a ON a.id = u.application_id
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id OR ns.id = a.state_id
     WHERE u.role = 'grower' " . ($scopeState !== '' ? "AND (ns.state_name = ? OR a.location LIKE ? OR u.location LIKE ?)" : '') . "
     ORDER BY u.name

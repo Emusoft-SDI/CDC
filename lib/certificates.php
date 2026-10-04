@@ -513,10 +513,11 @@ function grower_certificate_readiness(int $userId, PDO $pdo): array
     $farmReady = false;
     $farmDetail = 'Farm profile and verification are required.';
     if (app_table_exists($pdo, 'grower_farms')) {
-        $farmSql = "SELECT gf.id, gf.farm_size, gf.state_id, gf.lga_id, gf.street_address, 'pending' verification_status FROM grower_farms gf WHERE gf.user_id = ? ORDER BY gf.is_primary DESC, gf.id ASC LIMIT 1";
+        $gfSoft = app_column_exists($pdo, 'grower_farms', 'deleted_at') ? ' AND gf.deleted_at IS NULL' : '';
+        $farmSql = "SELECT gf.id, gf.farm_size, gf.state_id, gf.lga_id, gf.street_address, 'pending' verification_status FROM grower_farms gf WHERE gf.user_id = ?{$gfSoft} ORDER BY gf.is_primary DESC, gf.id ASC LIMIT 1";
         if (app_table_exists($pdo, 'farm_verifications')) {
             $fvSoft = app_column_exists($pdo, 'farm_verifications', 'deleted_at') ? ' AND fv.deleted_at IS NULL' : '';
-            $farmSql = "SELECT gf.id, gf.farm_size, gf.state_id, gf.lga_id, gf.street_address, COALESCE(fv.status, 'pending') verification_status FROM grower_farms gf LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id{$fvSoft} WHERE gf.user_id = ? ORDER BY gf.is_primary DESC, fv.id DESC, gf.id ASC LIMIT 1";
+            $farmSql = "SELECT gf.id, gf.farm_size, gf.state_id, gf.lga_id, gf.street_address, COALESCE(fv.status, 'pending') verification_status FROM grower_farms gf LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id{$fvSoft} WHERE gf.user_id = ?{$gfSoft} ORDER BY gf.is_primary DESC, fv.id DESC, gf.id ASC LIMIT 1";
         }
         $farmStmt = $pdo->prepare($farmSql);
         $farmStmt->execute([$userId]);

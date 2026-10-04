@@ -28,7 +28,7 @@ $farmRows = app_table_exists($pdo, 'grower_farms')
             FROM grower_farms gf
             LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
             LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id
-            WHERE gf.user_id = ?
+            WHERE gf.user_id = ? AND gf.deleted_at IS NULL
             ORDER BY gf.is_primary DESC, gf.created_at ASC
         ");
         $stmt->execute([$userId]);
@@ -230,7 +230,7 @@ $farmTasks = app_table_exists($pdo, 'field_tasks') ? (function () use ($pdo, $us
     $stmt = $pdo->prepare("
         SELECT ft.*, gf.farm_name
         FROM field_tasks ft
-        JOIN grower_farms gf ON gf.id = ft.farm_id
+        JOIN grower_farms gf ON gf.id = ft.farm_id AND gf.deleted_at IS NULL
         WHERE gf.user_id = ?
         ORDER BY ft.due_date IS NULL, ft.due_date ASC, ft.created_at DESC
         LIMIT 8
@@ -242,7 +242,7 @@ $intercropRows = (function () use ($pdo, $userId): array {
     $stmt = $pdo->prepare("
         SELECT fir.*, COALESCE(gf.farm_name, 'Grower profile') farm_name
         FROM farm_intercrop_records fir
-        LEFT JOIN grower_farms gf ON gf.id = fir.farm_id AND gf.user_id = fir.user_id
+        LEFT JOIN grower_farms gf ON gf.id = fir.farm_id AND gf.user_id = fir.user_id AND gf.deleted_at IS NULL
         WHERE fir.user_id = ?
         ORDER BY fir.created_at DESC
         LIMIT 30
@@ -254,7 +254,7 @@ $livestockRows = (function () use ($pdo, $userId): array {
     $stmt = $pdo->prepare("
         SELECT flr.*, COALESCE(gf.farm_name, 'Grower profile') farm_name
         FROM farm_livestock_records flr
-        LEFT JOIN grower_farms gf ON gf.id = flr.farm_id AND gf.user_id = flr.user_id
+        LEFT JOIN grower_farms gf ON gf.id = flr.farm_id AND gf.user_id = flr.user_id AND gf.deleted_at IS NULL
         WHERE flr.user_id = ?
         ORDER BY flr.created_at DESC
         LIMIT 30
@@ -266,7 +266,7 @@ $inputRows = (function () use ($pdo, $userId): array {
     $stmt = $pdo->prepare("
         SELECT fir.*, COALESCE(gf.farm_name, 'Grower profile') farm_name
         FROM farm_input_records fir
-        LEFT JOIN grower_farms gf ON gf.id = fir.farm_id AND gf.user_id = fir.user_id
+        LEFT JOIN grower_farms gf ON gf.id = fir.farm_id AND gf.user_id = fir.user_id AND gf.deleted_at IS NULL
         WHERE fir.user_id = ?
         ORDER BY COALESCE(fir.applied_on, fir.created_at) DESC
         LIMIT 20
@@ -278,7 +278,7 @@ $activityRows = (function () use ($pdo, $userId): array {
     $stmt = $pdo->prepare("
         SELECT far.*, COALESCE(gf.farm_name, 'Grower profile') farm_name
         FROM farm_activity_records far
-        LEFT JOIN grower_farms gf ON gf.id = far.farm_id AND gf.user_id = far.user_id
+        LEFT JOIN grower_farms gf ON gf.id = far.farm_id AND gf.user_id = far.user_id AND gf.deleted_at IS NULL
         WHERE far.user_id = ?
         ORDER BY COALESCE(far.activity_date, far.created_at) DESC
         LIMIT 30
@@ -291,7 +291,7 @@ if (app_table_exists($pdo, 'farm_hands')) {
     $handStmt = $pdo->prepare("
         SELECT fh.*, COALESCE(gf.farm_name, 'Grower profile') farm_name
         FROM farm_hands fh
-        LEFT JOIN grower_farms gf ON gf.id = fh.farm_id AND gf.user_id = fh.grower_id
+        LEFT JOIN grower_farms gf ON gf.id = fh.farm_id AND gf.user_id = fh.grower_id AND gf.deleted_at IS NULL
         WHERE fh.grower_id = ?
         ORDER BY FIELD(fh.status, 'active', 'paused', 'completed', 'inactive'), fh.full_name
         LIMIT 30

@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * NATCODEV Super Admin Governance Test Suite
  * Covers the governance controls added to the console:
- * - Soft-delete (notification_templates, staff_profiles, farm_verifications, user_import_records, document_requirements) read isolation + reactivation
+ * - Soft-delete (notification_templates, staff_profiles, farm_verifications, user_import_records, document_requirements, grower_farms) read isolation + reactivation
  * - Recycle-bin snapshot + restore
  * - Console-managed secrets (settings-first, .env fallback)
  * - Module mode kill-switch (paused/setup disables a module)
@@ -211,4 +211,31 @@ function run_governance_tests(): void
     $pdo->prepare("UPDATE document_requirements SET deleted_at = NULL WHERE id = ?")->execute([$govDocId]);
     $restoredDoc = (int) $pdo->query("SELECT COUNT(*) FROM document_requirements WHERE id = {$govDocId} AND deleted_at IS NULL")->fetchColumn();
     TestHarness::assertEqual(1, $restoredDoc, 'Soft-delete: restored document requirement is visible again');
+
+    // =====================================================================
+    // 11. Soft-delete: grower_farms read isolation + restore
+    // =====================================================================
+    $pdo->prepare("INSERT INTO grower_farms (user_id, farm_name) VALUES (?, ?)")->execute([$staffUserId, 'gov_soft_farm_' . bin2hex(random_bytes(3))]);
+    $govSoftFarmId = (int) $pdo->lastInsertId();
+
+    $liveFarm = (int) $pdo->query("SELECT COUNT(*) FROM grower_farms WHERE id = {$govSoftFarmId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $liveFarm, 'Soft-delete: live grower farm is visible to the filtered read');
+
+    // The approved-delete path must soft-delete (set deleted_at), never remove the row,
+    // so the grower and their related records are never dropped.
+    admin_execute_approved_delete($pdo, [
+        'id' => 0,
+        'target_table' => 'grower_farms',
+        'target_id' => $govSoftFarmId,
+        'target_key' => null,
+        'payload_json' => null,
+    ]);
+    $hiddenFarm = (int) $pdo->query("SELECT COUNT(*) FROM grower_farms WHERE id = {$govSoftFarmId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(0, $hiddenFarm, 'Soft-delete: approved delete hides the grower farm from the filtered read');
+    TestHarness::assertEqual(1, (int) $pdo->query("SELECT COUNT(*) FROM grower_farms WHERE id = {$govSoftFarmId}")->fetchColumn(), 'Soft-delete: approved delete keeps the grower_farms row');
+    TestHarness::assert($pdo->query("SELECT deleted_at FROM grower_farms WHERE id = {$govSoftFarmId}")->fetchColumn() !== false, 'Soft-delete: approved delete stamps deleted_at on grower_farms');
+
+    $pdo->prepare("UPDATE grower_farms SET deleted_at = NULL WHERE id = ?")->execute([$govSoftFarmId]);
+    $restoredFarm = (int) $pdo->query("SELECT COUNT(*) FROM grower_farms WHERE id = {$govSoftFarmId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $restoredFarm, 'Soft-delete: restored grower farm is visible again');
 }

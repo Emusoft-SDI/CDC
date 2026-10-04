@@ -36,6 +36,7 @@ $farmRows = coord_rows($pdo, "
            SUM(gf.latitude IS NOT NULL AND gf.longitude IS NOT NULL) gps_ready
     FROM grower_farms gf
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
+    WHERE gf.deleted_at IS NULL
     GROUP BY COALESCE(ns.state_name, 'Unmapped Farm State')
     ORDER BY farms DESC
 ");

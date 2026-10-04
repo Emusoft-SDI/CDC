@@ -138,7 +138,7 @@ $statsStmt = $pdo->prepare("
     FROM users u
     LEFT JOIN applications a ON a.id = u.application_id
     LEFT JOIN nigeria_states app_state ON app_state.id = a.state_id
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
     LEFT JOIN (
         SELECT gf2.user_id, MAX(ns2.state_name) state_name,
@@ -146,6 +146,7 @@ $statsStmt = $pdo->prepare("
         FROM grower_farms gf2
         LEFT JOIN farm_verifications fv ON fv.farm_id = gf2.id AND fv.deleted_at IS NULL
         LEFT JOIN nigeria_states ns2 ON ns2.id = gf2.state_id
+        WHERE gf2.deleted_at IS NULL
         GROUP BY gf2.user_id
     ) farm_summary ON farm_summary.user_id = u.id
     WHERE u.role = 'grower' AND {$stateUserWhere}
@@ -156,10 +157,10 @@ $stats = $statsStmt->fetch() ?: [];
 $registeredGrowers = (int) ($stats['growers'] ?? 0);
 $verifiedGrowers = (int) ($stats['verified_growers'] ?? 0);
 $verificationRate = sc_pct($verifiedGrowers, max(1, $registeredGrowers));
-$activeLgas = sc_scalar($pdo, "SELECT COUNT(DISTINCT COALESCE(app_lga.lga_name, nl.lga_name, u.location)) FROM users u LEFT JOIN applications a ON a.id = u.application_id LEFT JOIN nigeria_lgas app_lga ON app_lga.id = a.lga_id LEFT JOIN grower_farms gf ON gf.user_id = u.id LEFT JOIN nigeria_states ns ON ns.id = gf.state_id LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id WHERE u.role = 'grower' AND (ns.state_name = ? OR a.location LIKE ? OR u.location LIKE ?)", [$state, $stateLike, $stateLike]);
+$activeLgas = sc_scalar($pdo, "SELECT COUNT(DISTINCT COALESCE(app_lga.lga_name, nl.lga_name, u.location)) FROM users u LEFT JOIN applications a ON a.id = u.application_id LEFT JOIN nigeria_lgas app_lga ON app_lga.id = a.lga_id LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL LEFT JOIN nigeria_states ns ON ns.id = gf.state_id LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id WHERE u.role = 'grower' AND (ns.state_name = ? OR a.location LIKE ? OR u.location LIKE ?)", [$state, $stateLike, $stateLike]);
 $activeLgas = max(1, $activeLgas);
 $fieldAgents = sc_scalar($pdo, "SELECT COUNT(*) FROM users u LEFT JOIN staff_profiles sp ON sp.user_id = u.id AND sp.deleted_at IS NULL WHERE u.role = 'field_agent' AND (sp.state = ? OR u.location LIKE ?)", [$state, $stateLike]);
-$pendingVerifications = sc_scalar($pdo, "SELECT COUNT(*) FROM farm_verifications fv JOIN grower_farms gf ON gf.id = fv.farm_id JOIN users u ON u.id = gf.user_id LEFT JOIN applications a ON a.id = u.application_id LEFT JOIN nigeria_states ns ON ns.id = gf.state_id WHERE fv.status IN ('pending','needs_review','submitted') AND fv.deleted_at IS NULL AND (ns.state_name = ? OR a.location LIKE ? OR u.location LIKE ?)", [$state, $stateLike, $stateLike]);
+$pendingVerifications = sc_scalar($pdo, "SELECT COUNT(*) FROM farm_verifications fv JOIN grower_farms gf ON gf.id = fv.farm_id AND gf.deleted_at IS NULL JOIN users u ON u.id = gf.user_id LEFT JOIN applications a ON a.id = u.application_id LEFT JOIN nigeria_states ns ON ns.id = gf.state_id WHERE fv.status IN ('pending','needs_review','submitted') AND fv.deleted_at IS NULL AND (ns.state_name = ? OR a.location LIKE ? OR u.location LIKE ?)", [$state, $stateLike, $stateLike]);
 $stateScore = min(99, (int) round(($verificationRate * 0.55) + (min(100, $activeLgas * 5) * 0.15) + (min(100, $fieldAgents * 2) * 0.15) + 15));
 $survivalRate = min(98.5, 82 + ($stateScore / 8));
 
@@ -171,7 +172,7 @@ $lgaRows = sc_rows($pdo, "
     FROM users u
     LEFT JOIN applications a ON a.id = u.application_id
     LEFT JOIN nigeria_lgas app_lga ON app_lga.id = a.lga_id
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id AND fv.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
     LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id
@@ -184,7 +185,7 @@ $lgaRows = sc_rows($pdo, "
 $verificationRows = sc_rows($pdo, "
     SELECT fv.id, u.name grower_name, COALESCE(app_lga.lga_name, nl.lga_name, 'Unassigned') lga, fv.created_at submitted_at, fv.status, ft.priority
     FROM farm_verifications fv
-    JOIN grower_farms gf ON gf.id = fv.farm_id
+    JOIN grower_farms gf ON gf.id = fv.farm_id AND gf.deleted_at IS NULL
     JOIN users u ON u.id = gf.user_id
     LEFT JOIN applications a ON a.id = u.application_id
     LEFT JOIN nigeria_lgas app_lga ON app_lga.id = a.lga_id
@@ -246,7 +247,7 @@ $caseRows = sc_rows($pdo, "
     SELECT ac.category, COUNT(*) total
     FROM agronomy_cases ac
     JOIN users u ON u.id = ac.grower_id
-    LEFT JOIN grower_farms gf ON gf.id = ac.farm_id
+    LEFT JOIN grower_farms gf ON gf.id = ac.farm_id AND gf.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
     WHERE ac.status NOT IN ('resolved','closed') AND (ns.state_name = ? OR u.location LIKE ?)
     GROUP BY ac.category
@@ -260,7 +261,7 @@ $farmers = sc_rows($pdo, "
     FROM users u
     LEFT JOIN applications a ON a.id = u.application_id
     LEFT JOIN nigeria_lgas app_lga ON app_lga.id = a.lga_id
-    LEFT JOIN grower_farms gf ON gf.user_id = u.id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
     LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id AND fv.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
     LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id

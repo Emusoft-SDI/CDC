@@ -156,7 +156,8 @@ function market_user_role_keys(PDO $pdo, array $user): array
         }
     }
     if ($userId > 0 && app_table_exists($pdo, 'grower_farms')) {
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM grower_farms WHERE user_id=?");
+        $gfSoft = app_column_exists($pdo, 'grower_farms', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM grower_farms WHERE user_id=?{$gfSoft}");
         $stmt->execute([$userId]);
         if ((int) $stmt->fetchColumn() > 0) {
             $roles[] = 'grower';

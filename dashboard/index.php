@@ -132,7 +132,7 @@ try {
         LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
         LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id
         LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id AND fv.deleted_at IS NULL
-        WHERE gf.user_id = ?
+        WHERE gf.user_id = ? AND gf.deleted_at IS NULL
         ORDER BY gf.is_primary DESC, gf.updated_at DESC, gf.created_at DESC
         LIMIT 6
     ");
@@ -154,7 +154,7 @@ try {
         $fieldTaskStmt = $pdo->prepare("
             SELECT ft.*, gf.farm_name
             FROM field_tasks ft
-            JOIN grower_farms gf ON gf.id = ft.farm_id
+            JOIN grower_farms gf ON gf.id = ft.farm_id AND gf.deleted_at IS NULL
             WHERE gf.user_id = ? AND ft.status NOT IN ('completed','cancelled')
             ORDER BY ft.due_date IS NULL, ft.due_date ASC, ft.created_at DESC
             LIMIT 4
