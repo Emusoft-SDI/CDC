@@ -9,19 +9,18 @@ if (is_file($autoload)) {
 }
 
 function twilio_setting_value(PDO $pdo, string $settingKey, string $envKey, string $default = ''): string {
-    $value = (string) app_env($envKey, '');
-    if ($value !== '') {
-        return $value;
-    }
+    // Console-stored value wins so Super Admin can rotate keys without a redeploy;
+    // the environment remains the fallback.
     if (app_table_exists($pdo, 'settings')) {
         $stmt = $pdo->prepare("SELECT value FROM settings WHERE key_name = ? LIMIT 1");
         $stmt->execute([$settingKey]);
-        $stored = (string) ($stmt->fetchColumn() ?: '');
+        $stored = trim((string) ($stmt->fetchColumn() ?: ''));
         if ($stored !== '') {
             return $stored;
         }
     }
-    return $default;
+    $value = (string) app_env($envKey, '');
+    return $value !== '' ? $value : $default;
 }
 
 function twilio_value_is_placeholder(string $value): bool {

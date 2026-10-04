@@ -25,7 +25,7 @@ if (app_user_needs_email_verification($user)) {
 }
 
 $academyRole = academy_current_role($pdo, $user);
-if ($academyRole !== 'learner' && !admin_feature_is_allowed($pdo, 'training')) {
+if (!admin_feature_is_allowed($pdo, 'training')) {
     http_response_code(403);
     exit('Forbidden: NATCODEV Academy is not enabled for your role.');
 }

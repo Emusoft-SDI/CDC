@@ -39,6 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     trim((string) ($_POST['certifications'] ?? '')),
                     trim((string) ($_POST['website'] ?? '')),
                 ]);
+                admin_audit($pdo, 'provider_created', 'Registered provider for review.');
                 $message = 'Provider registered for review.';
             } elseif ($action === 'verify_provider') {
                 $status = in_array((string) ($_POST['status'] ?? 'pending_review'), ['pending_review', 'approved', 'verified', 'suspended', 'rejected'], true)
@@ -54,6 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $pdo->prepare("UPDATE provider_registry SET status = ?, verified_by = ?, verified_at = IF(? IN ('approved','verified'), NOW(), verified_at) WHERE id = ?")
                     ->execute([$status, (int) ($user['id'] ?? 0), $status, $providerId]);
+                admin_audit($pdo, 'provider_status_updated', 'Set provider #' . $providerId . ' status to ' . $status . '.');
                 $message = 'Provider status updated.';
             } elseif ($action === 'review_accreditation_document') {
                 $decision = in_array((string) ($_POST['decision'] ?? ''), ['approved', 'rejected'], true) ? (string) $_POST['decision'] : '';
@@ -62,6 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $pdo->prepare("UPDATE provider_accreditation_documents SET status=?, reviewer_id=?, reviewer_notes=?, reviewed_at=NOW() WHERE id=?")
                     ->execute([$decision, (int) ($user['id'] ?? 0), trim((string) ($_POST['reviewer_notes'] ?? '')), (int) ($_POST['document_id'] ?? 0)]);
+                admin_audit($pdo, 'provider_accreditation_reviewed', 'Reviewed accreditation document #' . (int) ($_POST['document_id'] ?? 0) . ' as ' . $decision . '.');
                 $message = 'Accreditation evidence reviewed.';
             } elseif ($action === 'add_offering') {
                 $pdo->prepare("

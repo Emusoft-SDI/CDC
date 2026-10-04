@@ -5,6 +5,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../market/_market.php';
 require_once __DIR__ . '/../lib/monnify.php';
 require_once __DIR__ . '/../lib/support.php';
+require_once __DIR__ . '/../lib/admin-layout.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
@@ -122,6 +123,10 @@ function buyer_require(PDO $pdo): array
 
     if (!buyer_has_access($pdo, $user)) {
         redirect_to('register.php?activate=buyer');
+    }
+    if (!admin_feature_is_allowed($pdo, 'marketplace')) {
+        http_response_code(403);
+        exit('Forbidden: the marketplace module is disabled for your role.');
     }
     return $user;
 }

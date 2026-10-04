@@ -8,6 +8,7 @@ require_once __DIR__ . '/../lib/monnify.php';
 require_once __DIR__ . '/../lib/notification-dispatch.php';
 require_once __DIR__ . '/../market/_market.php';
 require_once __DIR__ . '/../lib/user-workspaces.php';
+require_once __DIR__ . '/../lib/admin-layout.php';
 
 function fa_pdo(): PDO
 {
@@ -80,6 +81,10 @@ function fa_require_user(PDO $pdo): array
     $user = fa_current_user($pdo);
     if (!$user) {
         redirect_to('login.php');
+    }
+    if (!admin_feature_is_allowed($pdo, 'field_network')) {
+        http_response_code(403);
+        exit('Forbidden: the field network module is disabled for your role.');
     }
     return $user;
 }

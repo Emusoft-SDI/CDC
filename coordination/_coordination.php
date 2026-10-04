@@ -82,6 +82,11 @@ function coord_require(PDO $pdo, string $workspaceRole = ''): array
     if ($workspaceRole !== '' && !coord_user_has_role($pdo, $user, $workspaceRole) && !coord_user_has_role($pdo, $user, 'national_coordinator')) {
         redirect_to(coord_home($role));
     }
+    $coordFeature = ($workspaceRole === 'national_coordinator' || $role === 'national_coordinator') ? 'national_dashboard' : 'state_dashboard';
+    if (!admin_feature_is_allowed($pdo, $coordFeature)) {
+        http_response_code(403);
+        exit('Forbidden: this coordination module is disabled for your role.');
+    }
     if (session_status() !== PHP_SESSION_ACTIVE) {
         session_start();
     }

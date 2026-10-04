@@ -172,7 +172,7 @@ $docsForReview = hub_count($pdo, 'user_documents', "status IN ('pending','submit
 $activeListings = hub_count($pdo, 'marketplace_listings', "approval_status = 'approved'");
 $activeCourses = hub_count($pdo, 'webinars', "status = 'active'");
 $settlementsPending = hub_count($pdo, 'marketplace_orders', "payment_status = 'paid' AND settled_at IS NULL");
-$reportsGenerated = hub_count($pdo, 'admin_audit_logs');
+$reportsGenerated = hub_count($pdo, 'audit_log');
 $backupCount = hub_count($pdo, 'dr_backups');
 $latestBackupStatus = 'No backups yet';
 if (app_table_exists($pdo, 'dr_backups')) {
@@ -342,7 +342,7 @@ $workspaceCatalog = [
         'feature' => 'support',
         'href' => 'support.php',
         'text' => 'Manage tickets, SLA, knowledge base, and user support operations.',
-        'metrics' => [['Open Tickets', $openTickets], ['In Progress', hub_count($pdo, 'support_tickets', "status = 'in_progress'")], ['SLA Compliance', '92%']],
+        'metrics' => [['Open Tickets', $openTickets], ['In Progress', hub_count($pdo, 'support_tickets', "status = 'in_progress'")], ['Resolved', hub_count($pdo, 'support_tickets', "status IN ('resolved','closed')")]],
         'tone' => $openTickets > 0 ? 'red' : 'green',
         'status' => $openTickets > 0 ? 'Attention' : 'Operational',
         'sections' => [
@@ -361,7 +361,7 @@ $workspaceCatalog = [
         'feature' => 'reports',
         'href' => 'reports.php',
         'text' => 'View analytics, exports, compliance, and performance insights.',
-        'metrics' => [['Reports Generated', $reportsGenerated], ['Exports This Month', hub_count($pdo, 'admin_audit_logs', "action LIKE '%export%' AND created_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')")], ['Compliance Score', '94%']],
+        'metrics' => [['Reports Generated', $reportsGenerated], ['Exports This Month', hub_count($pdo, 'audit_log', "action LIKE '%export%' AND created_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')")], ['Audit Events', $reportsGenerated]],
         'tone' => 'blue',
         'status' => 'Operational',
         'sections' => [
@@ -399,7 +399,7 @@ $workspaceCatalog = [
         'feature' => 'settings',
         'href' => 'settings.php',
         'text' => 'Configure platform, modules, users, roles, and system health.',
-        'metrics' => [['Active Modules', $activeModules . '/' . $featureTotal], ['System Health', '98%'], ['Backup Control', 'Ready']],
+        'metrics' => [['Active Modules', $activeModules . '/' . $featureTotal], ['Last Backup', status_label($latestBackupStatus)], ['Backup Control', 'Ready']],
         'tone' => 'gray',
         'status' => 'Operational',
         'sections' => [

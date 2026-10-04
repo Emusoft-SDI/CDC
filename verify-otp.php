@@ -116,6 +116,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("UPDATE otp_sessions SET used = 1 WHERE id = ?")->execute([$sessionId]);
                 session_regenerate_id(true);
                 $_SESSION['user_id'] = $_SESSION['otp_user_id'];
+                if (app_column_exists($pdo, 'users', 'last_login_at')) {
+                    $pdo->prepare("UPDATE users SET last_login_at = NOW() WHERE id = ?")->execute([(int) $_SESSION['otp_user_id']]);
+                }
+                if (app_column_exists($pdo, 'users', 'session_epoch')) {
+                    $epochStmt = $pdo->prepare("SELECT session_epoch FROM users WHERE id = ? LIMIT 1");
+                    $epochStmt->execute([(int) $_SESSION['otp_user_id']]);
+                    $_SESSION['session_epoch'] = (int) $epochStmt->fetchColumn();
+                }
                 $nextDestination = otp_safe_next_destination((string) ($_SESSION['otp_next_destination'] ?? ''));
                 $destination = $nextDestination !== '' ? $nextDestination : otp_login_destination($pdo, (int) $_SESSION['otp_user_id']);
                 if ($destination === 'super-admin/index.php') {

@@ -2,11 +2,15 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../lib/assignments.php';
+require_once __DIR__ . '/../lib/admin-layout.php';
 
 session_start();
 $pdo = db();
 if (!admin_session_is_authenticated($pdo)) {
     json_response(['success' => false, 'error' => 'Forbidden'], 403);
+}
+if (!admin_feature_is_allowed($pdo, 'field_network')) {
+    json_response(['success' => false, 'error' => 'Forbidden: module disabled for your role'], 403);
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {

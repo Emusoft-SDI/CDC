@@ -687,7 +687,7 @@ function current_user(PDO $pdo): ?array
     }
 
     $fields = ['id', 'name', 'email', 'role', 'profile_picture'];
-    foreach (['platform_role', 'account_status', 'email_verified_at', 'is_super_admin'] as $optionalField) {
+    foreach (['platform_role', 'account_status', 'email_verified_at', 'is_super_admin', 'session_epoch'] as $optionalField) {
         if (app_column_exists($pdo, 'users', $optionalField)) {
             $fields[] = $optionalField;
         }
@@ -695,7 +695,23 @@ function current_user(PDO $pdo): ?array
     $stmt = $pdo->prepare("SELECT " . implode(', ', $fields) . " FROM users WHERE id = ? LIMIT 1");
     $stmt->execute([(int) $_SESSION['user_id']]);
     $user = $stmt->fetch();
-    return $user ?: null;
+    if (!$user) {
+        return null;
+    }
+    if (array_key_exists('session_epoch', $user) && isset($_SESSION['session_epoch'])
+        && (int) $user['session_epoch'] !== (int) $_SESSION['session_epoch']) {
+        // Super Admin forced this account out: invalidate the whole session.
+        unset(
+            $_SESSION['user_id'],
+            $_SESSION['session_epoch'],
+            $_SESSION['admin_authenticated'],
+            $_SESSION['admin'],
+            $_SESSION['super_admin_authenticated'],
+            $_SESSION['super_admin_user_id']
+        );
+        return null;
+    }
+    return $user;
 }
 
 function require_user_role(PDO $pdo, array $roles): array
@@ -1114,12 +1130,29 @@ function verify_csrf(?string $token): bool
     return is_string($token) && hash_equals($_SESSION['_csrf'] ?? '', $token);
 }
 
+function app_mail_config(string $settingKey, string $envKey, string $default): string
+{
+    try {
+        if (function_exists('app_secret')) {
+            $value = app_secret(db(), $settingKey, $envKey, $default);
+            if (trim((string) $value) !== '') {
+                return (string) $value;
+            }
+        }
+    } catch (Throwable $e) {
+        // Fall back to environment configuration below.
+    }
+
+    $value = (string) app_env($envKey, $default);
+    return $value !== '' ? $value : $default;
+}
+
 function app_send_mail(string $to, string $subject, string $plainText, ?string $html = null): bool
 {
-    $fromEmail = app_env('MAIL_FROM_ADDRESS', 'noreply@coconutventurehub.ng');
-    $fromName = app_env('MAIL_FROM_NAME', 'NATCODEV');
-    $replyTo = app_env('MAIL_REPLY_TO', 'info@coconutventurehub.ng');
-    $transport = strtolower((string) app_env('MAIL_TRANSPORT', app_is_production() ? 'mail' : 'log'));
+    $fromEmail = app_mail_config('mail_from_address', 'MAIL_FROM_ADDRESS', 'noreply@coconutventurehub.ng');
+    $fromName = app_mail_config('mail_from_name', 'MAIL_FROM_NAME', 'NATCODEV');
+    $replyTo = app_mail_config('mail_reply_to', 'MAIL_REPLY_TO', 'info@coconutventurehub.ng');
+    $transport = strtolower(app_mail_config('mail_transport', 'MAIL_TRANSPORT', app_is_production() ? 'mail' : 'log'));
 
     if ($transport === 'log') {
         $logDir = app_private_storage_path('logs');

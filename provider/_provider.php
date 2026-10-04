@@ -369,6 +369,10 @@ function provider_require(PDO $pdo): array
         redirect_to('login.php?email=' . urlencode((string) ($user['email'] ?? '')));
     }
     // Provider account must confirm email before workspace access.
+    if (!admin_feature_is_allowed($pdo, 'providers')) {
+        http_response_code(403);
+        exit('Forbidden: the providers module is disabled for your role.');
+    }
 
     return $user;
 }

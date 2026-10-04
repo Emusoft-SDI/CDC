@@ -270,6 +270,22 @@ function admin_ensure_action_request_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     app_ensure_primary_auto_increment($pdo, 'admin_action_requests');
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS admin_deleted_records (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            target_table VARCHAR(120) NOT NULL,
+            target_id INT NULL,
+            target_key VARCHAR(190) NULL,
+            record_json MEDIUMTEXT NOT NULL,
+            deleted_by INT NULL,
+            delete_request_id INT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_deleted_table (target_table, created_at),
+            INDEX idx_deleted_request (delete_request_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+    app_ensure_primary_auto_increment($pdo, 'admin_deleted_records');
 }
 
 

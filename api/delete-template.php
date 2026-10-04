@@ -9,6 +9,9 @@ admin_ensure_schema($pdo);
 if (!admin_session_is_authenticated($pdo)) {
     json_response(['success' => false, 'error' => 'Forbidden'], 403);
 }
+if (!admin_feature_is_allowed($pdo, 'templates')) {
+    json_response(['success' => false, 'error' => 'Forbidden: module disabled for your role'], 403);
+}
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     json_response(['success' => false, 'error' => 'POST method required'], 405);

@@ -178,6 +178,9 @@ function wallet_admin_credit(PDO $pdo, int $userId, float $amount, int $adminId,
             'note' => mb_substr($note, 0, 500),
             'credited_at' => date(DATE_ATOM),
         ]);
+        if (function_exists('admin_audit')) {
+            admin_audit($pdo, 'wallet_admin_credit', 'Admin #' . $adminId . ' credited user #' . $userId . ' with NGN ' . number_format($amount, 2) . ' (ref ' . $reference . ').');
+        }
         return $result + ['reference' => $reference, 'user' => $user];
     } catch (Throwable $e) {
         error_log('Admin wallet credit failed: ' . $e->getMessage());

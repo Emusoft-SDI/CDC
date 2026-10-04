@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../lib/admin-layout.php';
 
 class Auth
 {
@@ -93,4 +94,21 @@ function require_api_user(): array
     }
 
     return $user;
+}
+
+function require_api_feature(string $feature): array
+{
+    $payload = require_api_user();
+    $pdo = db();
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ? LIMIT 1");
+    $stmt->execute([(int) ($payload['user_id'] ?? 0)]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        json_response(['success' => false, 'error' => 'Unauthorized'], 401);
+    }
+    $role = admin_platform_role_for_user($pdo, $row);
+    if (!admin_feature_allowed_for_role($pdo, $role, $feature)) {
+        json_response(['success' => false, 'error' => 'Forbidden: module disabled for your role'], 403);
+    }
+    return $payload;
 }

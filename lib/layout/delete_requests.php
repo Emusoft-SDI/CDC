@@ -56,12 +56,55 @@ function admin_pending_delete_request_count(PDO $pdo): int
 }
 
 
+function admin_snapshot_deleted_record(PDO $pdo, string $table, ?int $id, ?string $key, ?int $requestId = null): void
+{
+    try {
+        if (!app_table_exists($pdo, 'admin_deleted_records') || !app_table_exists($pdo, $table)) {
+            return;
+        }
+        $quoted = '`' . str_replace('`', '', $table) . '`';
+        $row = null;
+        if ($table === 'notification_templates' && $key !== null && $key !== '') {
+            $stmt = $pdo->prepare("SELECT * FROM notification_templates WHERE template_name = ? LIMIT 1");
+            $stmt->execute([$key]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        } elseif ($id !== null && $id > 0) {
+            $stmt = $pdo->prepare("SELECT * FROM {$quoted} WHERE id = ? LIMIT 1");
+            $stmt->execute([$id]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+        if (!$row) {
+            return;
+        }
+        $pdo->prepare("
+            INSERT INTO admin_deleted_records (target_table, target_id, target_key, record_json, deleted_by, delete_request_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ")->execute([
+            $table,
+            $id ?: null,
+            $key !== '' ? $key : null,
+            json_encode($row, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            admin_current_user_id($pdo),
+            $requestId ?: null,
+        ]);
+    } catch (Throwable $e) {
+        error_log('Delete snapshot skipped: ' . $e->getMessage());
+    }
+}
+
+
 function admin_execute_approved_delete(PDO $pdo, array $request): void
 {
     $table = (string) ($request['target_table'] ?? '');
     $id = (int) ($request['target_id'] ?? 0);
     $payload = json_decode((string) ($request['payload_json'] ?? ''), true);
     $payload = is_array($payload) ? $payload : [];
+
+    $requestId = (int) ($request['id'] ?? 0);
+    if ($table !== 'provider_offerings') {
+        // Keep a recoverable copy before any destructive delete.
+        admin_snapshot_deleted_record($pdo, $table, $id ?: null, ($request['target_key'] ?? null) ?: null, $requestId ?: null);
+    }
 
     if ($table === 'user_import_records') {
         $pdo->prepare('DELETE FROM user_import_records WHERE id = ?')->execute([$id]);

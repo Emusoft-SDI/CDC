@@ -4,6 +4,10 @@ declare(strict_types=1);
 require_once __DIR__ . '/_market.php';
 
 $pdo = market_boot();
+if (!admin_feature_is_allowed($pdo, 'marketplace')) {
+    http_response_code(403);
+    exit('Forbidden: the marketplace module is disabled.');
+}
 $user = market_user($pdo);
 $rows = market_cart_rows($pdo);
 $totals = market_checkout_totals($rows);

@@ -6,10 +6,28 @@ declare(strict_types=1);
  * Handles bank resolution, transfers, and transaction verification
  */
 
+function paystack_secret_key(): string
+{
+    static $key = null;
+    if ($key === null) {
+        $key = '';
+        try {
+            if (function_exists('app_secret')) {
+                $key = app_secret(db(), 'paystack_secret_key', 'PAYSTACK_SECRET_KEY');
+            }
+        } catch (Throwable $e) {
+            $key = '';
+        }
+        if ($key === '') {
+            $key = (string) app_env('PAYSTACK_SECRET_KEY', '');
+        }
+    }
+    return $key;
+}
+
 function paystack_is_configured(): bool
 {
-    $secretKey = (string) app_env('PAYSTACK_SECRET_KEY', '');
-    return $secretKey !== '';
+    return paystack_secret_key() !== '';
 }
 
 function paystack_configuration_error(): string
@@ -23,7 +41,7 @@ function paystack_request(string $method, string $endpoint, array $payload = [])
         return ['success' => false, 'error' => paystack_configuration_error()];
     }
 
-    $secretKey = (string) app_env('PAYSTACK_SECRET_KEY', '');
+    $secretKey = paystack_secret_key();
     $baseUrl = strtolower((string) app_env('PAYSTACK_IS_LIVE', 'false')) === 'true'
         ? 'https://api.paystack.co'
         : 'https://api.paystack.co'; // Paystack uses same URL for test/live

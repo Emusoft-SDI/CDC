@@ -33,6 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     SET status = 'revoked', revoked_at = NOW(), revoked_reason = ?
                     WHERE id = ? AND status = 'issued'
                 ")->execute([$notes, $certificateId]);
+                admin_audit($pdo, 'certificate_revoked', 'Revoked grower certificate #' . $certificateId . ': ' . $notes);
                 $message = 'Grower certificate revoked.';
             }
         } else {
@@ -59,6 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 SET verification_status = 'verified', verified = 1, verified_at = NOW(), verified_by = ?
                 WHERE id = ?
             ")->execute([$_SESSION['user_id'] ?? null, $docId]);
+                admin_audit($pdo, 'document_verified', 'Verified document #' . $docId . '.');
             }
         } elseif ($action === 'reject') {
             if ($notes === '') {
@@ -69,6 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     SET verification_status = 'rejected', verified = 0, verification_notes = ?, verified_by = ?
                     WHERE id = ?
                 ")->execute([$notes, $_SESSION['user_id'] ?? null, $docId]);
+                admin_audit($pdo, 'document_rejected', 'Rejected document #' . $docId . ': ' . $notes);
             }
         }
 

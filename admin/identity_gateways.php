@@ -29,6 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare("UPDATE identity_gateways SET is_primary = 1, status = 'active' WHERE id = ?");
                 $stmt->execute([$gwId]);
                 $pdo->commit();
+                admin_audit($pdo, 'identity_primary_updated', 'Set primary identity provider to gateway #' . $gwId . '.');
                 $message = 'Primary identity verification provider updated. Auto-failover cascade will start here.';
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) $pdo->rollBack();
@@ -56,6 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     WHERE id = ?
                 ");
                 $stmt->execute([$name, $baseUrl, $apiKey, $apiSecret, $appId, $contractCode, $env, $status, $priority, $gwId]);
+                admin_audit($pdo, 'identity_gateway_updated', 'Updated identity provider "' . $name . '" (#' . $gwId . ').');
                 $message = "Provider '{$name}' configuration saved successfully.";
             } catch (Throwable $e) {
                 $error = 'Failed to update provider: ' . $e->getMessage();
@@ -84,6 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NOW())
                     ");
                     $stmt->execute([$gwKey, $name, $driver, $baseUrl, $apiKey, $apiSecret, $appId, $contractCode, $env, $priority]);
+                    admin_audit($pdo, 'identity_gateway_created', 'Registered identity provider "' . $name . '" (' . $gwKey . ').');
                     $message = "New identity verification provider '{$name}' registered successfully!";
                 } catch (Throwable $e) {
                     $error = 'Failed to register provider: ' . $e->getMessage();

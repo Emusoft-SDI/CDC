@@ -169,6 +169,20 @@ function admin_setting(PDO $pdo, string $key, string $default = ''): string
     return $value === false ? $default : (string) $value;
 }
 
+function app_secret(PDO $pdo, string $settingKey, string $envKey, string $default = ''): string
+{
+    try {
+        $stored = trim(admin_setting($pdo, $settingKey, ''));
+        if ($stored !== '') {
+            return $stored;
+        }
+    } catch (Throwable $e) {
+        // Fall back to environment configuration below.
+    }
+
+    return (string) app_env($envKey, $default);
+}
+
 
 function admin_feature_catalog(): array
 {
@@ -218,7 +232,12 @@ function admin_feature_is_globally_enabled(PDO $pdo, string $feature): bool
         return true;
     }
 
-    return admin_setting($pdo, 'module_' . $feature . '_enabled', '1') === '1';
+    if (admin_setting($pdo, 'module_' . $feature . '_enabled', '1') !== '1') {
+        return false;
+    }
+
+    $mode = admin_setting($pdo, 'module_' . $feature . '_mode', 'active');
+    return !in_array($mode, ['paused', 'setup'], true);
 }
 
 
@@ -232,6 +251,9 @@ function admin_default_access(string $role): array
         'support_agent' => ['dashboard', 'profile', 'support', 'communications', 'notifications', 'reports'],
         'field_agent', 'agronomist', 'agric_extensionist' => ['dashboard', 'profile', 'applications', 'field_network', 'field_management', 'agronomy_advisory', 'support', 'farm_health', 'resources', 'training', 'wallet', 'notifications', 'reports'],
         'investor' => ['dashboard', 'profile', 'marketplace', 'wallet', 'reports', 'analytics', 'notifications'],
+        'seller' => ['dashboard', 'profile', 'marketplace', 'wallet', 'support', 'notifications', 'reports'],
+        'buyer' => ['dashboard', 'profile', 'marketplace', 'wallet', 'support', 'notifications', 'reports'],
+        'provider' => ['dashboard', 'profile', 'providers', 'marketplace', 'wallet', 'support', 'notifications', 'reports'],
         'learner' => ['dashboard', 'profile', 'support', 'wallet', 'training', 'notifications', 'reports'],
         default => ['dashboard', 'profile', 'applications', 'documents', 'certificates', 'support', 'farm_health', 'marketplace', 'wallet', 'training', 'notifications', 'reports'],
     };
@@ -313,6 +335,46 @@ function admin_feature_for_script(?string $script = null): string
 }
 
 
+function admin_platform_role_for_user(PDO $pdo, array $user): string
+{
+    if ((int) ($user['is_super_admin'] ?? 0) === 1) {
+        return 'super_admin';
+    }
+    if (!empty($user['platform_role']) && (string) $user['platform_role'] !== 'grower') {
+        return (string) $user['platform_role'];
+    }
+    $assigned = admin_highest_assigned_platform_role($pdo, (int) ($user['id'] ?? 0));
+    if ($assigned !== null && $assigned !== 'grower') {
+        return $assigned;
+    }
+    return (string) ($user['role'] ?? 'grower');
+}
+
+function admin_feature_allowed_for_role(PDO $pdo, ?string $role, string $feature): bool
+{
+    $feature = trim($feature);
+    if ($feature === '' || !array_key_exists($feature, admin_feature_catalog())) {
+        return false;
+    }
+    if ($role === null || $role === '') {
+        return false;
+    }
+    if ($role === 'super_admin') {
+        return true;
+    }
+    if (!admin_feature_is_globally_enabled($pdo, $feature)) {
+        return false;
+    }
+
+    $default = implode(',', admin_default_access($role));
+    $allowed = array_values(array_filter(array_map('trim', explode(',', admin_setting($pdo, 'access_matrix_' . $role, $default)))));
+    if (admin_setting($pdo, 'access_matrix_catalog_version', '') !== ADMIN_ACCESS_CATALOG_VERSION) {
+        $allowed = array_values(array_unique(array_merge($allowed, admin_default_access($role))));
+    }
+
+    return in_array($feature, $allowed, true);
+}
+
 function admin_feature_is_allowed(PDO $pdo, string $feature): bool
 {
     $feature = trim($feature);
@@ -327,9 +389,6 @@ function admin_feature_is_allowed(PDO $pdo, string $feature): bool
     if ($role === 'super_admin') {
         return true;
     }
-    if (!admin_feature_is_globally_enabled($pdo, $feature)) {
-        return false;
-    }
 
     $roleKeys = [$role];
     $user = current_user($pdo);
@@ -340,12 +399,7 @@ function admin_feature_is_allowed(PDO $pdo, string $feature): bool
     }
 
     foreach (array_unique($roleKeys) as $roleKey) {
-        $default = implode(',', admin_default_access($roleKey));
-        $allowed = array_values(array_filter(array_map('trim', explode(',', admin_setting($pdo, 'access_matrix_' . $roleKey, $default)))));
-        if (admin_setting($pdo, 'access_matrix_catalog_version', '') !== ADMIN_ACCESS_CATALOG_VERSION) {
-            $allowed = array_values(array_unique(array_merge($allowed, admin_default_access($roleKey))));
-        }
-        if (in_array($feature, $allowed, true)) {
+        if (admin_feature_allowed_for_role($pdo, $roleKey, $feature)) {
             return true;
         }
     }

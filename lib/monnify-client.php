@@ -5,6 +5,20 @@ require_once __DIR__ . '/../config.php';
 
 function monnify_env(string $key, string $default = ''): string
 {
+    $consoleKeys = [
+        'MONNIFY_API_KEY' => 'monnify_api_key',
+        'MONNIFY_SECRET_KEY' => 'monnify_secret_key',
+        'MONNIFY_CONTRACT_CODE' => 'monnify_contract_code',
+        'MONNIFY_BASE_URL' => 'monnify_base_url',
+    ];
+    if (isset($consoleKeys[$key]) && function_exists('app_secret')) {
+        try {
+            $stored = app_secret(db(), $consoleKeys[$key], $key, $default);
+            return trim((string) $stored);
+        } catch (Throwable $e) {
+            // fall through to environment configuration
+        }
+    }
     return trim((string) app_env($key, $default));
 }
 

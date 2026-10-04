@@ -85,6 +85,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $message = 'Marketplace promotion decision saved and synchronized.'; $page = 'promotions';
         }
+        if (isset($action) && $action !== '' && !empty($message)) {
+            admin_audit($pdo, 'revenue_' . $action, 'Revenue configuration action "' . $action . '" performed by admin.');
+        }
     } catch (Throwable $e) { $error = $e->getMessage(); }
 }
 

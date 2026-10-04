@@ -154,6 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $environment,
                         $priority
                     ]);
+                    admin_audit($pdo, 'sms_gateway_created', 'Created SMS/WhatsApp gateway "' . $name . '" (' . $gatewayKey . ').');
                     $message = "Gateway '{$name}' registered successfully!";
                 } catch (Throwable $e) {
                     $error = 'Failed to register gateway: ' . $e->getMessage();
@@ -183,6 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     WHERE id = ?
                 ");
                 $stmt->execute([$name, $baseUrl, $apiKey, $apiSecret, $senderId, $status, $environment, $gwId]);
+                admin_audit($pdo, 'sms_gateway_updated', 'Updated SMS/WhatsApp gateway "' . $name . '" (#' . $gwId . ').');
                 $message = "Gateway '{$name}' updated successfully.";
             } catch (Throwable $e) {
                 $error = 'Failed to update gateway: ' . $e->getMessage();

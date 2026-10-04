@@ -8,7 +8,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     json_response(['success' => false, 'error' => 'POST method required'], 405);
 }
 
-$user = require_api_user();
+$user = require_api_feature('marketplace');
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);
 if (!is_array($input)) {
     json_response(['success' => false, 'error' => 'Invalid JSON'], 400);

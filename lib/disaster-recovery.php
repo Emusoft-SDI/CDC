@@ -82,6 +82,7 @@ function dr_default_settings(): array
         'dr_backup_storage_path' => '../win-private/backups',
         'dr_recovery_contact' => '',
         'dr_last_restore_test_at' => '',
+        'dr_auto_backup_token' => '',
     ];
 }
 
@@ -155,7 +156,37 @@ function dr_create_backup_manifest(PDO $pdo, ?int $userId = null): array
     ");
     $stmt->execute([$backupRef, $relativePath, $size, $checksum, 'Backup manifest created from Super Admin console.', $userId]);
 
+    try {
+        dr_purge_expired_backups($pdo);
+    } catch (Throwable $e) {
+        error_log('Backup retention purge skipped: ' . $e->getMessage());
+    }
+
     return ['backup_ref' => $backupRef, 'path' => $relativePath, 'size' => $size, 'checksum' => $checksum];
+}
+
+function dr_purge_expired_backups(PDO $pdo, int $retentionDays = 0): int
+{
+    $settings = dr_settings($pdo);
+    if ($retentionDays <= 0) {
+        $retentionDays = max(1, (int) ($settings['dr_backup_retention_days'] ?? 30));
+    }
+    [$relativeDir, $absoluteDir] = dr_backup_root($pdo);
+    $stmt = $pdo->prepare("SELECT id, storage_path FROM dr_backups WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)");
+    $stmt->execute([$retentionDays]);
+    $purged = 0;
+    foreach ($stmt->fetchAll() as $row) {
+        $storagePath = (string) ($row['storage_path'] ?? '');
+        if ($storagePath !== '') {
+            $file = $absoluteDir . DIRECTORY_SEPARATOR . basename($storagePath);
+            if (is_file($file)) {
+                @unlink($file);
+            }
+        }
+        $pdo->prepare("DELETE FROM dr_backups WHERE id = ?")->execute([(int) $row['id']]);
+        $purged++;
+    }
+    return $purged;
 }
 
 function dr_queue_sync_event(PDO $pdo, string $eventType, array $payload, ?string $targetNode = null): string

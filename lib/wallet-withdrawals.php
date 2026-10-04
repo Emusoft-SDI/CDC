@@ -532,6 +532,9 @@ function wallet_admin_process_withdrawal(PDO $pdo, int $withdrawalId, int $admin
             $pdo->prepare("UPDATE wallet_transactions SET status = 'rejected', provider_payload = ? WHERE reference = ?")
                 ->execute([json_encode(['admin_note' => $adminNote, 'decision' => 'rejected'], JSON_UNESCAPED_SLASHES), (string) $withdrawal['reference']]);
             $pdo->commit();
+            if (function_exists('admin_audit')) {
+                admin_audit($pdo, 'withdrawal_rejected', 'Admin #' . $adminId . ' rejected withdrawal #' . $withdrawalId . ' (NGN ' . number_format((float) $withdrawal['amount'], 2) . ').');
+            }
             return ['success' => true, 'status' => 'rejected'];
         }
 
@@ -604,6 +607,9 @@ function wallet_admin_process_withdrawal(PDO $pdo, int $withdrawalId, int $admin
             (string) $withdrawal['reference'],
         ]);
         $pdo->commit();
+        if (function_exists('admin_audit')) {
+            admin_audit($pdo, 'withdrawal_approved', 'Admin #' . $adminId . ' approved withdrawal #' . $withdrawalId . ' (NGN ' . number_format((float) $withdrawal['amount'], 2) . ') via ' . $provider . '.');
+        }
         return ['success' => true, 'status' => 'approved', 'provider' => $provider, 'payout_status' => (string) ($payout['payout_status'] ?? 'initiated')];
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
@@ -693,6 +699,9 @@ function wallet_release_withdrawal_funds(PDO $pdo, int $withdrawalId, string $st
 
         if ($ownsTransaction) {
             $pdo->commit();
+        }
+        if (function_exists('admin_audit')) {
+            admin_audit($pdo, 'withdrawal_funds_released', 'Returned NGN ' . number_format($amount, 2) . ' to wallet for withdrawal #' . $withdrawalId . ' (' . $status . ').');
         }
 
         return ['success' => true, 'released' => true, 'amount' => $amount, 'balance' => $newBalance, 'status' => $status];

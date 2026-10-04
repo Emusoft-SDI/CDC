@@ -5,7 +5,7 @@ require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../lib/marketplace.php';
 require_once __DIR__ . '/../auth.php';
 
-require_api_user();
+require_api_feature('marketplace');
 
 try {
     $pdo = db();

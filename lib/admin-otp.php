@@ -84,6 +84,9 @@ function admin_operator_otp_verify(string $code): array
     session_regenerate_id(true);
     $_SESSION['admin_authenticated'] = true;
     $_SESSION['admin'] = true;
+    if (function_exists('admin_audit')) {
+        admin_audit(db(), 'admin_login', 'Admin operator signed in via password + OTP.');
+    }
     unset($_SESSION['admin_otp_hash'], $_SESSION['admin_otp_expires'], $_SESSION['admin_otp_grace_expires'], $_SESSION['admin_otp_email'], $_SESSION['admin_otp_next'], $_SESSION['admin_otp_debug_code']);
     return ['ok' => true, 'next' => $next];
 }
