@@ -1132,19 +1132,25 @@ function verify_csrf(?string $token): bool
 
 function app_mail_config(string $settingKey, string $envKey, string $default): string
 {
+    // Mail transport is configured in .env on the live host (natcodev.com.ng), so the
+    // environment is authoritative; the console setting is only a fallback for hosts
+    // where .env leaves a value unset.
+    $value = (string) app_env($envKey, '');
+    if ($value !== '') {
+        return $value;
+    }
     try {
         if (function_exists('app_secret')) {
-            $value = app_secret(db(), $settingKey, $envKey, $default);
-            if (trim((string) $value) !== '') {
-                return (string) $value;
+            $stored = trim(app_secret(db(), $settingKey, $envKey, ''));
+            if ($stored !== '') {
+                return $stored;
             }
         }
     } catch (Throwable $e) {
-        // Fall back to environment configuration below.
+        // Fall through to the default.
     }
 
-    $value = (string) app_env($envKey, $default);
-    return $value !== '' ? $value : $default;
+    return $default;
 }
 
 function app_send_mail(string $to, string $subject, string $plainText, ?string $html = null): bool

@@ -191,17 +191,17 @@ $activeRole = super_admin_active_tab(array_keys($roles), (string) (array_key_fir
             <input type="password" name="twilio_token" autocomplete="new-password" placeholder="Leave blank to keep current">
           </label>
           <label>Mail From Address
-            <input name="mail_from_address" placeholder="Leave blank to keep current">
+            <input name="mail_from_address" placeholder="Fallback when .env is unset">
           </label>
           <label>Mail From Name
-            <input name="mail_from_name" placeholder="Leave blank to keep current">
+            <input name="mail_from_name" placeholder="Fallback when .env is unset">
           </label>
           <label>Mail Reply-To
-            <input name="mail_reply_to" placeholder="Leave blank to keep current">
+            <input name="mail_reply_to" placeholder="Fallback when .env is unset">
           </label>
           <label>Mail Transport
             <select name="mail_transport">
-              <option value="">Keep current</option>
+              <option value="">Keep .env / current</option>
               <option value="mail">mail()</option>
               <option value="log">log (development)</option>
             </select>
