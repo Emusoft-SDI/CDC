@@ -18,6 +18,7 @@ ErrorDocument 503 /WIN/404.php?code=503
   RewriteRule (^|/)\. - [F,L]
   RewriteRule ^(config\.php|composer\.(json|lock)|package(-lock)?\.json)$ - [F,L,NC]
   RewriteRule ^(test_db\.php|run_schema_update\.php)$ - [F,L,NC]
+  RewriteRule ^(admin|super-admin)/(seed_states|seed_provider_docs)\.php$ - [F,L,NC]
   RewriteRule ^(app|lib|cron|tests|tools|private_backups|database|resources|prototype-handoff|cocopay-ui-visuals|Microsoft|CDC)(/|$) - [F,L,NC]
   RewriteRule ^documents(/|$) - [F,L,NC]
   RewriteRule \.(env|log|bak|backup|old|orig|save|sql|sqlite|ini|ps1|sh|bat|cmd|txt|md|zip|rar|7z|tar|gz|codex-bak)$ - [F,L,NC]

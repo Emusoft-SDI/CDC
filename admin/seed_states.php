@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/../config.php';
+app_require_cli('Nigeria states seeder');
 header('Content-Type: text/plain; charset=utf-8');
 
 $pdo = db();

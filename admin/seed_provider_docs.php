@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../provider/_provider.php';
+app_require_cli('Provider accreditation document seeder');
 header('Content-Type: text/plain; charset=utf-8');
 
 $providerId = (int) ($argv[1] ?? 1);
