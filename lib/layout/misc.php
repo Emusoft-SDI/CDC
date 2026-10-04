@@ -47,7 +47,8 @@ function admin_record_authenticity_status(PDO $pdo, string $targetTable, ?int $t
     ][$targetTable] ?? [];
 
     if ($targetTable === 'grower_farms' && $targetId !== null && app_table_exists($pdo, 'farm_verifications')) {
-        $stmt = $pdo->prepare("SELECT status FROM farm_verifications WHERE farm_id = ? ORDER BY verified_at DESC, id DESC LIMIT 1");
+        $fvSoft = app_column_exists($pdo, 'farm_verifications', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+        $stmt = $pdo->prepare("SELECT status FROM farm_verifications WHERE farm_id = ?{$fvSoft} ORDER BY verified_at DESC, id DESC LIMIT 1");
         $stmt->execute([$targetId]);
         $status = strtolower((string) ($stmt->fetchColumn() ?: ''));
         return ['requires_approval' => in_array($status, $approvedStatuses, true), 'status' => $status, 'label' => 'farm verification'];

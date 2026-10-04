@@ -96,7 +96,7 @@ $farmStmt = $pdo->prepare("
     FROM grower_farms gf
     LEFT JOIN nigeria_states s ON s.id = gf.state_id
     LEFT JOIN nigeria_lgas l ON l.id = gf.lga_id
-    LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id
+    LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id AND fv.deleted_at IS NULL
     WHERE gf.user_id = ?
     ORDER BY gf.is_primary DESC, gf.created_at ASC, gf.id ASC
 ");

@@ -144,7 +144,7 @@ $statsStmt = $pdo->prepare("
         SELECT gf2.user_id, MAX(ns2.state_name) state_name,
                MAX(CASE WHEN fv.status = 'verified' THEN 2 WHEN fv.status = 'rejected' THEN 1 ELSE 0 END) verification_rank
         FROM grower_farms gf2
-        LEFT JOIN farm_verifications fv ON fv.farm_id = gf2.id
+        LEFT JOIN farm_verifications fv ON fv.farm_id = gf2.id AND fv.deleted_at IS NULL
         LEFT JOIN nigeria_states ns2 ON ns2.id = gf2.state_id
         GROUP BY gf2.user_id
     ) farm_summary ON farm_summary.user_id = u.id
@@ -159,7 +159,7 @@ $verificationRate = sc_pct($verifiedGrowers, max(1, $registeredGrowers));
 $activeLgas = sc_scalar($pdo, "SELECT COUNT(DISTINCT COALESCE(app_lga.lga_name, nl.lga_name, u.location)) FROM users u LEFT JOIN applications a ON a.id = u.application_id LEFT JOIN nigeria_lgas app_lga ON app_lga.id = a.lga_id LEFT JOIN grower_farms gf ON gf.user_id = u.id LEFT JOIN nigeria_states ns ON ns.id = gf.state_id LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id WHERE u.role = 'grower' AND (ns.state_name = ? OR a.location LIKE ? OR u.location LIKE ?)", [$state, $stateLike, $stateLike]);
 $activeLgas = max(1, $activeLgas);
 $fieldAgents = sc_scalar($pdo, "SELECT COUNT(*) FROM users u LEFT JOIN staff_profiles sp ON sp.user_id = u.id AND sp.deleted_at IS NULL WHERE u.role = 'field_agent' AND (sp.state = ? OR u.location LIKE ?)", [$state, $stateLike]);
-$pendingVerifications = sc_scalar($pdo, "SELECT COUNT(*) FROM farm_verifications fv JOIN grower_farms gf ON gf.id = fv.farm_id JOIN users u ON u.id = gf.user_id LEFT JOIN applications a ON a.id = u.application_id LEFT JOIN nigeria_states ns ON ns.id = gf.state_id WHERE fv.status IN ('pending','needs_review','submitted') AND (ns.state_name = ? OR a.location LIKE ? OR u.location LIKE ?)", [$state, $stateLike, $stateLike]);
+$pendingVerifications = sc_scalar($pdo, "SELECT COUNT(*) FROM farm_verifications fv JOIN grower_farms gf ON gf.id = fv.farm_id JOIN users u ON u.id = gf.user_id LEFT JOIN applications a ON a.id = u.application_id LEFT JOIN nigeria_states ns ON ns.id = gf.state_id WHERE fv.status IN ('pending','needs_review','submitted') AND fv.deleted_at IS NULL AND (ns.state_name = ? OR a.location LIKE ? OR u.location LIKE ?)", [$state, $stateLike, $stateLike]);
 $stateScore = min(99, (int) round(($verificationRate * 0.55) + (min(100, $activeLgas * 5) * 0.15) + (min(100, $fieldAgents * 2) * 0.15) + 15));
 $survivalRate = min(98.5, 82 + ($stateScore / 8));
 
@@ -172,7 +172,7 @@ $lgaRows = sc_rows($pdo, "
     LEFT JOIN applications a ON a.id = u.application_id
     LEFT JOIN nigeria_lgas app_lga ON app_lga.id = a.lga_id
     LEFT JOIN grower_farms gf ON gf.user_id = u.id
-    LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id
+    LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id AND fv.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
     LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id
     WHERE u.role = 'grower' AND (ns.state_name = ? OR a.location LIKE ? OR u.location LIKE ?)
@@ -191,7 +191,7 @@ $verificationRows = sc_rows($pdo, "
     LEFT JOIN field_tasks ft ON ft.farm_id = gf.id
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
     LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id
-    WHERE fv.status NOT IN ('verified','rejected') AND (ns.state_name = ? OR a.location LIKE ? OR u.location LIKE ?)
+    WHERE fv.status NOT IN ('verified','rejected') AND fv.deleted_at IS NULL AND (ns.state_name = ? OR a.location LIKE ? OR u.location LIKE ?)
     ORDER BY FIELD(COALESCE(ft.priority, 'normal'), 'urgent','high','normal','low'), fv.created_at DESC
     LIMIT 5
 ", [$state, $stateLike, $stateLike]);
@@ -261,7 +261,7 @@ $farmers = sc_rows($pdo, "
     LEFT JOIN applications a ON a.id = u.application_id
     LEFT JOIN nigeria_lgas app_lga ON app_lga.id = a.lga_id
     LEFT JOIN grower_farms gf ON gf.user_id = u.id
-    LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id
+    LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id AND fv.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
     LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id
     WHERE u.role = 'grower' AND (ns.state_name = ? OR a.location LIKE ? OR u.location LIKE ?)

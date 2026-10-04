@@ -25,7 +25,7 @@ $page = in_array((string) ($_GET['page'] ?? 'overview'), ['overview', 'queues', 
 $metrics = [
     ['Pending applications', ops_count($pdo, 'applications', 'confirmed = 0'), '../registry/applications.php', 'warning'],
     ['Document reviews', ops_count($pdo, 'document_requirements', "verification_status IN ('pending','needs_review')"), '../registry/documents.php', 'info'],
-    ['Farm verifications', ops_count($pdo, 'farm_verifications', "status IN ('pending','under_review')"), '../fields-management.php', 'success'],
+    ['Farm verifications', ops_count($pdo, 'farm_verifications', "status IN ('pending','under_review') AND deleted_at IS NULL"), '../fields-management.php', 'success'],
     ['Open support tickets', ops_count($pdo, 'support_tickets', "status IN ('open','in_progress','escalated')"), '../support/', 'danger'],
 ];
 $queues = [

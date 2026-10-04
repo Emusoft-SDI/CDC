@@ -17,6 +17,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../lib/admin-layout.php';
 require_once __DIR__ . '/../lib/super-admin-console.php';
 require_once __DIR__ . '/../lib/notification-dispatch.php';
+require_once __DIR__ . '/../lib/field-management.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     // Start before any suite output so requiring this file cannot emit a warning.
@@ -30,6 +31,7 @@ function run_governance_tests(): void
     app_ensure_core_schema($pdo);
     admin_ensure_schema($pdo);
     admin_ensure_action_request_schema($pdo);
+    fm_ensure_schema($pdo);
     super_admin_ensure_schema($pdo);
 
     // =====================================================================
@@ -126,4 +128,31 @@ function run_governance_tests(): void
     $pdo->prepare("UPDATE users SET session_epoch = session_epoch + 1 WHERE id = ?")->execute([$staffUserId]);
     TestHarness::assert(current_user($pdo) === null, 'Sessions: force sign-out (epoch bump) invalidates the session');
     unset($_SESSION['user_id'], $_SESSION['session_epoch'], $_SESSION['admin_authenticated'], $_SESSION['admin'], $_SESSION['super_admin_authenticated'], $_SESSION['super_admin_user_id']);
+
+    // =====================================================================
+    // 8. Soft-delete: farm_verifications read isolation + reactivation
+    // =====================================================================
+    $pdo->prepare("INSERT INTO grower_farms (user_id, farm_name) VALUES (?, ?)")->execute([$staffUserId, 'gov_farm_' . bin2hex(random_bytes(3))]);
+    $govFarmId = (int) $pdo->lastInsertId();
+    $pdo->prepare("INSERT INTO farm_verifications (farm_id, requested_by, status) VALUES (?, ?, 'pending')")->execute([$govFarmId, $staffUserId]);
+    $govVerificationId = (int) $pdo->lastInsertId();
+
+    $liveVerification = (int) $pdo->query("SELECT COUNT(*) FROM farm_verifications WHERE id = {$govVerificationId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $liveVerification, 'Soft-delete: live farm verification is visible to the filtered read');
+
+    // The approved-delete path must soft-delete (set deleted_at), never remove the row.
+    admin_execute_approved_delete($pdo, [
+        'id' => 0,
+        'target_table' => 'farm_verifications',
+        'target_id' => $govVerificationId,
+        'target_key' => null,
+        'payload_json' => null,
+    ]);
+    $hiddenVerification = (int) $pdo->query("SELECT COUNT(*) FROM farm_verifications WHERE id = {$govVerificationId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(0, $hiddenVerification, 'Soft-delete: approved delete hides the farm verification from the filtered read');
+    TestHarness::assert($pdo->query("SELECT deleted_at FROM farm_verifications WHERE id = {$govVerificationId}")->fetchColumn() !== false, 'Soft-delete: approved delete keeps the farm_verifications row and stamps deleted_at');
+
+    $pdo->prepare("UPDATE farm_verifications SET deleted_at = NULL WHERE id = ?")->execute([$govVerificationId]);
+    $restoredVerification = (int) $pdo->query("SELECT COUNT(*) FROM farm_verifications WHERE id = {$govVerificationId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $restoredVerification, 'Soft-delete: restored farm verification is visible again');
 }

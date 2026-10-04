@@ -91,7 +91,7 @@ $stateRows = nd_rows($pdo, "
     FROM users u
     LEFT JOIN applications a ON a.id = u.application_id
     LEFT JOIN grower_farms gf ON gf.user_id = u.id
-    LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id
+    LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id AND fv.deleted_at IS NULL
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id OR ns.id = a.state_id
     WHERE u.role = 'grower'
     GROUP BY COALESCE(ns.state_name, 'Unassigned')

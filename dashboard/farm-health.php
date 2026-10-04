@@ -61,6 +61,7 @@ function farm_ops_short_date(?string $date, string $fallback = 'Pending'): strin
     return $time ? date('M j, Y', $time) : $fallback;
 }
 
+$fvSoft = app_column_exists($pdo, 'farm_verifications', 'deleted_at') ? ' AND fv.deleted_at IS NULL' : '';
 $farmStmt = $pdo->prepare("
     SELECT gf.*, ns.state_name, nl.lga_name,
            COALESCE(fv.status, 'pending') verification_status,
@@ -68,7 +69,7 @@ $farmStmt = $pdo->prepare("
     FROM grower_farms gf
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
     LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id
-    LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id
+    LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id{$fvSoft}
     WHERE gf.user_id = ?
     ORDER BY gf.is_primary DESC, gf.created_at ASC
 ");

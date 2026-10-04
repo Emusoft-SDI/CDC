@@ -80,6 +80,7 @@ function fm_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     app_ensure_primary_auto_increment($pdo, 'farm_verifications');
+    app_add_column_if_missing($pdo, 'farm_verifications', 'deleted_at', "DATETIME NULL");
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS field_tasks (

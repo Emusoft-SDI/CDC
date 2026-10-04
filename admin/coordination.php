@@ -62,7 +62,7 @@ function ao_badge(string $status): string
     };
 }
 
-$verifiedGrowers = (int) ao_scalar($pdo, "SELECT COUNT(DISTINCT gf.user_id) FROM grower_farms gf JOIN farm_verifications fv ON fv.farm_id = gf.id WHERE fv.status = 'verified'");
+$verifiedGrowers = (int) ao_scalar($pdo, "SELECT COUNT(DISTINCT gf.user_id) FROM grower_farms gf JOIN farm_verifications fv ON fv.farm_id = gf.id WHERE fv.status = 'verified' AND fv.deleted_at IS NULL");
 $activeProviders = (int) ao_scalar($pdo, "SELECT COUNT(*) FROM provider_registry WHERE status IN ('verified','active','approved')");
 $marketplaceOrders = (int) ao_scalar($pdo, "SELECT COUNT(*) FROM marketplace_orders WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)");
 $walletBalance = ao_scalar($pdo, "SELECT COALESCE(SUM(balance), 0) FROM wallets");

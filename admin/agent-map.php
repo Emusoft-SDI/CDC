@@ -43,7 +43,7 @@ $farmPoints = app_table_exists($pdo, 'grower_farms') ? fmap_rows($pdo, "
     LEFT JOIN users u ON u.id = gf.user_id
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
     LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id
-    LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id
+    LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id AND fv.deleted_at IS NULL
     WHERE gf.latitude IS NOT NULL AND gf.longitude IS NOT NULL
     ORDER BY gf.updated_at DESC, gf.id DESC
     LIMIT 500

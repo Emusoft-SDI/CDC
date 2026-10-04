@@ -252,7 +252,7 @@ $verifiedFarms = report_count($pdo, "
     LEFT JOIN applications a ON a.id = u.application_id
     LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
     LEFT JOIN nigeria_lgas nl ON nl.id = COALESCE(gf.lga_id, a.lga_id)
-    WHERE fv.status = 'verified' AND {$locationFilterSql}
+    WHERE fv.status = 'verified' AND fv.deleted_at IS NULL AND {$locationFilterSql}
 ", $locationFilterParams);
 $providersApproved = report_count($pdo, "SELECT COUNT(*) FROM provider_registry WHERE status IN ('approved','verified')");
 $providersPending = report_count($pdo, "SELECT COUNT(*) FROM provider_registry WHERE status IN ('pending','pending_review')");

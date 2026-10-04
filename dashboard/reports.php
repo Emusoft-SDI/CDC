@@ -76,7 +76,7 @@ $verifiedFarms = stakeholder_scalar($pdo, "
     SELECT COUNT(*)
     FROM farm_verifications fv
     JOIN grower_farms gf ON gf.id = fv.farm_id
-    WHERE gf.user_id = ? AND fv.status = 'verified'
+    WHERE gf.user_id = ? AND fv.status = 'verified' AND fv.deleted_at IS NULL
 ", [$userId]);
 $openFieldTasks = stakeholder_scalar($pdo, "
     SELECT COUNT(*)
@@ -118,7 +118,7 @@ $farmRows = stakeholder_rows($pdo, "
     FROM grower_farms gf
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id
     LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id
-    LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id
+    LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id AND fv.deleted_at IS NULL
     WHERE gf.user_id = ?
     ORDER BY gf.is_primary DESC, gf.created_at DESC
 ", [$userId]);

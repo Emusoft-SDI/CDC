@@ -163,7 +163,11 @@ function admin_execute_approved_delete(PDO $pdo, array $request): void
     }
 
     if ($table === 'farm_verifications') {
-        $pdo->prepare('DELETE FROM farm_verifications WHERE id = ?')->execute([$id]);
+        if (app_column_exists($pdo, 'farm_verifications', 'deleted_at')) {
+            $pdo->prepare('UPDATE farm_verifications SET deleted_at = NOW() WHERE id = ?')->execute([$id]);
+        } else {
+            $pdo->prepare('DELETE FROM farm_verifications WHERE id = ?')->execute([$id]);
+        }
         return;
     }
 
