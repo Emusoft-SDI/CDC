@@ -11,3 +11,4 @@ require_once __DIR__ . '/layout/roles.php';
 require_once __DIR__ . '/layout/navigation.php';
 require_once __DIR__ . '/layout/html_layout.php';
 require_once __DIR__ . '/layout/misc.php';
+require_once __DIR__ . '/admin-ui/ui.php';
