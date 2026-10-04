@@ -314,10 +314,11 @@ function fm_record_task_visit(PDO $pdo, array $user, array $payload): array
     $pdo->prepare("UPDATE field_tasks SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$taskId]);
     $verificationStatus = $result === 'verified' && ($distance === null || $distance <= 500) ? 'verified' : 'needs_review';
     $notes = $distance === null ? 'Field visit submitted without comparable GPS distance.' : 'Field visit GPS distance from submitted point: ' . number_format($distance, 1) . 'm.';
+    $softReset = app_column_exists($pdo, 'farm_verifications', 'deleted_at') ? ', deleted_at = NULL' : '';
     $pdo->prepare("
         INSERT INTO farm_verifications (farm_id, requested_by, status, system_notes, reviewed_at)
         VALUES (?, ?, ?, ?, NOW())
-        ON DUPLICATE KEY UPDATE status = VALUES(status), system_notes = VALUES(system_notes), reviewed_at = NOW()
+        ON DUPLICATE KEY UPDATE status = VALUES(status), system_notes = VALUES(system_notes), reviewed_at = NOW(){$softReset}
     ")->execute([(int) $task['farm_id'], (int) $user['id'], $verificationStatus, $notes]);
 
     return ['visit_id' => $visitId, 'task_id' => $taskId, 'duplicate' => false];
