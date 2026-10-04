@@ -18,10 +18,11 @@ function natcodev_template(PDO $pdo, string $name, string $type, string $fallbac
         return $fallback;
     }
 
+    $soft = app_column_exists($pdo, 'notification_templates', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
     $stmt = $pdo->prepare("
         SELECT message_template
         FROM notification_templates
-        WHERE template_name = ? AND template_type = ? AND is_active = 1
+        WHERE template_name = ? AND template_type = ? AND is_active = 1{$soft}
         LIMIT 1
     ");
     $stmt->execute([$name, $type]);

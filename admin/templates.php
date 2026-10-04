@@ -246,10 +246,11 @@ function admin_template_options(array $library): array
 function admin_seed_templates(PDO $pdo, array $library, bool $overwrite = false): int
 {
     $inserted = 0;
+    $resetSoft = app_column_exists($pdo, 'notification_templates', 'deleted_at') ? ', deleted_at = NULL' : '';
     $sql = $overwrite
         ? "INSERT INTO notification_templates (template_name, template_type, message_template, is_active)
            VALUES (?, ?, ?, 1)
-           ON DUPLICATE KEY UPDATE message_template = VALUES(message_template), is_active = 1"
+           ON DUPLICATE KEY UPDATE message_template = VALUES(message_template), is_active = 1{$resetSoft}"
         : "INSERT IGNORE INTO notification_templates (template_name, template_type, message_template, is_active)
            VALUES (?, ?, ?, 1)";
     $stmt = $pdo->prepare($sql);
@@ -269,7 +270,7 @@ $library = admin_template_library();
 $names = admin_template_options($library);
 $message = '';
 $error = '';
-$existingRecords = (int) $pdo->query("SELECT COUNT(*) FROM notification_templates")->fetchColumn();
+$existingRecords = (int) $pdo->query("SELECT COUNT(*) FROM notification_templates" . (app_column_exists($pdo, 'notification_templates', 'deleted_at') ? " WHERE deleted_at IS NULL" : ""))->fetchColumn();
 if ($existingRecords < count($library) * 3 && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     $created = admin_seed_templates($pdo, $library, false);
     if ($created > 0) {
@@ -305,10 +306,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!isset($names[$templateName]) || $sms === '' || $whatsapp === '') {
                 $error = 'Choose a template and provide both SMS and WhatsApp text.';
             } else {
+                $resetSoftSave = app_column_exists($pdo, 'notification_templates', 'deleted_at') ? ', deleted_at = NULL' : '';
                 $stmt = $pdo->prepare("
                     INSERT INTO notification_templates (template_name, template_type, message_template, is_active)
                     VALUES (?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE message_template = VALUES(message_template), is_active = VALUES(is_active)
+                    ON DUPLICATE KEY UPDATE message_template = VALUES(message_template), is_active = VALUES(is_active){$resetSoftSave}
                 ");
                 $stmt->execute([$templateName, 'sms', $sms, $active]);
                 $stmt->execute([$templateName, 'whatsapp', $whatsapp, $active]);
@@ -323,6 +325,7 @@ $templates = $pdo->query("
            MAX(CASE WHEN template_type = 'sms' THEN is_active ELSE 0 END) sms_active,
            MAX(CASE WHEN template_type = 'whatsapp' THEN is_active ELSE 0 END) whatsapp_active
     FROM notification_templates
+    " . (app_column_exists($pdo, 'notification_templates', 'deleted_at') ? "WHERE deleted_at IS NULL" : "") . "
     GROUP BY template_name
     ORDER BY template_name
 ")->fetchAll();

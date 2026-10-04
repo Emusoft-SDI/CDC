@@ -35,7 +35,11 @@ if ($templateName === '') {
 try {
     if (app_table_exists($pdo, 'notification_templates')) {
         if (admin_current_user_is_super_admin($pdo)) {
-            $pdo->prepare("DELETE FROM notification_templates WHERE template_name = ?")->execute([$templateName]);
+            if (app_column_exists($pdo, 'notification_templates', 'deleted_at')) {
+                $pdo->prepare("UPDATE notification_templates SET deleted_at = NOW() WHERE template_name = ?")->execute([$templateName]);
+            } else {
+                $pdo->prepare("DELETE FROM notification_templates WHERE template_name = ?")->execute([$templateName]);
+            }
         } else {
             admin_queue_verified_delete_request($pdo, 'notification_templates', null, $templateName, 'Notification template delete requested by admin.', [
                 'target_key' => $templateName,

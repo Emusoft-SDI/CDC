@@ -114,7 +114,11 @@ function admin_execute_approved_delete(PDO $pdo, array $request): void
     if ($table === 'notification_templates') {
         $templateName = (string) ($request['target_key'] ?? $payload['template_name'] ?? '');
         if ($templateName !== '') {
-            $pdo->prepare('DELETE FROM notification_templates WHERE template_name = ?')->execute([$templateName]);
+            if (app_column_exists($pdo, 'notification_templates', 'deleted_at')) {
+                $pdo->prepare('UPDATE notification_templates SET deleted_at = NOW() WHERE template_name = ?')->execute([$templateName]);
+            } else {
+                $pdo->prepare('DELETE FROM notification_templates WHERE template_name = ?')->execute([$templateName]);
+            }
         }
         return;
     }

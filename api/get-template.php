@@ -23,10 +23,11 @@ try {
         json_response(['success' => true]);
     }
 
+    $soft = app_column_exists($pdo, 'notification_templates', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
     $stmt = $pdo->prepare("
         SELECT template_type, message_template, is_active
         FROM notification_templates
-        WHERE template_name = ?
+        WHERE template_name = ?{$soft}
     ");
     $stmt->execute([$templateName]);
 

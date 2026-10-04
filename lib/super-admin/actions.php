@@ -260,6 +260,20 @@ function super_admin_restore_deleted_record(PDO $pdo): void
         throw new RuntimeException('Stored record is not restorable.');
     }
 
+    // Soft-deleted tables keep the live row: restore simply clears deleted_at.
+    if (app_column_exists($pdo, $table, 'deleted_at')) {
+        $targetId = (int) ($record['target_id'] ?? 0);
+        $targetKey = (string) ($record['target_key'] ?? '');
+        if ($targetId > 0) {
+            $pdo->prepare('UPDATE `' . $table . '` SET deleted_at = NULL WHERE id = ?')->execute([$targetId]);
+        } elseif ($targetKey !== '') {
+            $pdo->prepare('UPDATE `' . $table . '` SET deleted_at = NULL WHERE template_name = ?')->execute([$targetKey]);
+        }
+        $pdo->prepare("DELETE FROM admin_deleted_records WHERE id = ?")->execute([$recordId]);
+        super_admin_audit($pdo, 'deleted_record_restored', 'Restored soft-deleted ' . $table . ' record from the recycle bin.');
+        return;
+    }
+
     $columns = array_values(array_filter(array_keys($row), static fn ($column): bool => is_string($column)));
     $quoted = array_map(static fn (string $column): string => '`' . str_replace('`', '', $column) . '`', $columns);
     $placeholders = implode(', ', array_fill(0, count($columns), '?'));
