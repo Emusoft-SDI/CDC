@@ -48,7 +48,20 @@ $commands = [
     ['Support', 'Ticket queues, escalations and knowledge operations.', '../support/', 'support'],
 ];
 ?>
-<!doctype html>
+<?php
+/* Admin UI v2 (P4) opt-in chrome swap for the operations workspace.
+   Flag OFF (default, production) => the legacy chrome below renders byte-identically.
+   Flag ON (ADMIN_UI_V2 + area allow-list) => the shared v2 shell is rendered and only
+   the page body between the gates below is emitted. */
+if (!function_exists('admin_ui_enabled')) {
+    $__ajUiShell = __DIR__ . '/../../lib/admin-ui/ui.php';
+    if (is_file($__ajUiShell)) { require_once $__ajUiShell; }
+}
+$__uiV2 = function_exists('admin_ui_enabled') && admin_ui_enabled('operations');
+if ($__uiV2) {
+    admin_ui_page_start('Operations Workspace', ['area' => 'operations', 'active' => 'operations/index.php', 'description' => 'One command center for authenticated NATCODEV administration across work queues, the operations network and platform commands.']);
+} else {
+?><!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Operations Workspace - NATCODEV</title>
@@ -66,9 +79,18 @@ body{background:#f4f7f5}.ops-shell{display:grid;grid-template-columns:270px 1fr;
   </nav>
 </aside>
 <main class="ops-main">
-  <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4"><div><span class="text-success fw-bold text-uppercase small">Live operational data</span><h1 class="h3 mb-1"><?= e(ucwords(str_replace('_',' ',$page))) ?></h1><p class="text-secondary mb-0">One command center for authenticated NATCODEV administration.</p></div><a class="btn btn-success" href="../search.php">Search Platform</a></div>
+  <?php } /* __uiV2 open-branch end */ ?><div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4"><div><span class="text-success fw-bold text-uppercase small">Live operational data</span><h1 class="h3 mb-1"><?= e(ucwords(str_replace('_',' ',$page))) ?></h1><p class="text-secondary mb-0">One command center for authenticated NATCODEV administration.</p></div><a class="btn btn-success" href="../search.php">Search Platform</a></div>
   <div class="row g-3 mb-4"><?php foreach($metrics as [$label,$value,$href,$tone]): ?><div class="col-sm-6 col-xl-3"><a class="card metric h-100 text-decoration-none" href="<?= e($href) ?>"><div class="card-body"><div class="text-secondary small"><?= e($label) ?></div><div class="display-6 fw-bold text-dark"><?= number_format($value) ?></div><small class="text-success">Open queue</small></div></a></div><?php endforeach; ?></div>
   <?php if($page==='overview' || $page==='queues'): ?><section class="card mb-4"><div class="card-header bg-white"><h2 class="h5 mb-0">Action Queues</h2></div><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Queue</th><th>Pending</th><th>Operational scope</th><th></th></tr></thead><tbody><?php foreach($queues as [$label,$count,$href,$detail]): ?><tr><td class="fw-semibold"><?= e($label) ?></td><td><span class="badge text-bg-<?= $count?'warning':'success' ?>"><?= number_format($count) ?></span></td><td class="text-secondary"><?= e($detail) ?></td><td><a class="btn btn-sm btn-outline-success" href="<?= e($href) ?>">Manage</a></td></tr><?php endforeach; ?></tbody></table></div></section><?php endif; ?>
   <?php if($page==='overview'): ?><section class="card mb-4"><div class="card-header bg-white"><h2 class="h5 mb-0">Recent Applications</h2></div><div class="table-responsive"><table class="table mb-0"><thead><tr><th>Reference</th><th>Grower</th><th>Status</th><th>Received</th></tr></thead><tbody><?php foreach($recent as $row): ?><tr><td><?= e($row['reference']) ?></td><td><?= e($row['title']) ?></td><td><?= e(ucfirst($row['status'])) ?></td><td><?= e((string)$row['occurred_at']) ?></td></tr><?php endforeach; ?></tbody></table></div></section><?php endif; ?>
   <?php if($page!=='queues'): ?><div class="row g-3"><?php foreach($commands as [$title,$detail,$href,$feature]): if(!admin_feature_is_allowed($pdo,$feature))continue; ?><div class="col-md-6 col-xl-4"><a class="card command-card h-100 text-decoration-none" href="<?= e($href) ?>"><div class="card-body"><h3 class="h5 text-dark"><?= e($title) ?></h3><p class="text-secondary"><?= e($detail) ?></p><span class="text-success fw-semibold">Open CRUD workspace</span></div></a></div><?php endforeach; ?></div><?php endif; ?>
+<?php
+/* __uiV2 close gate */
+if ($__uiV2) {
+    admin_ui_page_end();
+} else {
+?>
 </main></div><script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script></body></html>
+<?php
+} /* __uiV2 close gate end */
+?>

@@ -94,9 +94,22 @@ $roleLabel = ucwords(str_replace('_', ' ', (string) (($wd['platform_role'] ?? ''
 $provider = strtolower((string) ($wd['provider'] ?? 'manual'));
 $reviewDueInput = wx_dt_input($wd['review_due_at'] ?? null);
 ?>
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Withdrawal Review - NATCODEV Wallet</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"><link rel="stylesheet" href="../../assets/css/admin-workspaces.css"><style>body{background:#f4f7f5;color:#17231d}.review-main{max-width:1180px;margin:0 auto;padding:28px 18px 52px}.review-hero{background:linear-gradient(135deg,#0b3b2a,#12613f);color:#fff;border-radius:12px;padding:24px}.metric-card,.card{border:1px solid #dde8df}.detail-item{display:flex;justify-content:space-between;gap:18px;border-bottom:1px solid #eef2ef;padding:10px 0}.detail-item span:first-child{color:#66756d;font-weight:700}.decision-panel{position:sticky;top:18px}.btn-approve{background:#0f7a4f;color:#fff}.btn-reject{background:#b42318;color:#fff}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}@media(max-width:991px){.decision-panel{position:static}.detail-item{display:block}}</style></head><body><main class="review-main">
+<?php
+/* Admin UI v2 (P4) opt-in chrome swap for the wallet workspace.
+   Flag OFF (default, production) => the legacy chrome below renders byte-identically.
+   Flag ON (ADMIN_UI_V2 + area allow-list) => the shared v2 shell is rendered and only
+   the page body between the gates below is emitted. */
+if (!function_exists('admin_ui_enabled')) {
+    $__ajUiShell = __DIR__ . '/../../lib/admin-ui/ui.php';
+    if (is_file($__ajUiShell)) { require_once $__ajUiShell; }
+}
+$__uiV2 = function_exists('admin_ui_enabled') && admin_ui_enabled('wallet');
+if ($__uiV2) {
+    admin_ui_page_start('Withdrawal Review', ['area' => 'wallet', 'active' => 'wallet/withdrawal_details.php', 'description' => 'Review payout destination, policy reason, wallet hold, and the operator decision before funds leave the platform.']);
+} else {
+?><!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Withdrawal Review - NATCODEV Wallet</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"><link rel="stylesheet" href="../../assets/css/admin-workspaces.css"><style>body{background:#f4f7f5;color:#17231d}.review-main{max-width:1180px;margin:0 auto;padding:28px 18px 52px}.review-hero{background:linear-gradient(135deg,#0b3b2a,#12613f);color:#fff;border-radius:12px;padding:24px}.metric-card,.card{border:1px solid #dde8df}.detail-item{display:flex;justify-content:space-between;gap:18px;border-bottom:1px solid #eef2ef;padding:10px 0}.detail-item span:first-child{color:#66756d;font-weight:700}.decision-panel{position:sticky;top:18px}.btn-approve{background:#0f7a4f;color:#fff}.btn-reject{background:#b42318;color:#fff}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}@media(max-width:991px){.decision-panel{position:static}.detail-item{display:block}}</style></head><body><main class="review-main">
 <?= admin_workspace_operator_strip($pdo, ['asset_prefix'=>'../../','profile_href'=>'../profile.php','password_href'=>'../profile.php#password','logout_action'=>'../admin.php','title'=>'Withdrawal review workspace','placeholder'=>'Search wallet withdrawals...']) ?>
-<div class="d-flex justify-content-between align-items-center gap-3 flex-wrap mb-3"><a class="btn btn-outline-success" href="index.php?page=withdrawals">Back to Withdrawals</a><div class="d-flex gap-2 flex-wrap"><a class="btn btn-outline-success" href="index.php?page=rules">Global Withdrawal Rules</a><a class="btn btn-success" href="reports.php">Wallet Reports</a></div></div>
+<?php } /* __uiV2 open-branch end */ ?><div class="d-flex justify-content-between align-items-center gap-3 flex-wrap mb-3"><a class="btn btn-outline-success" href="index.php?page=withdrawals">Back to Withdrawals</a><div class="d-flex gap-2 flex-wrap"><a class="btn btn-outline-success" href="index.php?page=rules">Global Withdrawal Rules</a><a class="btn btn-success" href="reports.php">Wallet Reports</a></div></div>
 <?php if ($notice !== ''): ?><div class="alert alert-success"><?= wx_e($notice) ?></div><?php endif; ?><?php if ($error !== ''): ?><div class="alert alert-danger"><strong>Action failed:</strong> <?= wx_e($error) ?></div><?php endif; ?>
 <section class="review-hero mb-4"><div class="d-flex justify-content-between gap-3 flex-wrap"><div><div class="text-uppercase fw-bold small opacity-75">Withdrawal Review</div><h1 class="h2 mb-2"><?= wx_e((string) ($wd['reference'] ?? ('WD-' . $id))) ?></h1><p class="mb-0 opacity-75">Review payout destination, policy reason, wallet hold, and operator decision before funds leave the platform.</p></div><div class="text-end"><span class="badge text-bg-<?= wx_status_badge((string) $wd['status']) ?> fs-6"><?= wx_e(ucwords(str_replace('_', ' ', (string) $wd['status']))) ?></span><div class="h3 mt-3 mb-0"><?= wx_e(wx_money($wd['amount'])) ?></div><small class="opacity-75">Final payout: <?= wx_e(wx_money($wd['final_amount'] ?? $wd['amount'])) ?></small></div></div></section>
 <div class="row g-4"><div class="col-lg-8"><div class="row g-3 mb-4"><div class="col-md-4"><div class="card card-body"><small>Requested</small><strong><?= wx_e(wx_dt($wd['requested_at'] ?? null)) ?></strong></div></div><div class="col-md-4"><div class="card card-body"><small>Provider</small><strong><?= wx_e(ucwords($provider ?: 'manual')) ?></strong></div></div><div class="col-md-4"><div class="card card-body"><small>Review Rule</small><strong><?= !empty($wd['review_required']) ? 'Manual Review' : 'Automation Eligible' ?></strong></div></div></div>
@@ -117,4 +130,13 @@ $reviewDueInput = wx_dt_input($wd['review_due_at'] ?? null);
     <?php endif; ?>
     <div class="card shadow-sm decision-panel"><div class="card-body"><h2 class="h5 mb-2">Operator Decision</h2><p class="text-secondary small">Approve only after the bank details and review rule are acceptable. Rejecting returns the held funds to the user's wallet.</p><?php if ($isDecidable): ?><?php if ($isFailed): ?><div class="alert alert-warning small"><strong>Previous payout attempt failed.</strong><br><?= wx_e((string) ($wd['failure_reason'] ?? '')) ?></div><?php endif; ?><form method="post" class="d-grid gap-3"><input type="hidden" name="_csrf" value="<?= wx_e(csrf_token()) ?>"><label class="form-label">Admin note</label><textarea class="form-control" name="admin_note" rows="5" maxlength="1000"></textarea><button class="btn btn-approve btn-lg" name="action" value="approve" onclick="return confirm('<?= $isFailed ? 'Retry this payout now?' : 'Approve this withdrawal and initiate payout?' ?>')"><?= $isFailed ? 'Retry Payout' : 'Approve &amp; Initiate Payout' ?></button><button class="btn btn-reject" name="action" value="reject" onclick="return confirm('Reject this withdrawal and release held funds back to the wallet?')">Reject & Release Hold</button></form><?php else: ?><div class="alert alert-secondary mb-0">This withdrawal is <?= wx_e((string) $wd['status']) ?> and needs no further decision.<?php if ($fundsReleased): ?> The held funds were returned to the user's wallet, so it must not be paid out again.<?php endif; ?></div><?php endif; ?></div></div>
 </div>
-</div></main><script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script></body></html>
+</div><?php
+/* __uiV2 close gate */
+if ($__uiV2) {
+    admin_ui_page_end();
+} else {
+?>
+</main><script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script></body></html>
+<?php
+} /* __uiV2 close gate end */
+?>

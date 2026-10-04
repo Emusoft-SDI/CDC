@@ -73,6 +73,29 @@ function run_admin_ui_tests(): void
     TestHarness::assert(admin_ui_enabled('wallet') === false, 'AdminUI: allow-list rejects a non-listed area');
     $setEnv('ADMIN_UI_V2_AREAS', null);
 
+    // P4: the admin WORKSPACE pages (marketplace/operations/revenue/wallet) opt in through
+    // the same allow-list, and each must gate its chrome on its area key.
+    $setEnv('ADMIN_UI_V2_AREAS', 'marketplace,operations,revenue,wallet');
+    TestHarness::assert(admin_ui_enabled('wallet') === true, 'AdminUI: allow-list admits the wallet workspace area');
+    $setEnv('ADMIN_UI_V2_AREAS', null);
+
+    $p4WorkspacePages = [
+        'marketplace' => ['admin/marketplace/index.php'],
+        'operations' => ['admin/operations/index.php'],
+        'revenue' => ['admin/revenue/index.php'],
+        'wallet' => ['admin/wallet/index.php', 'admin/wallet/reports.php', 'admin/wallet/withdrawal_details.php', 'admin/wallet/wal.php', 'admin/wallet/fund_wallet.php'],
+    ];
+    $p4Gated = true;
+    foreach ($p4WorkspacePages as $area => $paths) {
+        foreach ($paths as $path) {
+            $workspaceSource = (string) file_get_contents(__DIR__ . '/../' . $path);
+            $p4Gated = $p4Gated
+                && str_contains($workspaceSource, "admin_ui_enabled('" . $area . "')")
+                && str_contains($workspaceSource, 'admin_ui_page_end()');
+        }
+    }
+    TestHarness::assert($p4Gated, 'AdminUI P4: every admin workspace page gates its chrome on admin_ui_enabled(<area>) and closes via admin_ui_page_end()');
+
     // Env switch alone is enough.
     $pdo->prepare("DELETE FROM settings WHERE key_name = 'admin_ui_v2'")->execute();
     $setEnv('ADMIN_UI_V2', '1');

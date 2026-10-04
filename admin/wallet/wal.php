@@ -85,7 +85,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 
-<!DOCTYPE html>
+<?php
+/* Admin UI v2 (P4) opt-in chrome swap for the wallet workspace.
+   Flag OFF (default, production) => the legacy chrome below renders byte-identically.
+   Flag ON (ADMIN_UI_V2 + area allow-list) => the shared v2 shell is rendered and only
+   the page body between the gates below is emitted. */
+if (!function_exists('admin_ui_enabled')) {
+    $__ajUiShell = __DIR__ . '/../../lib/admin-ui/ui.php';
+    if (is_file($__ajUiShell)) { require_once $__ajUiShell; }
+}
+$__uiV2 = function_exists('admin_ui_enabled') && admin_ui_enabled('wallet');
+if ($__uiV2) {
+    admin_ui_page_start('Wallet Dashboard', ['area' => 'wallet', 'active' => 'wallet/wal.php', 'description' => 'Wallet dashboard: balances, recent transactions, manual funding and pending withdrawals.']);
+} else {
+?><!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -112,7 +125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
 
-<p><a href="index.php">Back to Wallet Workspace</a></p>
+<?php } /* __uiV2 open-branch end */ ?><p><a href="index.php">Back to Wallet Workspace</a></p>
 
 <div class="main">
     <h1>Wallet Dashboard</h1>
@@ -222,5 +235,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 </div>
 
+<?php
+/* __uiV2 close gate */
+if ($__uiV2) {
+    admin_ui_page_end();
+} else {
+?>
 </body>
 </html>
+<?php
+} /* __uiV2 close gate end */
+?>
