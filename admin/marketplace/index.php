@@ -125,26 +125,13 @@ $nav = ['overview'=>'Overview','buyers'=>'Buyer Ops','sellers'=>'Sellers','produ
 $orderStatuses = ['quoted','accepted','paid','preparing','ready','scheduled','in_transit','completed','cancelled','disputed'];
 $deliveryStatuses = ['not_started','awaiting_seller','packing','ready_for_pickup','scheduled','in_transit','delivered','failed','returned'];
 ?>
-<?php
-/* Admin UI v2 (P4) opt-in chrome swap for the marketplace workspace.
-   Flag OFF (default, production) => the legacy chrome below renders byte-identically.
-   Flag ON (ADMIN_UI_V2 + area allow-list) => the shared v2 shell is rendered and only
-   the page body between the gates below is emitted. */
-if (!function_exists('admin_ui_enabled')) {
-    $__ajUiShell = __DIR__ . '/../../lib/admin-ui/ui.php';
-    if (is_file($__ajUiShell)) { require_once $__ajUiShell; }
-}
-$__uiV2 = function_exists('admin_ui_enabled') && admin_ui_enabled('marketplace');
-if ($__uiV2) {
-    admin_ui_page_start('Marketplace Workspace', ['area' => 'marketplace', 'active' => 'marketplace/index.php', 'description' => 'Manage sellers, listings, orders, delivery operations, inquiries and settlements.']);
-} else {
-?><!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Marketplace Admin Workspace</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Marketplace Admin Workspace</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"><link rel="stylesheet" href="../../assets/css/admin-workspaces.css">
 <style>body{background:#f6f7f5}.mx-shell{display:grid;grid-template-columns:270px 1fr;min-height:100vh}.mx-side{background:#172f28;color:#fff;padding:24px 18px}.mx-side a{color:#d9e9e2;text-decoration:none;padding:11px 12px;border-radius:8px}.mx-side a.active,.mx-side a:hover{background:#28644d;color:#fff}.mx-main{padding:28px}.table td{vertical-align:middle}.inline-control{min-width:145px}.ops-note{min-width:240px}.delivery-warn{background:#fff8e1!important}@media(max-width:900px){.mx-shell{grid-template-columns:1fr}.mx-main{padding:16px}}</style></head><body>
 <div class="mx-shell"><aside class="mx-side"><h4 class="mb-1">NATCODEV</h4><p class="small text-white-50">Marketplace Admin</p><nav class="d-grid gap-1 mt-4">
 <?php foreach($nav as $key=>$label): ?><a class="<?= $page===$key?'active':'' ?>" href="?page=<?= e($key) ?>"><?= e($label) ?></a><?php endforeach; ?>
 <hr class="border-light opacity-25"><a href="../../market/index.php">Public Marketplace</a><a href="../index.php">Workspace Hub</a><?php if(admin_current_user_is_super_admin($pdo)): ?><a href="../marketplace.php?legacy=1">Legacy Super Admin Console</a><?php endif; ?></nav></aside>
-<main class="mx-main"><?= admin_workspace_operator_strip($pdo, ['asset_prefix' => '../../', 'profile_href' => '../profile.php', 'password_href' => '../profile.php#password', 'logout_action' => '../admin.php', 'title' => 'Marketplace workspace', 'placeholder' => 'Search buyers, sellers, orders, products...']) ?><?php } /* __uiV2 open-branch end */ ?><div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4"><div><span class="small text-success fw-bold text-uppercase">Live marketplace database</span><h1 class="h3 mb-1"><?= e($nav[$page] ?? marketplace_status_label($page)) ?></h1><p class="text-secondary mb-0">Manage sellers, listings, orders, delivery operations, inquiries and settlements.</p></div><div class="d-flex gap-2"><a class="btn btn-outline-success" href="../marketplace.php?export=sellers">Export Sellers</a><a class="btn btn-success" href="?page=create">New Listing</a></div></div>
+<main class="mx-main"><?= admin_workspace_operator_strip($pdo, ['asset_prefix' => '../../', 'profile_href' => '../profile.php', 'password_href' => '../profile.php#password', 'logout_action' => '../admin.php', 'title' => 'Marketplace workspace', 'placeholder' => 'Search buyers, sellers, orders, products...']) ?><div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4"><div><span class="small text-success fw-bold text-uppercase">Live marketplace database</span><h1 class="h3 mb-1"><?= e($nav[$page] ?? marketplace_status_label($page)) ?></h1><p class="text-secondary mb-0">Manage sellers, listings, orders, delivery operations, inquiries and settlements.</p></div><div class="d-flex gap-2"><a class="btn btn-outline-success" href="../marketplace.php?export=sellers">Export Sellers</a><a class="btn btn-success" href="?page=create">New Listing</a></div></div>
 <?php if($message): ?><div class="alert alert-success"><?= e($message) ?></div><?php endif; ?><?php if($error): ?><div class="alert alert-danger"><?= e($error) ?></div><?php endif; ?>
 <?php if(isset($marketCollections[$page])): ?><form class="card card-body mb-3" method="get"><input type="hidden" name="page" value="<?= e($page) ?>"><div class="row g-2"><div class="col-md-8"><input class="form-control" name="search" value="<?= e($search) ?>" placeholder="Search this Marketplace module"></div><div class="col-md-2"><select class="form-select" name="per_page"><?php foreach([10,25,50,100,200,500] as $n): ?><option value="<?= $n ?>" <?= $perPage===$n?'selected':'' ?>><?= $n ?> rows</option><?php endforeach; ?></select></div><div class="col-md-2"><button class="btn btn-success w-100">Search</button></div></div></form><?php endif; ?>
 
@@ -169,13 +156,4 @@ if ($__uiV2) {
 <?php if($page==='create'): ?><div class="row g-4"><div class="col-xl-8"><div class="card"><div class="card-body"><h2 class="h5">Publish Admin Listing</h2><form method="post" action="../marketplace.php" class="row g-3"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="action" value="admin_listing"><input type="hidden" name="workspace_return" value="products"><div class="col-md-6"><label class="form-label">Seller</label><select class="form-select" name="seller_id"><?php foreach($sellers as $seller): ?><option value="<?= (int)$seller['id'] ?>"><?= e((string)$seller['store_name']) ?></option><?php endforeach; ?></select></div><div class="col-md-6"><label class="form-label">Type</label><select class="form-select" name="listing_type"><?php foreach($listingTypes as $key=>$label): ?><option value="<?= e($key) ?>"><?= e($label) ?></option><?php endforeach; ?></select></div><div class="col-12"><label class="form-label">Title</label><input class="form-control" name="title" required></div><div class="col-12"><label class="form-label">Summary</label><input class="form-control" name="summary"></div><div class="col-12"><label class="form-label">Description</label><textarea class="form-control" name="description"></textarea></div><div class="col-md-4"><label class="form-label">Price</label><input class="form-control" type="number" min="0" step=".01" name="price"></div><div class="col-md-4"><label class="form-label">Quantity</label><input class="form-control" type="number" min="0" step=".01" name="quantity_available"></div><div class="col-md-4"><label class="form-label">Unit</label><input class="form-control" name="unit"></div><div class="col-12"><button class="btn btn-success">Publish Listing</button></div></form></div></div></div></div><?php endif; ?>
 
 <?php if(isset($marketCollections[$page])):$pages=max(1,(int)ceil($marketTotal/max(1,$perPage)));?><div class="d-flex justify-content-between align-items-center mt-3"><span class="text-secondary"><?= number_format($marketTotal) ?> result(s)</span><div class="btn-group"><a class="btn btn-outline-success" href="?<?= e(http_build_query(['page'=>$page,'search'=>$search,'per_page'=>$perPage,'p'=>max(1,$listPage-1)])) ?>">Previous</a><span class="btn btn-light">Page <?= $listPage ?> / <?= $pages ?></span><a class="btn btn-outline-success" href="?<?= e(http_build_query(['page'=>$page,'search'=>$search,'per_page'=>$perPage,'p'=>min($pages,$listPage+1)])) ?>">Next</a></div></div><?php endif; ?>
-<?php
-/* __uiV2 close gate */
-if ($__uiV2) {
-    admin_ui_page_end();
-} else {
-?>
 </main></div><script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script></body></html>
-<?php
-} /* __uiV2 close gate end */
-?>

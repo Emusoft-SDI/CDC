@@ -95,13 +95,6 @@ function admin_nav_item_is_active(string $active, string $href): bool
 
 function admin_page_start(string $title, array $options = []): void
 {
-    // Opt-in parallel Admin UI shell. When disabled (default) the legacy chrome
-    // below runs untouched, so production output is unchanged.
-    if (function_exists('admin_ui_enabled') && admin_ui_enabled($options['area'] ?? null)) {
-        admin_ui_page_start($title, $options);
-        return;
-    }
-
     $active = admin_active_key($options['active'] ?? null);
     $description = (string) ($options['description'] ?? '');
     $wide = !empty($options['wide']);
@@ -264,11 +257,6 @@ function admin_page_start(string $title, array $options = []): void
 
 function admin_page_end(): void
 {
-    if (!empty($GLOBALS['admin_ui_active'])) {
-        admin_ui_page_end();
-        return;
-    }
-
     $footerItems = admin_footer_nav_items(db());
     ?>
   </main>

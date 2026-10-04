@@ -148,20 +148,7 @@ $totalOutflow = array_sum(array_map(static fn(array $r): float => (float) $r['ou
 $totalTransactions = array_sum(array_map(static fn(array $r): int => (int) $r['transactions'], $reportDaily));
 $maxFlow = max(1.0, ...array_map(static fn(array $r): float => max((float) $r['inflow'], (float) $r['outflow']), $reportDaily ?: [['inflow' => 1, 'outflow' => 1]]));
 ?>
-<?php
-/* Admin UI v2 (P4) opt-in chrome swap for the wallet workspace.
-   Flag OFF (default, production) => the legacy chrome below renders byte-identically.
-   Flag ON (ADMIN_UI_V2 + area allow-list) => the shared v2 shell is rendered and only
-   the page body between the gates below is emitted. */
-if (!function_exists('admin_ui_enabled')) {
-    $__ajUiShell = __DIR__ . '/../../lib/admin-ui/ui.php';
-    if (is_file($__ajUiShell)) { require_once $__ajUiShell; }
-}
-$__uiV2 = function_exists('admin_ui_enabled') && admin_ui_enabled('wallet');
-if ($__uiV2) {
-    admin_ui_page_start('Wallet Reports', ['area' => 'wallet', 'active' => 'wallet/reports.php', 'description' => 'Cached wallet finance intelligence: cash flow, gateway mix, transaction status and withdrawal reporting.']);
-} else {
-?><!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -191,7 +178,7 @@ if ($__uiV2) {
   </aside>
   <main class="fin-main">
     <?= admin_workspace_operator_strip($pdo, ['asset_prefix' => '../../', 'profile_href' => '../profile.php', 'password_href' => '../profile.php#password', 'logout_action' => '../admin.php', 'title' => 'Wallet reports workspace', 'placeholder' => 'Search wallet reports...']) ?>
-    <?php } /* __uiV2 open-branch end */ ?><div class="d-flex justify-content-between gap-3 flex-wrap mb-4">
+    <div class="d-flex justify-content-between gap-3 flex-wrap mb-4">
       <div>
         <span class="text-success fw-bold small text-uppercase">Cached finance intelligence</span>
         <h1 class="h3 mb-1">Wallet Reports</h1>
@@ -241,16 +228,7 @@ if ($__uiV2) {
       <div class="col-xl-6"><div class="card h-100"><div class="card-header bg-white fw-bold">Top Wallet Exposure</div><div class="table-responsive"><table class="table mb-0"><tr><th>User</th><th>Balance</th><th>Hold</th><th>Status</th></tr><?php foreach ($topWallets as $row): ?><tr><td><strong><?= wr_e($row['name']) ?></strong><br><small><?= wr_e($row['email']) ?></small></td><td><?= wr_e(wallet_reporting_money((float) $row['balance'])) ?></td><td><?= wr_e(wallet_reporting_money((float) $row['hold_balance'])) ?></td><td><?= wr_e($row['status']) ?></td></tr><?php endforeach; ?></table></div></div></div>
       <div class="col-xl-6"><div class="card h-100"><div class="card-header bg-white fw-bold">Recent Export Jobs</div><div class="table-responsive"><table class="table mb-0"><tr><th>Reference</th><th>Range</th><th>Status</th><th></th></tr><?php foreach ($exports as $job): ?><tr><td><?= wr_e($job['job_ref']) ?></td><td><?= wr_e($job['from_date'] . ' to ' . $job['to_date']) ?></td><td><?= wr_e($job['status']) ?></td><td><a class="btn btn-sm btn-outline-success" href="?download=<?= (int) $job['id'] ?>">Download</a></td></tr><?php endforeach; ?></table></div></div></div>
     </div>
-<?php
-/* __uiV2 close gate */
-if ($__uiV2) {
-    admin_ui_page_end();
-} else {
-?>
   </main>
 </div>
 </body>
 </html>
-<?php
-} /* __uiV2 close gate end */
-?>
