@@ -50,6 +50,7 @@ function admin_ensure_import_schema(PDO $pdo): void
             INDEX idx_import_role (role)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
+    app_add_column_if_missing($pdo, 'user_import_records', 'deleted_at', "DATETIME NULL");
     app_add_column_if_missing($pdo, 'user_import_records', 'phone_e164', "VARCHAR(20) NULL");
     app_add_column_if_missing($pdo, 'user_import_records', 'alternate_email', "VARCHAR(255) NULL");
     app_add_column_if_missing($pdo, 'user_import_records', 'alternate_phone', "VARCHAR(50) NULL");
@@ -182,7 +183,8 @@ function admin_import_phone_exists(PDO $pdo, string $phoneE164): bool
     if ($stmt->fetchColumn()) {
         return true;
     }
-    $stmt = $pdo->prepare("SELECT 1 FROM user_import_records WHERE phone_e164 = ? AND status <> 'skipped' LIMIT 1");
+    $soft = app_column_exists($pdo, 'user_import_records', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+    $stmt = $pdo->prepare("SELECT 1 FROM user_import_records WHERE phone_e164 = ? AND status <> 'skipped'{$soft} LIMIT 1");
     $stmt->execute([$phoneE164]);
     return (bool) $stmt->fetchColumn();
 }
@@ -473,10 +475,11 @@ function admin_import_process(PDO $pdo, string $path, string $filename, string $
             (batch_ref, source_file, source_row, name, email, alternate_email, phone, phone_e164, alternate_phone, role, address, farm_size, state, lga, status, status_note, application_id, user_id, engagement_token, engagement_channel, engagement_deadline)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
+    $importSoft = app_column_exists($pdo, 'user_import_records', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
     $existingImportRow = $pdo->prepare("
         SELECT status
         FROM user_import_records
-        WHERE source_file = ? AND source_row = ?
+        WHERE source_file = ? AND source_row = ?{$importSoft}
         ORDER BY id DESC
         LIMIT 1
     ");

@@ -19,7 +19,8 @@ if ($token === '') {
     exit('Invalid engagement link.');
 }
 
-$stmt = $pdo->prepare("SELECT * FROM user_import_records WHERE engagement_token = ? LIMIT 1");
+$soft = app_column_exists($pdo, 'user_import_records', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+$stmt = $pdo->prepare("SELECT * FROM user_import_records WHERE engagement_token = ?{$soft} LIMIT 1");
 $stmt->execute([$token]);
 $record = $stmt->fetch();
 if (!$record) {

@@ -107,7 +107,11 @@ function admin_execute_approved_delete(PDO $pdo, array $request): void
     }
 
     if ($table === 'user_import_records') {
-        $pdo->prepare('DELETE FROM user_import_records WHERE id = ?')->execute([$id]);
+        if (app_column_exists($pdo, 'user_import_records', 'deleted_at')) {
+            $pdo->prepare('UPDATE user_import_records SET deleted_at = NOW() WHERE id = ?')->execute([$id]);
+        } else {
+            $pdo->prepare('DELETE FROM user_import_records WHERE id = ?')->execute([$id]);
+        }
         return;
     }
 

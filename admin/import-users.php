@@ -40,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $pdo->prepare("DELETE FROM user_import_records WHERE id IN ({$placeholders})")->execute($selectedIds);
                         $message = count($selectedIds) . ' row(s) deleted.';
                     } else {
-                        $stmt = $pdo->prepare("SELECT id, COALESCE(name, email, phone, CONCAT('Import row #', id)) label FROM user_import_records WHERE id IN ({$placeholders})");
+                        $stmt = $pdo->prepare("SELECT id, COALESCE(name, email, phone, CONCAT('Import row #', id)) label FROM user_import_records WHERE id IN ({$placeholders}) AND deleted_at IS NULL");
                         $stmt->execute($selectedIds);
                         $queued = 0;
                         foreach ($stmt->fetchAll() as $row) {
@@ -54,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt->execute($selectedIds);
                     $message = $stmt->rowCount() . ' row(s) archived.';
                 } else {
-                    $stmt = $pdo->prepare("SELECT * FROM user_import_records WHERE id IN ({$placeholders})");
+                    $stmt = $pdo->prepare("SELECT * FROM user_import_records WHERE id IN ({$placeholders}) AND deleted_at IS NULL");
                     $stmt->execute($selectedIds);
                     $sent = 0;
                     foreach ($stmt->fetchAll() as $record) {
@@ -78,7 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare('DELETE FROM user_import_records WHERE id = ?')->execute([$recordId]);
                 $message = 'Import row deleted.';
             } else {
-                $stmt = $pdo->prepare("SELECT COALESCE(name, email, phone, CONCAT('Import row #', id)) FROM user_import_records WHERE id = ? LIMIT 1");
+                $stmt = $pdo->prepare("SELECT COALESCE(name, email, phone, CONCAT('Import row #', id)) FROM user_import_records WHERE id = ? AND deleted_at IS NULL LIMIT 1");
                 $stmt->execute([$recordId]);
                 $label = (string) ($stmt->fetchColumn() ?: 'Import row #' . $recordId);
                 admin_queue_verified_delete_request($pdo, 'user_import_records', $recordId, $label, 'Import row delete requested by admin.');
@@ -120,7 +120,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = 'Import row updated.';
         } elseif ($action === 'retry_record') {
             $recordId = (int) ($_POST['record_id'] ?? 0);
-            $stmt = $pdo->prepare('SELECT * FROM user_import_records WHERE id = ? LIMIT 1');
+            $stmt = $pdo->prepare('SELECT * FROM user_import_records WHERE id = ? AND deleted_at IS NULL LIMIT 1');
             $stmt->execute([$recordId]);
             $record = $stmt->fetch();
             if (!$record) {
@@ -151,7 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } elseif ($action === 'resend_confirmation') {
             $recordId = (int) ($_POST['record_id'] ?? 0);
-            $stmt = $pdo->prepare('SELECT * FROM user_import_records WHERE id = ? LIMIT 1');
+            $stmt = $pdo->prepare('SELECT * FROM user_import_records WHERE id = ? AND deleted_at IS NULL LIMIT 1');
             $stmt->execute([$recordId]);
             $record = $stmt->fetch();
             $applicationId = (int) ($record['application_id'] ?? 0);
@@ -184,7 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $editId = filter_input(INPUT_GET, 'edit', FILTER_VALIDATE_INT) ?: 0;
 $editRecord = null;
 if ($editId > 0) {
-    $stmt = $pdo->prepare('SELECT * FROM user_import_records WHERE id = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT * FROM user_import_records WHERE id = ? AND deleted_at IS NULL LIMIT 1');
     $stmt->execute([$editId]);
     $editRecord = $stmt->fetch() ?: null;
 }
@@ -193,7 +193,7 @@ $filterStatus = (string) ($_GET['status'] ?? 'all');
 $filterContact = (string) ($_GET['contact'] ?? 'all');
 $filterBatch = trim((string) ($_GET['batch'] ?? ''));
 $search = trim((string) ($_GET['search'] ?? ''));
-$where = ['1=1'];
+$where = ['r.deleted_at IS NULL'];
 $params = [];
 
 if ($filterStatus !== 'all') {
@@ -239,6 +239,7 @@ $counts = $pdo->query("
       SUM(CASE WHEN status IN ('needs_contact', 'skipped', 'failed') THEN 1 ELSE 0 END) invalid_contact
     FROM user_import_records r
     JOIN ({$latestImportRows}) latest ON latest.id = r.id
+    WHERE r.deleted_at IS NULL
 ")->fetch() ?: ['total' => 0, 'pending' => 0, 'needs_contact' => 0, 'staff' => 0, 'skipped' => 0, 'failed' => 0, 'contacted' => 0, 'engaged' => 0, 'no_response' => 0, 'invalid_contact' => 0];
 
 $page = admin_current_page();
@@ -268,6 +269,7 @@ $records = $stmt->fetchAll();
 $batches = $pdo->query("
     SELECT batch_ref, MAX(created_at) created_at
     FROM user_import_records
+    WHERE deleted_at IS NULL
     GROUP BY batch_ref
     ORDER BY created_at DESC
     LIMIT 50

@@ -14,7 +14,7 @@ $offset = ($page - 1) * $limit;
 $search = trim((string) ($_GET['search'] ?? ''));
 $status = trim((string) ($_GET['status'] ?? ''));
 $role = trim((string) ($_GET['role'] ?? ''));
-$where = '1=1';
+$where = 'deleted_at IS NULL';
 $params = [];
 if ($search !== '') { $where .= ' AND (name LIKE ? OR email LIKE ? OR phone LIKE ? OR batch_ref LIKE ? OR status_note LIKE ?)'; $term='%'.$search.'%'; $params=[$term,$term,$term,$term,$term]; }
 if ($status !== '') { $where .= ' AND status = ?'; $params[]=$status; }
@@ -23,6 +23,7 @@ if ($role !== '') { $where .= ' AND role = ?'; $params[]=$role; }
 $counts = rx_rows($pdo, "
     SELECT status, COUNT(*) total 
     FROM user_import_records 
+    WHERE deleted_at IS NULL
     GROUP BY status
 ");
 
@@ -33,8 +34,8 @@ $recentImports = rx_rows($pdo, "
     ORDER BY created_at DESC 
     LIMIT {$limit} OFFSET {$offset}
 ", $params);
-$statuses = rx_rows($pdo, 'SELECT DISTINCT status FROM user_import_records ORDER BY status');
-$roles = rx_rows($pdo, 'SELECT DISTINCT role FROM user_import_records ORDER BY role');
+$statuses = rx_rows($pdo, 'SELECT DISTINCT status FROM user_import_records WHERE deleted_at IS NULL ORDER BY status');
+$roles = rx_rows($pdo, 'SELECT DISTINCT role FROM user_import_records WHERE deleted_at IS NULL ORDER BY role');
 
 require __DIR__ . '/layout/header.php';
 ?>

@@ -269,7 +269,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare('UPDATE applications SET confirmation_token = ? WHERE id = ?')->execute([$token, $applicationId]);
             $sent = admin_import_send_confirmation($pdo, $applicationId, true, true, true);
             if (app_table_exists($pdo, 'user_import_records')) {
-                $recordStmt = $pdo->prepare('SELECT * FROM user_import_records WHERE application_id = ? ORDER BY id DESC LIMIT 1');
+                $importSoft = app_column_exists($pdo, 'user_import_records', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+                $recordStmt = $pdo->prepare('SELECT * FROM user_import_records WHERE application_id = ?' . $importSoft . ' ORDER BY id DESC LIMIT 1');
                 $recordStmt->execute([$applicationId]);
                 $record = $recordStmt->fetch(PDO::FETCH_ASSOC);
                 if ($record) {
@@ -290,7 +291,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'send_import_activation') {
             $recordId = (int) ($_POST['import_record_id'] ?? 0);
             admin_ensure_import_schema($pdo);
-            $stmt = $pdo->prepare('SELECT * FROM user_import_records WHERE id = ? LIMIT 1');
+            $importSoft = app_column_exists($pdo, 'user_import_records', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+            $stmt = $pdo->prepare('SELECT * FROM user_import_records WHERE id = ?' . $importSoft . ' LIMIT 1');
             $stmt->execute([$recordId]);
             $record = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$record) {

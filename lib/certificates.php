@@ -477,7 +477,8 @@ function grower_certificate_readiness(int $userId, PDO $pdo): array
     $importConfirmed = true;
     $importDetail = 'Not an imported legacy record.';
     if (app_table_exists($pdo, 'user_import_records')) {
-        $importStmt = $pdo->prepare('SELECT status FROM user_import_records WHERE user_id = ? OR application_id = ? ORDER BY id DESC LIMIT 1');
+        $importSoft = app_column_exists($pdo, 'user_import_records', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+        $importStmt = $pdo->prepare('SELECT status FROM user_import_records WHERE (user_id = ? OR application_id = ?)' . $importSoft . ' ORDER BY id DESC LIMIT 1');
         $importStmt->execute([$userId, (int) $grower['application_id']]);
         $importStatus = strtolower((string) ($importStmt->fetchColumn() ?: ''));
         if ($importStatus !== '') {

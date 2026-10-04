@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * NATCODEV Super Admin Governance Test Suite
  * Covers the governance controls added to the console:
- * - Soft-delete (notification_templates, staff_profiles) read isolation + reactivation
+ * - Soft-delete (notification_templates, staff_profiles, farm_verifications, user_import_records) read isolation + reactivation
  * - Recycle-bin snapshot + restore
  * - Console-managed secrets (settings-first, .env fallback)
  * - Module mode kill-switch (paused/setup disables a module)
@@ -18,6 +18,7 @@ require_once __DIR__ . '/../lib/admin-layout.php';
 require_once __DIR__ . '/../lib/super-admin-console.php';
 require_once __DIR__ . '/../lib/notification-dispatch.php';
 require_once __DIR__ . '/../lib/field-management.php';
+require_once __DIR__ . '/../lib/admin-user-import.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     // Start before any suite output so requiring this file cannot emit a warning.
@@ -33,6 +34,7 @@ function run_governance_tests(): void
     admin_ensure_action_request_schema($pdo);
     fm_ensure_schema($pdo);
     super_admin_ensure_schema($pdo);
+    admin_ensure_import_schema($pdo);
 
     // =====================================================================
     // 1. Soft-delete: notification_templates read isolation + reactivation
@@ -155,4 +157,30 @@ function run_governance_tests(): void
     $pdo->prepare("UPDATE farm_verifications SET deleted_at = NULL WHERE id = ?")->execute([$govVerificationId]);
     $restoredVerification = (int) $pdo->query("SELECT COUNT(*) FROM farm_verifications WHERE id = {$govVerificationId} AND deleted_at IS NULL")->fetchColumn();
     TestHarness::assertEqual(1, $restoredVerification, 'Soft-delete: restored farm verification is visible again');
+
+    // =====================================================================
+    // 9. Soft-delete: user_import_records read isolation + restore
+    // =====================================================================
+    $importBatchRef = 'GOV-' . bin2hex(random_bytes(4));
+    $pdo->prepare("INSERT INTO user_import_records (batch_ref, source_file, source_row, name, status) VALUES (?, 'gov_import.csv', 1, 'Gov Import', 'pending')")->execute([$importBatchRef]);
+    $govImportId = (int) $pdo->lastInsertId();
+
+    $liveImport = (int) $pdo->query("SELECT COUNT(*) FROM user_import_records WHERE id = {$govImportId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $liveImport, 'Soft-delete: live import record is visible to the filtered read');
+
+    // The approved-delete path must soft-delete (set deleted_at), never remove the row.
+    admin_execute_approved_delete($pdo, [
+        'id' => 0,
+        'target_table' => 'user_import_records',
+        'target_id' => $govImportId,
+        'target_key' => null,
+        'payload_json' => null,
+    ]);
+    $hiddenImport = (int) $pdo->query("SELECT COUNT(*) FROM user_import_records WHERE id = {$govImportId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(0, $hiddenImport, 'Soft-delete: approved delete hides the import record from the filtered read');
+    TestHarness::assert($pdo->query("SELECT deleted_at FROM user_import_records WHERE id = {$govImportId}")->fetchColumn() !== false, 'Soft-delete: approved delete keeps the user_import_records row and stamps deleted_at');
+
+    $pdo->prepare("UPDATE user_import_records SET deleted_at = NULL WHERE id = ?")->execute([$govImportId]);
+    $restoredImport = (int) $pdo->query("SELECT COUNT(*) FROM user_import_records WHERE id = {$govImportId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $restoredImport, 'Soft-delete: restored import record is visible again');
 }

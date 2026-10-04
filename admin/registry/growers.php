@@ -52,6 +52,7 @@ $pendingImports = app_table_exists($pdo, 'user_import_records') ? rx_rows($pdo, 
     SELECT id, batch_ref, name, email, phone, status, status_note, application_id, created_at
     FROM user_import_records
     WHERE role = 'grower'
+      AND deleted_at IS NULL
       AND status NOT IN ('engagement_confirmed', 'confirmed', 'completed', 'skipped', 'archived_no_response')
     ORDER BY created_at DESC
     LIMIT 25
