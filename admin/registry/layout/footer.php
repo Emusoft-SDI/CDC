@@ -1,3 +1,12 @@
+<?php
+// Admin UI v2 (parallel shell) opt-in for the Registry workspace: close the shared
+// chrome and skip the legacy footer. When the flag is OFF (default) the legacy footer
+// below renders byte-identically.
+if (function_exists('admin_ui_enabled') && admin_ui_enabled('registry')) {
+    admin_ui_page_end();
+    return;
+}
+?>
   </div> <!-- .content -->
 </div> <!-- .main -->
 

@@ -1,3 +1,36 @@
+<?php
+// Admin UI v2 (parallel shell) opt-in for the Registry workspace.
+// When enabled for the 'registry' area this renders the shared v2 chrome (sidebar +
+// topbar + <main id="a-main">) and stops before the legacy workspace markup. When the
+// flag is OFF (default) execution falls through to the byte-identical legacy chrome.
+$__adminUiShell = __DIR__ . '/../../../lib/admin-ui/ui.php';
+if (is_file($__adminUiShell)) {
+    require_once $__adminUiShell;
+}
+if (function_exists('admin_ui_enabled') && admin_ui_enabled('registry')) {
+    $__registryActiveMap = [
+        'overview' => 'registry/index.php',
+        'users' => 'registry/users.php',
+        'growers' => 'registry/growers.php',
+        'applications' => 'registry/applications.php',
+        'documents' => 'registry/documents.php',
+        'certificates' => 'registry/certificates.php',
+        'field' => 'registry/field.php',
+        'import' => 'registry/import.php',
+        'profile' => 'registry/profile.php',
+    ];
+    $__registryActiveKey = $__registryActiveMap[(string) ($activeNav ?? '')] ?? 'registry/';
+    admin_ui_page_start(
+        (string) ($pageTitle ?? 'NATCODEV Registry'),
+        [
+            'area' => 'registry',
+            'active' => $__registryActiveKey,
+            'description' => 'Registry workspace for grower registration, user management, document verification, certificates, field operations, and batch imports.',
+        ]
+    );
+    return;
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
