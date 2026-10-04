@@ -106,7 +106,6 @@ function run_admin_ui_tests(): void
     $p5GatedPages = [
         'admin/index.php' => ['hub', 'admin_ui_page_start(', 'admin_ui_page_end()'],
         'admin/login.php' => ['login', 'admin_ui_auth_page_start(', 'admin_ui_auth_page_end()'],
-        'admin/wallet/login.php' => ['login', 'admin_ui_auth_page_start(', 'admin_ui_auth_page_end()'],
         'admin/verify-otp.php' => ['login', 'admin_ui_auth_page_start(', 'admin_ui_auth_page_end()'],
     ];
     $p5Gated = true;
@@ -117,6 +116,13 @@ function run_admin_ui_tests(): void
             && str_contains($p5Source, $startNeedle)
             && str_contains($p5Source, $endNeedle);
     }
+    // P6 dedupe: admin/wallet/login.php is now a thin wrapper that reuses the shared admin
+    // login page (admin/login.php — checked above) with the wallet post-login target, instead
+    // of duplicating the gated auth chrome.
+    $walletLoginSource = (string) file_get_contents(__DIR__ . '/../admin/wallet/login.php');
+    $p5Gated = $p5Gated
+        && str_contains($walletLoginSource, "require __DIR__ . '/../login.php'")
+        && str_contains($walletLoginSource, "\$__loginTarget = 'wallet'");
     TestHarness::assert($p5Gated, 'AdminUI P5: the hub and auth pages gate their chrome on admin_ui_enabled(<area>)');
 
     // The new auth layout renders the shared v2 head (data-admin-ui + assets) with a

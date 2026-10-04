@@ -4,8 +4,16 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../lib/admin-layout.php';
 require_once __DIR__ . '/../lib/admin-otp.php';
 
+/* Admin UI v2 (P6) — shared admin login page. admin/wallet/login.php renders this same file
+   as a thin wrapper; $__loginTarget = 'wallet' switches the post-login destination to the
+   wallet workspace while reusing the exact same form, CSRF and operator OTP flow. */
+$__loginIsWallet       = ($__loginTarget ?? 'admin') === 'wallet';
+$__loginAuthRedirect   = $__loginIsWallet ? 'admin.php' : 'index.php';
+$__loginOtpNext        = $__loginIsWallet ? 'wallet/index.php' : 'index.php';
+$__loginVerifyRedirect = $__loginIsWallet ? '../verify-otp.php' : 'verify-otp.php';
+
 if (admin_session_is_authenticated(db())) {
-    redirect_to('index.php');
+    redirect_to($__loginAuthRedirect);
 }
 
 $error = '';
@@ -15,9 +23,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!app_check_rate_limit('admin_login', 5, 900)) {
         $error = 'Too many login attempts. Try again later.';
     } elseif (admin_password_is_valid((string) ($_POST['password'] ?? ''))) {
-        $otpStart = admin_operator_otp_begin('index.php');
+        $otpStart = admin_operator_otp_begin($__loginOtpNext);
         if ($otpStart['ok']) {
-            redirect_to('verify-otp.php');
+            redirect_to($__loginVerifyRedirect);
         }
         $error = (string) $otpStart['message'];
     } else {
@@ -25,9 +33,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 ?><?php
-/* Admin UI v2 (P5b) opt-in auth layout for the admin login screen (admin/login.php).
-   Flag OFF (default) => the legacy centered page below renders byte-identically.
-   Flag ON  => the shared v2 auth layout renders the same form. */
+/* Admin UI v2 (P5b) opt-in auth layout for the admin login screen (admin/login.php, also
+   reused by the admin/wallet/login.php wrapper). Flag OFF (default) => the legacy centered
+   page below renders byte-identically. Flag ON => the shared v2 auth layout renders the same form. */
 if (!function_exists('admin_ui_enabled')) {
     $__ajUiShell = __DIR__ . '/../lib/admin-ui/ui.php';
     if (is_file($__ajUiShell)) { require_once $__ajUiShell; }
