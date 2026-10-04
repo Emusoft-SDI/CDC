@@ -43,7 +43,7 @@ $filters = [
     'role' => preg_replace('/[^a-z_]/i', '', (string) ($_GET['role'] ?? 'all')),
 ];
 $params = [];
-$where = ['1=1'];
+$where = ['dr.deleted_at IS NULL'];
 if ($filters['status'] !== 'all') {
     $where[] = 'dr.verification_status = ?';
     $params[] = $filters['status'];

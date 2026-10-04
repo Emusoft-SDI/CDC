@@ -491,18 +491,19 @@ function grower_certificate_readiness(int $userId, PDO $pdo): array
     $identityReady = false;
     $documentsResolved = false;
     if (app_table_exists($pdo, 'document_requirements')) {
+        $docSoft = app_column_exists($pdo, 'document_requirements', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
         $identityReady = true;
         foreach (['nin', 'bvn'] as $identityType) {
-            $identityStmt = $pdo->prepare("SELECT verification_status, api_validation_status FROM document_requirements WHERE user_id = ? AND document_type = ? LIMIT 1");
+            $identityStmt = $pdo->prepare("SELECT verification_status, api_validation_status FROM document_requirements WHERE user_id = ? AND document_type = ?{$docSoft} LIMIT 1");
             $identityStmt->execute([$userId, $identityType]);
             $identity = $identityStmt->fetch(PDO::FETCH_ASSOC);
             if (!$identity || ($identity['verification_status'] ?? '') !== 'verified' || ($identity['api_validation_status'] ?? '') !== 'valid') {
                 $identityReady = false;
             }
         }
-        $pendingStmt = $pdo->prepare("SELECT COUNT(*) FROM document_requirements WHERE user_id = ? AND verification_status <> 'verified'");
+        $pendingStmt = $pdo->prepare("SELECT COUNT(*) FROM document_requirements WHERE user_id = ? AND verification_status <> 'verified'{$docSoft}");
         $pendingStmt->execute([$userId]);
-        $totalStmt = $pdo->prepare('SELECT COUNT(*) FROM document_requirements WHERE user_id = ?');
+        $totalStmt = $pdo->prepare("SELECT COUNT(*) FROM document_requirements WHERE user_id = ?{$docSoft}");
         $totalStmt->execute([$userId]);
         $documentsResolved = (int) $totalStmt->fetchColumn() > 0 && (int) $pendingStmt->fetchColumn() === 0;
     }

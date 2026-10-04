@@ -291,7 +291,7 @@ function admin_ensure_action_request_schema(PDO $pdo): void
 
     // Soft-delete columns must exist even on databases that take the admin_ensure_schema
     // fast path, so they are added here (this function runs in both branches).
-    foreach (['notification_templates', 'staff_profiles', 'farm_verifications', 'user_import_records'] as $softTable) {
+    foreach (['notification_templates', 'staff_profiles', 'farm_verifications', 'user_import_records', 'document_requirements'] as $softTable) {
         if (app_table_exists($pdo, $softTable)) {
             app_add_column_if_missing($pdo, $softTable, 'deleted_at', "DATETIME NULL");
         }

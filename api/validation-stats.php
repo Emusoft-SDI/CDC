@@ -25,6 +25,7 @@ if (!app_table_exists($pdo, 'document_requirements')) {
 }
 
 // Totals
+$docSoft = app_column_exists($pdo, 'document_requirements', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
 $totsql = "
     SELECT 
         COUNT(*) as total,
@@ -32,7 +33,7 @@ $totsql = "
         SUM(CASE WHEN api_validation_status = 'invalid' THEN 1 ELSE 0 END) as failed,
         AVG(TIMESTAMPDIFF(SECOND, uploaded_at, api_validation_timestamp)) as avg_response_time
     FROM document_requirements 
-    WHERE api_validation_timestamp IS NOT NULL
+    WHERE api_validation_timestamp IS NOT NULL{$docSoft}
 ";
 $totstmt = $pdo->query($totsql);
 $totals = $totstmt->fetch();
@@ -46,7 +47,7 @@ $trendsql = "
         SUM(CASE WHEN api_validation_status = 'valid' THEN 1 ELSE 0 END) as success,
         SUM(CASE WHEN api_validation_status = 'invalid' THEN 1 ELSE 0 END) as failed
     FROM document_requirements 
-    WHERE api_validation_timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+    WHERE api_validation_timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY){$docSoft}
     GROUP BY DATE(api_validation_timestamp)
     ORDER BY date
 ";
@@ -62,7 +63,7 @@ while ($row = $trendstmt->fetch()) {
 $typesql = "
     SELECT document_type, COUNT(*) as count
     FROM document_requirements 
-    WHERE api_validation_status IS NOT NULL
+    WHERE api_validation_status IS NOT NULL{$docSoft}
     GROUP BY document_type
 ";
 $typestmt = $pdo->query($typesql);
@@ -84,7 +85,7 @@ if (app_table_exists($pdo, 'nigeria_states') && app_column_exists($pdo, 'applica
         JOIN users u ON dr.user_id = u.id
         JOIN applications a ON u.application_id = a.id
         JOIN nigeria_states s ON a.state_id = s.id
-        WHERE dr.api_validation_status IS NOT NULL
+        WHERE dr.api_validation_status IS NOT NULL{$docSoft}
         GROUP BY s.state_name
         HAVING COUNT(*) >= 5
         ORDER BY success_rate DESC
@@ -106,7 +107,7 @@ $activitysql = "
         TIMESTAMPDIFF(SECOND, dr.uploaded_at, dr.api_validation_timestamp) as response_time
     FROM document_requirements dr
     JOIN users u ON dr.user_id = u.id
-    WHERE dr.api_validation_timestamp IS NOT NULL
+    WHERE dr.api_validation_timestamp IS NOT NULL{$docSoft}
     ORDER BY dr.api_validation_timestamp DESC
     LIMIT 20
 ";

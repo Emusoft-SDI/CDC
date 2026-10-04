@@ -14,12 +14,13 @@ if (empty($growerIds)) {
 }
 
 // Get documents for assigned growers only
+$docSoft = app_column_exists($pdo, 'document_requirements', 'deleted_at') ? ' AND dr.deleted_at IS NULL' : '';
 $placeholders = str_repeat('?,', count($growerIds) - 1) . '?';
 $stmt = $pdo->prepare("
     SELECT dr.*, u.name, u.email
     FROM document_requirements dr
     JOIN users u ON dr.user_id = u.id
-    WHERE u.id IN ($placeholders) AND dr.verification_status = 'pending'
+    WHERE u.id IN ($placeholders) AND dr.verification_status = 'pending'{$docSoft}
     ORDER BY dr.uploaded_at DESC
 ");
 $stmt->execute($growerIds);

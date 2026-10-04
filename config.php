@@ -636,6 +636,7 @@ function app_ensure_farmer_engagement_schema(PDO $pdo): void
     app_add_column_if_missing($pdo, 'document_requirements', 'api_validation_timestamp', "TIMESTAMP NULL DEFAULT NULL");
     app_add_column_if_missing($pdo, 'document_requirements', 'retry_count', "INT NOT NULL DEFAULT 0");
     app_add_column_if_missing($pdo, 'document_requirements', 'last_retry_at', "TIMESTAMP NULL DEFAULT NULL");
+    app_add_column_if_missing($pdo, 'document_requirements', 'deleted_at', "DATETIME NULL");
     app_ensure_primary_auto_increment($pdo, 'document_requirements');
 
     $pdo->exec("

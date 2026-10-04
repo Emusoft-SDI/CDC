@@ -18,7 +18,8 @@ $stmt = $pdo->prepare("SELECT * FROM grower_farms WHERE user_id = ? LIMIT 1");
 $stmt->execute([$userId]);
 $farm = $stmt->fetch();
 
-$docStmt = $pdo->prepare("SELECT COUNT(*) FROM document_requirements WHERE user_id = ? AND verification_status = 'verified'");
+$docSoft = app_column_exists($pdo, 'document_requirements', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+$docStmt = $pdo->prepare("SELECT COUNT(*) FROM document_requirements WHERE user_id = ? AND verification_status = 'verified'{$docSoft}");
 $docStmt->execute([$userId]);
 $docsVerified = (int) $docStmt->fetchColumn() > 0;
 

@@ -16,6 +16,7 @@ $stmt = $pdo->prepare("
     FROM document_requirements dr
     JOIN users u ON dr.user_id = u.id
     WHERE dr.api_validation_status = 'error'
+    AND dr.deleted_at IS NULL
     AND dr.retry_count < ?
     AND (dr.last_retry_at IS NULL OR dr.last_retry_at < DATE_SUB(NOW(), INTERVAL ? HOUR))
     LIMIT 50

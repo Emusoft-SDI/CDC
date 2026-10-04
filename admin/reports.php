@@ -212,7 +212,7 @@ $pendingDocs = report_count($pdo, "
     LEFT JOIN grower_farms gf ON gf.user_id = u.id
     LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
     LEFT JOIN nigeria_lgas nl ON nl.id = COALESCE(gf.lga_id, a.lga_id)
-    WHERE dr.verification_status IN ('pending','needs_review') AND {$locationFilterSql}
+    WHERE dr.verification_status IN ('pending','needs_review') AND dr.deleted_at IS NULL AND {$locationFilterSql}
 ", $locationFilterParams);
 $openSupport = report_count($pdo, "
     SELECT COUNT(DISTINCT m.id)

@@ -13,6 +13,9 @@ app_ensure_certificate_schema($pdo);
 fm_ensure_schema($pdo);
 marketplace_ensure_schema($pdo);
 
+// Soft-deleted document requirements are excluded from the stakeholder's counts and export.
+$docSoft = app_column_exists($pdo, 'document_requirements', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+
 $user = current_user($pdo);
 if (!$user) {
     session_destroy();
@@ -90,9 +93,9 @@ $fieldVisits = stakeholder_scalar($pdo, "
     JOIN grower_farms gf ON gf.id = fv.farm_id
     WHERE gf.user_id = ? AND fv.visited_at BETWEEN ? AND ?
 ", [$userId, $periodStart, $periodEnd]);
-$documentsTotal = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM document_requirements WHERE user_id = ?", [$userId]);
-$documentsVerified = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM document_requirements WHERE user_id = ? AND verification_status = 'verified'", [$userId]);
-$documentsPending = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM document_requirements WHERE user_id = ? AND verification_status IN ('pending','needs_review')", [$userId]);
+$documentsTotal = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM document_requirements WHERE user_id = ?{$docSoft}", [$userId]);
+$documentsVerified = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM document_requirements WHERE user_id = ? AND verification_status = 'verified'{$docSoft}", [$userId]);
+$documentsPending = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM document_requirements WHERE user_id = ? AND verification_status IN ('pending','needs_review'){$docSoft}", [$userId]);
 $certificateCount = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM certificates WHERE user_id = ? OR application_id = (SELECT application_id FROM users WHERE id = ? LIMIT 1)", [$userId, $userId]);
 $walletBalance = stakeholder_scalar($pdo, "SELECT COALESCE(balance, 0) FROM wallets WHERE user_id = ?", [$userId], true);
 $walletVolume = stakeholder_scalar($pdo, "
@@ -161,7 +164,7 @@ $exportRows = match ($report) {
     'marketplace_seller' => $sellerRows,
     'finance' => $walletRows,
     'support' => $supportRows,
-    'compliance' => stakeholder_rows($pdo, "SELECT document_type, document_number, verification_status, verified, uploaded_at FROM document_requirements WHERE user_id = ? ORDER BY uploaded_at DESC", [$userId]),
+    'compliance' => stakeholder_rows($pdo, "SELECT document_type, document_number, verification_status, verified, uploaded_at FROM document_requirements WHERE user_id = ?{$docSoft} ORDER BY uploaded_at DESC", [$userId]),
     default => [
         ['metric' => 'Farms', 'value' => $farmCount],
         ['metric' => 'Verified farms', 'value' => $verifiedFarms],

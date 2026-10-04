@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * NATCODEV Super Admin Governance Test Suite
  * Covers the governance controls added to the console:
- * - Soft-delete (notification_templates, staff_profiles, farm_verifications, user_import_records) read isolation + reactivation
+ * - Soft-delete (notification_templates, staff_profiles, farm_verifications, user_import_records, document_requirements) read isolation + reactivation
  * - Recycle-bin snapshot + restore
  * - Console-managed secrets (settings-first, .env fallback)
  * - Module mode kill-switch (paused/setup disables a module)
@@ -183,4 +183,32 @@ function run_governance_tests(): void
     $pdo->prepare("UPDATE user_import_records SET deleted_at = NULL WHERE id = ?")->execute([$govImportId]);
     $restoredImport = (int) $pdo->query("SELECT COUNT(*) FROM user_import_records WHERE id = {$govImportId} AND deleted_at IS NULL")->fetchColumn();
     TestHarness::assertEqual(1, $restoredImport, 'Soft-delete: restored import record is visible again');
+
+    // =====================================================================
+    // 10. Soft-delete: document_requirements read isolation + restore
+    // =====================================================================
+    $docEmail = 'gov_doc_' . bin2hex(random_bytes(3)) . '@example.test';
+    $pdo->prepare("INSERT INTO users (name, email, password, role, platform_role, account_status, created_at) VALUES ('Gov Doc', ?, 'x', 'grower', 'grower', 'active', NOW())")->execute([$docEmail]);
+    $govDocUserId = (int) $pdo->lastInsertId();
+    $pdo->prepare("INSERT INTO document_requirements (user_id, document_type, document_number) VALUES (?, 'nin', ?)")->execute([$govDocUserId, 'GOVDOC' . bin2hex(random_bytes(3))]);
+    $govDocId = (int) $pdo->lastInsertId();
+
+    $liveDoc = (int) $pdo->query("SELECT COUNT(*) FROM document_requirements WHERE id = {$govDocId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $liveDoc, 'Soft-delete: live document requirement is visible to the filtered read');
+
+    // The approved-delete path must soft-delete (set deleted_at), never remove the row.
+    admin_execute_approved_delete($pdo, [
+        'id' => 0,
+        'target_table' => 'document_requirements',
+        'target_id' => $govDocId,
+        'target_key' => null,
+        'payload_json' => null,
+    ]);
+    $hiddenDoc = (int) $pdo->query("SELECT COUNT(*) FROM document_requirements WHERE id = {$govDocId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(0, $hiddenDoc, 'Soft-delete: approved delete hides the document requirement from the filtered read');
+    TestHarness::assert($pdo->query("SELECT deleted_at FROM document_requirements WHERE id = {$govDocId}")->fetchColumn() !== false, 'Soft-delete: approved delete keeps the document_requirements row and stamps deleted_at');
+
+    $pdo->prepare("UPDATE document_requirements SET deleted_at = NULL WHERE id = ?")->execute([$govDocId]);
+    $restoredDoc = (int) $pdo->query("SELECT COUNT(*) FROM document_requirements WHERE id = {$govDocId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $restoredDoc, 'Soft-delete: restored document requirement is visible again');
 }

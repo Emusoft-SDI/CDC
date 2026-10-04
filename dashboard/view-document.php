@@ -6,6 +6,7 @@ require_once __DIR__ . '/../lib/dashboard-layout.php';
 
 $pdo = db();
 app_ensure_farmer_engagement_schema($pdo);
+$docSoft = app_column_exists($pdo, 'document_requirements', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
 
 $user = current_user($pdo);
 $isAdmin = admin_session_is_authenticated($pdo);
@@ -29,7 +30,7 @@ if ($id) {
         $stmt = $pdo->prepare("
             SELECT id, user_id, document_type, file_path, NULL original_name, NULL mime_type, NULL file_size
             FROM document_requirements
-            WHERE user_id = ? AND document_type = ? AND file_path IS NOT NULL
+            WHERE user_id = ? AND document_type = ? AND file_path IS NOT NULL{$docSoft}
             LIMIT 1
         ");
         $stmt->execute([(int) $user['id'], $type]);

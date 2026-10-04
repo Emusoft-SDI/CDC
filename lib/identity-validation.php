@@ -561,7 +561,8 @@ function identity_verify_with_monnify(PDO $pdo, int $userId, string $docType, st
 function identity_validate_requirement(PDO $pdo, int $requirementId): array
 {
     identity_ensure_schema($pdo);
-    $stmt = $pdo->prepare("SELECT * FROM document_requirements WHERE id = ? LIMIT 1");
+    $docSoft = app_column_exists($pdo, 'document_requirements', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+    $stmt = $pdo->prepare("SELECT * FROM document_requirements WHERE id = ?{$docSoft} LIMIT 1");
     $stmt->execute([$requirementId]);
     $doc = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$doc) {

@@ -91,10 +91,11 @@ try {
 
     $docCounts = ['pending' => 0, 'verified' => 0, 'rejected' => 0];
     if (app_table_exists($pdo, 'document_requirements')) {
+        $docSoft = app_column_exists($pdo, 'document_requirements', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
         $docStmt = $pdo->prepare("
             SELECT verification_status, COUNT(*) total
             FROM document_requirements
-            WHERE user_id = ?
+            WHERE user_id = ?{$docSoft}
             GROUP BY verification_status
         ");
         $docStmt->execute([$userId]);

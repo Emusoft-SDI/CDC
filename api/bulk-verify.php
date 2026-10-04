@@ -51,7 +51,8 @@ try {
         }
 
         if ($action === 'verify') {
-            $stmt = $pdo->prepare("SELECT user_id FROM document_requirements WHERE id = ?");
+            $docSoft = app_column_exists($pdo, 'document_requirements', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+            $stmt = $pdo->prepare("SELECT user_id FROM document_requirements WHERE id = ?{$docSoft}");
             $stmt->execute([$docId]);
             $userId = (int) $stmt->fetchColumn();
             if ($userId > 0 && canIssueCertificate($userId, $pdo)) {

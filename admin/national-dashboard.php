@@ -78,7 +78,7 @@ $academyCompleted = nd_count($pdo, 'webinar_registrations', "completion_status =
 $academyCompletion = nd_pct($academyCompleted, $academyRegistrations);
 $certificatesIssued = nd_count($pdo, 'academy_certificates', "status = 'issued'");
 $supportEscalations = nd_count($pdo, 'support_tickets', "status = 'escalated' OR priority = 'high'");
-$pendingDocuments = nd_count($pdo, 'document_requirements', "verification_status IN ('pending','needs_review')");
+$pendingDocuments = nd_count($pdo, 'document_requirements', "verification_status IN ('pending','needs_review') AND deleted_at IS NULL");
 $survivalRate = $farms > 0 ? 92.4 : 0.0;
 
 $stateRows = nd_rows($pdo, "

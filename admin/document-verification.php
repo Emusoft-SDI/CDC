@@ -49,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'Identity verification error: ' . htmlspecialchars((string) ($valResult['message'] ?? 'Provider unavailable'));
             }
         } elseif ($action === 'verify') {
-            $docStmt = $pdo->prepare("SELECT document_type, api_validation_status FROM document_requirements WHERE id = ? LIMIT 1");
+            $docStmt = $pdo->prepare("SELECT document_type, api_validation_status FROM document_requirements WHERE id = ? AND deleted_at IS NULL LIMIT 1");
             $docStmt->execute([$docId]);
             $doc = $docStmt->fetch();
             if (in_array((string) ($doc['document_type'] ?? ''), ['nin', 'bvn'], true) && (string) ($doc['api_validation_status'] ?? '') !== 'valid') {
@@ -76,7 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($error === '') {
-            $stmt = $pdo->prepare("SELECT user_id FROM document_requirements WHERE id = ?");
+            $stmt = $pdo->prepare("SELECT user_id FROM document_requirements WHERE id = ? AND deleted_at IS NULL");
             $stmt->execute([$docId]);
             $userId = (int) $stmt->fetchColumn();
 
@@ -104,7 +104,7 @@ try {
         SELECT dr.*, u.name, u.email, u.role
         FROM document_requirements dr
         JOIN users u ON dr.user_id = u.id
-        WHERE dr.verification_status = 'pending'
+        WHERE dr.verification_status = 'pending' AND dr.deleted_at IS NULL
         ORDER BY dr.uploaded_at DESC
     ");
     $stmt->execute();

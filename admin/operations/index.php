@@ -24,14 +24,14 @@ $page = in_array((string) ($_GET['page'] ?? 'overview'), ['overview', 'queues', 
     ? (string) ($_GET['page'] ?? 'overview') : 'overview';
 $metrics = [
     ['Pending applications', ops_count($pdo, 'applications', 'confirmed = 0'), '../registry/applications.php', 'warning'],
-    ['Document reviews', ops_count($pdo, 'document_requirements', "verification_status IN ('pending','needs_review')"), '../registry/documents.php', 'info'],
+    ['Document reviews', ops_count($pdo, 'document_requirements', "verification_status IN ('pending','needs_review') AND deleted_at IS NULL"), '../registry/documents.php', 'info'],
     ['Farm verifications', ops_count($pdo, 'farm_verifications', "status IN ('pending','under_review') AND deleted_at IS NULL"), '../fields-management.php', 'success'],
     ['Open support tickets', ops_count($pdo, 'support_tickets', "status IN ('open','in_progress','escalated')"), '../support/', 'danger'],
 ];
 $queues = [
     ['Grower applications', ops_count($pdo, 'applications', 'confirmed = 0'), '../registry/applications.php', 'Review, approve, reject, or resend confirmation.'],
     ['Imported engagements', ops_count($pdo, 'user_import_records', "status IN ('pending','pending_engagement','pending_phone_engagement') AND deleted_at IS NULL"), '../import-users.php', 'Correct rows, resend engagement, archive, or delete.'],
-    ['Identity documents', ops_count($pdo, 'document_requirements', "verification_status IN ('pending','needs_review')"), '../registry/documents.php', 'View evidence and record verification decisions.'],
+    ['Identity documents', ops_count($pdo, 'document_requirements', "verification_status IN ('pending','needs_review') AND deleted_at IS NULL"), '../registry/documents.php', 'View evidence and record verification decisions.'],
     ['Provider approvals', ops_count($pdo, 'provider_registry', "status IN ('pending','under_review')"), '../providers.php', 'Approve, reject, suspend, and maintain providers.'],
     ['Marketplace orders', ops_count($pdo, 'marketplace_orders', "status IN ('pending','processing','disputed')"), '../marketplace/?page=orders', 'Manage order exceptions, disputes, and fulfillment.'],
     ['Wallet exceptions', ops_count($pdo, 'wallet_transactions', "status IN ('pending','failed')"), '../wallet/', 'Review transaction, withdrawal, payout, and reconciliation queues.'],

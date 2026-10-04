@@ -11,6 +11,11 @@ app_ensure_farmer_engagement_schema($pdo);
 app_ensure_certificate_schema($pdo);
 identity_ensure_schema($pdo);
 
+// Soft-deleted documents are treated as absent in the checklist. A fresh upload
+// revives the row (it still occupies the unique user_id + document_type slot).
+$docSoft = app_column_exists($pdo, 'document_requirements', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+$docSoftReset = app_column_exists($pdo, 'document_requirements', 'deleted_at') ? ', deleted_at = NULL' : '';
+
 if (!function_exists('status_label')) {
     function status_label(string $status): string
     {
@@ -239,7 +244,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($current) {
                 $stmt = $pdo->prepare("
                     UPDATE document_requirements
-                    SET document_number = ?, file_path = ?, verification_status = 'pending', verified = 0, verification_notes = NULL
+                    SET document_number = ?, file_path = ?, verification_status = 'pending', verified = 0, verification_notes = NULL{$docSoftReset}
                     WHERE user_id = ? AND document_type = ?
                 ");
                 $stmt->execute([$documentNumber, $primaryPath, $userId, $docType]);
@@ -294,7 +299,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$stmt = $pdo->prepare("SELECT * FROM document_requirements WHERE user_id = ?");
+$stmt = $pdo->prepare("SELECT * FROM document_requirements WHERE user_id = ?{$docSoft}");
 $stmt->execute([$userId]);
 $docs = [];
 foreach ($stmt->fetchAll() as $doc) {

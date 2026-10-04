@@ -157,7 +157,11 @@ function admin_execute_approved_delete(PDO $pdo, array $request): void
     }
 
     if ($table === 'document_requirements') {
-        $pdo->prepare('DELETE FROM document_requirements WHERE id = ?')->execute([$id]);
+        if (app_column_exists($pdo, 'document_requirements', 'deleted_at')) {
+            $pdo->prepare('UPDATE document_requirements SET deleted_at = NOW() WHERE id = ?')->execute([$id]);
+        } else {
+            $pdo->prepare('DELETE FROM document_requirements WHERE id = ?')->execute([$id]);
+        }
         return;
     }
 

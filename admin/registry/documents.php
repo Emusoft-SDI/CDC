@@ -12,7 +12,7 @@ $offset = ($page - 1) * $limit;
 $search = trim((string) ($_GET['search'] ?? ''));
 $documentType = trim((string) ($_GET['document_type'] ?? ''));
 $statusFilter = trim((string) ($_GET['status'] ?? ''));
-$where = "1=1";
+$where = "dr.deleted_at IS NULL";
 $params = [];
 if ($search !== '') {
     $where .= ' AND (u.name LIKE ? OR u.email LIKE ? OR dr.document_number LIKE ? OR dr.document_type LIKE ?)';
@@ -39,7 +39,7 @@ $pendingDocs = rx_rows($pdo, "
     LIMIT {$limit} OFFSET {$offset}
 ", $params);
 
-$statusCounts = rx_rows($pdo, "SELECT verification_status, COUNT(*) count FROM document_requirements GROUP BY verification_status");
+$statusCounts = rx_rows($pdo, "SELECT verification_status, COUNT(*) count FROM document_requirements WHERE deleted_at IS NULL GROUP BY verification_status");
 
 require __DIR__ . '/layout/header.php';
 ?>
