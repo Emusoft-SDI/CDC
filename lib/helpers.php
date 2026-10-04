@@ -134,7 +134,7 @@ if (!function_exists('app_branded_email_html')) {
                                     <td style="font-size: 15px; line-height: 1.6; color: #1f2937;">
                                         ' . $contentHtml . '
                                         ' . $otpBlock . '
-                                        ' . $buttonBlock . '
+                                        ' . $actionBlock . '
                                     </td>
                                 </tr>
                             </table>
