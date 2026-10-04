@@ -65,6 +65,7 @@ function admin_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     app_ensure_primary_auto_increment($pdo, 'staff_profiles');
+    app_add_column_if_missing($pdo, 'staff_profiles', 'deleted_at', "DATETIME NULL");
     $pdo->exec("
         INSERT IGNORE INTO staff_profiles (user_id, staff_type, license_number, status)
         SELECT
@@ -287,6 +288,14 @@ function admin_ensure_action_request_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     app_ensure_primary_auto_increment($pdo, 'admin_deleted_records');
+
+    // Soft-delete columns must exist even on databases that take the admin_ensure_schema
+    // fast path, so they are added here (this function runs in both branches).
+    foreach (['notification_templates', 'staff_profiles'] as $softTable) {
+        if (app_table_exists($pdo, $softTable)) {
+            app_add_column_if_missing($pdo, $softTable, 'deleted_at', "DATETIME NULL");
+        }
+    }
 }
 
 

@@ -400,10 +400,12 @@ function app_table_exists(PDO $pdo, string $table): bool
 
 function app_column_exists(PDO $pdo, string $table, string $column): bool
 {
-    static $cache = [];
+    if (!isset($GLOBALS['__app_column_cache'])) {
+        $GLOBALS['__app_column_cache'] = [];
+    }
     $key = $table . '.' . $column;
-    if (array_key_exists($key, $cache)) {
-        return $cache[$key];
+    if (array_key_exists($key, $GLOBALS['__app_column_cache'])) {
+        return (bool) $GLOBALS['__app_column_cache'][$key];
     }
 
     $stmt = $pdo->prepare("
@@ -412,14 +414,17 @@ function app_column_exists(PDO $pdo, string $table, string $column): bool
         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
     ");
     $stmt->execute([$table, $column]);
-    $cache[$key] = (int) $stmt->fetchColumn() > 0;
-    return $cache[$key];
+    $GLOBALS['__app_column_cache'][$key] = (int) $stmt->fetchColumn() > 0;
+    return (bool) $GLOBALS['__app_column_cache'][$key];
 }
 
 function app_add_column_if_missing(PDO $pdo, string $table, string $column, string $definition): void
 {
     if (!app_column_exists($pdo, $table, $column)) {
         $pdo->exec("ALTER TABLE `{$table}` ADD COLUMN `{$column}` {$definition}");
+        // Refresh the (previously negative) cache so later code in this same process
+        // sees the column — otherwise guarded soft-delete reads silently no-op.
+        $GLOBALS['__app_column_cache'][$table . '.' . $column] = true;
     }
 }
 

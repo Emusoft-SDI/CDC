@@ -158,7 +158,7 @@ $verifiedGrowers = (int) ($stats['verified_growers'] ?? 0);
 $verificationRate = sc_pct($verifiedGrowers, max(1, $registeredGrowers));
 $activeLgas = sc_scalar($pdo, "SELECT COUNT(DISTINCT COALESCE(app_lga.lga_name, nl.lga_name, u.location)) FROM users u LEFT JOIN applications a ON a.id = u.application_id LEFT JOIN nigeria_lgas app_lga ON app_lga.id = a.lga_id LEFT JOIN grower_farms gf ON gf.user_id = u.id LEFT JOIN nigeria_states ns ON ns.id = gf.state_id LEFT JOIN nigeria_lgas nl ON nl.id = gf.lga_id WHERE u.role = 'grower' AND (ns.state_name = ? OR a.location LIKE ? OR u.location LIKE ?)", [$state, $stateLike, $stateLike]);
 $activeLgas = max(1, $activeLgas);
-$fieldAgents = sc_scalar($pdo, "SELECT COUNT(*) FROM users u LEFT JOIN staff_profiles sp ON sp.user_id = u.id WHERE u.role = 'field_agent' AND (sp.state = ? OR u.location LIKE ?)", [$state, $stateLike]);
+$fieldAgents = sc_scalar($pdo, "SELECT COUNT(*) FROM users u LEFT JOIN staff_profiles sp ON sp.user_id = u.id AND sp.deleted_at IS NULL WHERE u.role = 'field_agent' AND (sp.state = ? OR u.location LIKE ?)", [$state, $stateLike]);
 $pendingVerifications = sc_scalar($pdo, "SELECT COUNT(*) FROM farm_verifications fv JOIN grower_farms gf ON gf.id = fv.farm_id JOIN users u ON u.id = gf.user_id LEFT JOIN applications a ON a.id = u.application_id LEFT JOIN nigeria_states ns ON ns.id = gf.state_id WHERE fv.status IN ('pending','needs_review','submitted') AND (ns.state_name = ? OR a.location LIKE ? OR u.location LIKE ?)", [$state, $stateLike, $stateLike]);
 $stateScore = min(99, (int) round(($verificationRate * 0.55) + (min(100, $activeLgas * 5) * 0.15) + (min(100, $fieldAgents * 2) * 0.15) + 15));
 $survivalRate = min(98.5, 82 + ($stateScore / 8));
@@ -201,7 +201,7 @@ $agentRows = sc_rows($pdo, "
            COUNT(DISTINCT ft.id) tasks,
            SUM(CASE WHEN ft.status IN ('completed','verified','done') THEN 1 ELSE 0 END) completed
     FROM users u
-    LEFT JOIN staff_profiles sp ON sp.user_id = u.id
+    LEFT JOIN staff_profiles sp ON sp.user_id = u.id AND sp.deleted_at IS NULL
     LEFT JOIN field_tasks ft ON ft.assigned_to = u.id
     WHERE u.role = 'field_agent' AND (sp.state = ? OR u.location LIKE ?)
     GROUP BY u.id, u.name, sp.lga

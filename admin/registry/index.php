@@ -286,7 +286,7 @@ foreach (rx_rows($pdo, "SELECT u.*, GROUP_CONCAT(ura.role_key ORDER BY ura.role_
     ]);
 }
 
-foreach (rx_rows($pdo, "SELECT u.*, sp.staff_type, sp.state staff_state, sp.lga staff_lga, sp.certification_status, sp.status staff_status, GROUP_CONCAT(DISTINCT ura.role_key ORDER BY ura.role_key SEPARATOR ', ') assigned_roles FROM users u LEFT JOIN staff_profiles sp ON sp.user_id=u.id LEFT JOIN user_role_assignments ura ON ura.user_id=u.id AND ura.status='active' WHERE {$internalWhere} GROUP BY u.id ORDER BY u.created_at DESC, u.id DESC LIMIT 300") as $u) {
+foreach (rx_rows($pdo, "SELECT u.*, sp.staff_type, sp.state staff_state, sp.lga staff_lga, sp.certification_status, sp.status staff_status, GROUP_CONCAT(DISTINCT ura.role_key ORDER BY ura.role_key SEPARATOR ', ') assigned_roles FROM users u LEFT JOIN staff_profiles sp ON sp.user_id=u.id AND sp.deleted_at IS NULL LEFT JOIN user_role_assignments ura ON ura.user_id=u.id AND ura.status='active' WHERE {$internalWhere} GROUP BY u.id ORDER BY u.created_at DESC, u.id DESC LIMIT 300") as $u) {
     $uid = (int) $u['id'];
     $status = (string) ($u['account_status'] ?: 'active');
     $primaryRole = (string) (($u['platform_role'] ?? '') ?: (($u['staff_type'] ?? '') ?: ($u['role'] ?? '')));

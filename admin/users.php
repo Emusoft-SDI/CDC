@@ -394,7 +394,7 @@ function admin_onboard_uploaded_users(PDO $pdo, array $rows, string $defaultRole
                 $profileStmt->execute([$existingId]);
                 $staffProfile = $profileStmt->fetch();
                 if ($staffProfile && admin_current_user_is_super_admin($pdo)) {
-                    $pdo->prepare('DELETE FROM staff_profiles WHERE id = ?')->execute([(int) $staffProfile['id']]);
+                    app_column_exists($pdo, 'staff_profiles', 'deleted_at') ? $pdo->prepare('UPDATE staff_profiles SET deleted_at = NOW() WHERE id = ?')->execute([(int) $staffProfile['id']]) : $pdo->prepare('DELETE FROM staff_profiles WHERE id = ?')->execute([(int) $staffProfile['id']]);
                 } elseif ($staffProfile) {
                     admin_queue_verified_delete_request($pdo, 'staff_profiles', (int) $staffProfile['id'], $name . ' staff profile', 'Staff profile removal requested during role update.');
                 }
@@ -514,7 +514,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $profileStmt->execute([$userId]);
                     $staffProfile = $profileStmt->fetch();
                     if ($staffProfile && admin_current_user_is_super_admin($pdo)) {
-                        $pdo->prepare('DELETE FROM staff_profiles WHERE id = ?')->execute([(int) $staffProfile['id']]);
+                        app_column_exists($pdo, 'staff_profiles', 'deleted_at') ? $pdo->prepare('UPDATE staff_profiles SET deleted_at = NOW() WHERE id = ?')->execute([(int) $staffProfile['id']]) : $pdo->prepare('DELETE FROM staff_profiles WHERE id = ?')->execute([(int) $staffProfile['id']]);
                         $message = 'User role updated.';
                     } elseif ($staffProfile) {
                         admin_queue_verified_delete_request($pdo, 'staff_profiles', (int) $staffProfile['id'], 'User #' . $userId . ' staff profile', 'Staff profile removal requested during role update.');
@@ -559,7 +559,7 @@ $totalStmt = $pdo->prepare("
     SELECT COUNT(DISTINCT u.id)
     FROM users u
     LEFT JOIN applications a ON u.application_id = a.id
-    LEFT JOIN staff_profiles sp ON sp.user_id = u.id
+    LEFT JOIN staff_profiles sp ON sp.user_id = u.id AND sp.deleted_at IS NULL
     LEFT JOIN grower_farms gf ON gf.user_id = u.id
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id OR ns.id = a.state_id
     {$whereSql}
@@ -571,7 +571,7 @@ $usersStmt = $pdo->prepare("
     SELECT u.*, a.app_ref, sp.staff_type, sp.license_number, sp.certification_status, sp.training_program
     FROM users u
     LEFT JOIN applications a ON u.application_id = a.id
-    LEFT JOIN staff_profiles sp ON sp.user_id = u.id
+    LEFT JOIN staff_profiles sp ON sp.user_id = u.id AND sp.deleted_at IS NULL
     LEFT JOIN grower_farms gf ON gf.user_id = u.id
     LEFT JOIN nigeria_states ns ON ns.id = gf.state_id OR ns.id = a.state_id
     {$whereSql}

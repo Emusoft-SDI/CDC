@@ -283,7 +283,8 @@ function admin_current_scope_state(PDO $pdo): string
             return $assignedState;
         }
     }
-    $stmt = $pdo->prepare("SELECT state FROM staff_profiles WHERE user_id = ? LIMIT 1");
+    $spSoft = app_column_exists($pdo, 'staff_profiles', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+    $stmt = $pdo->prepare("SELECT state FROM staff_profiles WHERE user_id = ?{$spSoft} LIMIT 1");
     $stmt->execute([(int) $user['id']]);
     $state = trim((string) ($stmt->fetchColumn() ?: ''));
     return $state !== '' ? $state : trim((string) ($user['location'] ?? ''));

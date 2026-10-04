@@ -145,7 +145,7 @@ $agentWhere = $scopeState !== '' ? 'AND sp.state = ?' : '';
 $agentStmt = $pdo->prepare("
     SELECT u.id, u.name, u.email, COALESCE(sp.staff_type, 'field_agent') staff_type
     FROM users u
-    LEFT JOIN staff_profiles sp ON sp.user_id = u.id
+    LEFT JOIN staff_profiles sp ON sp.user_id = u.id AND sp.deleted_at IS NULL
     WHERE (u.role = 'field_agent' OR u.role = 'admin') {$agentWhere}
     ORDER BY u.name
 ");

@@ -148,7 +148,8 @@ function coord_assigned_states(PDO $pdo, array $user): array
         }
     }
     if (!$states && $userId > 0 && app_table_exists($pdo, 'staff_profiles')) {
-        $stmt = $pdo->prepare("SELECT state FROM staff_profiles WHERE user_id = ? AND COALESCE(state, '') <> '' LIMIT 1");
+        $spSoft = app_column_exists($pdo, 'staff_profiles', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+        $stmt = $pdo->prepare("SELECT state FROM staff_profiles WHERE user_id = ? AND COALESCE(state, '') <> ''{$spSoft} LIMIT 1");
         $stmt->execute([$userId]);
         $state = trim((string) ($stmt->fetchColumn() ?: ''));
         if ($state !== '') {

@@ -144,7 +144,11 @@ function admin_execute_approved_delete(PDO $pdo, array $request): void
     }
 
     if ($table === 'staff_profiles') {
-        $pdo->prepare('DELETE FROM staff_profiles WHERE id = ?')->execute([$id]);
+        if (app_column_exists($pdo, 'staff_profiles', 'deleted_at')) {
+            $pdo->prepare('UPDATE staff_profiles SET deleted_at = NOW() WHERE id = ?')->execute([$id]);
+        } else {
+            $pdo->prepare('DELETE FROM staff_profiles WHERE id = ?')->execute([$id]);
+        }
         return;
     }
 

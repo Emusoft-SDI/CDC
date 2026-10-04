@@ -50,7 +50,7 @@ function pr_run_checks(PDO $pdo): array
     $checks['authenticated_roles'][] = pr_status((int) $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' OR is_super_admin = 1")->fetchColumn() > 0, 'At least one admin/super admin user exists');
     $checks['authenticated_roles'][] = pr_status((int) $pdo->query("SELECT COUNT(*) FROM users WHERE platform_role = 'national_coordinator'")->fetchColumn() > 0, 'National coordinator user exists');
     $checks['authenticated_roles'][] = pr_status((int) $pdo->query("SELECT COUNT(*) FROM users WHERE platform_role = 'state_coordinator'")->fetchColumn() > 0, 'State coordinator user exists');
-    $checks['authenticated_roles'][] = pr_status((int) $pdo->query("SELECT COUNT(*) FROM staff_profiles sp JOIN users u ON u.id = sp.user_id WHERE u.platform_role = 'state_coordinator' AND COALESCE(sp.state, '') <> ''")->fetchColumn() > 0, 'State coordinator has assigned state');
+    $checks['authenticated_roles'][] = pr_status((int) $pdo->query("SELECT COUNT(*) FROM staff_profiles sp JOIN users u ON u.id = sp.user_id WHERE u.platform_role = 'state_coordinator' AND COALESCE(sp.state, '') <> '' AND sp.deleted_at IS NULL")->fetchColumn() > 0, 'State coordinator has assigned state');
 
     $checks['mail'][] = pr_status($mailTransport !== 'log', 'Email transport is live', "Current: {$mailTransport}");
     $checks['mail'][] = pr_status(app_env('MAIL_FROM_ADDRESS', '') !== '', 'Mail from address configured', (string) app_env('MAIL_FROM_ADDRESS', ''));

@@ -19,6 +19,7 @@ function admin_upsert_staff_profile(PDO $pdo, int $userId, string $staffType, ar
         return;
     }
 
+    $softReset = app_column_exists($pdo, 'staff_profiles', 'deleted_at') ? ",\n            deleted_at = NULL" : '';
     $stmt = $pdo->prepare("
         INSERT INTO staff_profiles
             (user_id, staff_type, state, lga, qualification, license_number, experience_years, certification_status, training_program, availability, status)
@@ -33,7 +34,7 @@ function admin_upsert_staff_profile(PDO $pdo, int $userId, string $staffType, ar
             certification_status = VALUES(certification_status),
             training_program = VALUES(training_program),
             availability = VALUES(availability),
-            status = VALUES(status)
+            status = VALUES(status){$softReset}
     ");
     $stmt->execute([
         $userId,

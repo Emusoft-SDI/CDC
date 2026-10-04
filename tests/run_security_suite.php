@@ -25,6 +25,7 @@ require_once __DIR__ . '/test_super_admin_suite.php';
 require_once __DIR__ . '/test_stakeholder_journeys_suite.php';
 require_once __DIR__ . '/test_academy_learner_suite.php';
 require_once __DIR__ . '/test_marketplace_user_suite.php';
+require_once __DIR__ . '/test_governance_suite.php';
 
 echo "\033[1;35m";
 echo "====================================================================\n";
@@ -44,6 +45,7 @@ run_super_admin_tests();
 run_all_stakeholder_journeys_tests();
 run_academy_learner_tests();
 run_marketplace_user_tests();
+run_governance_tests();
 
 $exitCode = TestHarness::summary();
 exit($exitCode);

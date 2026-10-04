@@ -37,7 +37,7 @@ $stmt = $pdo->prepare("
            sp.staff_type, sp.qualification, sp.license_number, sp.experience_years, sp.certification_status, sp.training_program, sp.availability, sp.status staff_status
     FROM users u
     LEFT JOIN applications a ON a.id = u.application_id
-    LEFT JOIN staff_profiles sp ON sp.user_id = u.id
+    LEFT JOIN staff_profiles sp ON sp.user_id = u.id AND sp.deleted_at IS NULL
     WHERE u.id = ?
 ");
 $stmt->execute([$userId]);
@@ -331,7 +331,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                        sp.staff_type, sp.qualification, sp.license_number, sp.experience_years, sp.certification_status, sp.training_program, sp.availability, sp.status staff_status
                 FROM users u
                 LEFT JOIN applications a ON a.id = u.application_id
-                LEFT JOIN staff_profiles sp ON sp.user_id = u.id
+                LEFT JOIN staff_profiles sp ON sp.user_id = u.id AND sp.deleted_at IS NULL
                 WHERE u.id = ?
             ");
             $stmt->execute([$userId]);
