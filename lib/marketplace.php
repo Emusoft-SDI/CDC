@@ -119,9 +119,28 @@ function marketplace_ensure_operational_columns(PDO $pdo): void
 function marketplace_ensure_schema(PDO $pdo): void
 {
     static $done = false;
-    if ($done) {
+    if ($done || app_schema_flag_is_set($pdo, 'marketplace_schema_ready', '20260617-v1')) {
+        $done = true;
         marketplace_ensure_operational_columns($pdo);
         return;
+    }
+
+    // Existing databases: skip the DDL entirely. Re-running CREATE TABLE IF NOT
+    // EXISTS on every request takes a metadata lock and can stall under load.
+    try {
+        $existing = $pdo->query("
+            SELECT COUNT(*) FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME IN ('marketplace_categories','marketplace_sellers','marketplace_listings','marketplace_orders','marketplace_inquiries')
+        ")->fetchColumn();
+        if ((int) $existing === 5) {
+            $done = true;
+            app_schema_flag_set($pdo, 'marketplace_schema_ready', '20260617-v1');
+            marketplace_ensure_operational_columns($pdo);
+            return;
+        }
+    } catch (Throwable $e) {
+        // Fall through to the full create path.
     }
 
     app_ensure_farmer_engagement_schema($pdo);

@@ -7,6 +7,28 @@ function fm_ensure_schema(PDO $pdo): void
 {
     app_ensure_core_schema($pdo);
 
+    static $done = false;
+    if ($done || app_schema_flag_is_set($pdo, 'fm_schema_ready', '20261006-1')) {
+        $done = true;
+        return;
+    }
+
+    // Existing databases: skip DDL (metadata-lock prone when re-run per request).
+    try {
+        $existing = $pdo->query("
+            SELECT COUNT(*) FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME IN ('grower_farms','farm_verifications','farm_boundaries','field_tasks','nigeria_states')
+        ")->fetchColumn();
+        if ((int) $existing === 5) {
+            $done = true;
+            app_schema_flag_set($pdo, 'fm_schema_ready', '20261006-1');
+            return;
+        }
+    } catch (Throwable $e) {
+        // Fall through to the full create path.
+    }
+
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS nigeria_states (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -158,18 +180,29 @@ function fm_ensure_schema(PDO $pdo): void
     app_ensure_primary_auto_increment($pdo, 'farm_boundaries');
 
     fm_seed_missing_verifications($pdo);
+
+    app_schema_flag_set($pdo, 'fm_schema_ready', '20261006-1');
 }
 
 function fm_seed_missing_verifications(PDO $pdo): void
 {
-    if (!app_table_exists($pdo, 'grower_farms')) {
+    if (!app_table_exists($pdo, 'grower_farms') || !app_table_exists($pdo, 'farm_verifications')) {
         return;
     }
-    $pdo->exec("
-        INSERT IGNORE INTO farm_verifications (farm_id, requested_by, status, system_confidence_score, system_notes)
-        SELECT id, user_id, 'pending', NULL, 'Awaiting coordinate and administrative verification.'
-        FROM grower_farms
-    ");
+    try {
+        // Backfill only genuinely-missing rows, and bound the work so a large
+        // grower_farms table cannot exhaust the request time limit.
+        $pdo->exec("
+            INSERT IGNORE INTO farm_verifications (farm_id, requested_by, status, system_confidence_score, system_notes)
+            SELECT gf.id, gf.user_id, 'pending', NULL, 'Awaiting coordinate and administrative verification.'
+            FROM grower_farms gf
+            LEFT JOIN farm_verifications fv ON fv.farm_id = gf.id
+            WHERE fv.id IS NULL
+            LIMIT 500
+        ");
+    } catch (Throwable $e) {
+        error_log('fm_seed_missing_verifications skipped: ' . $e->getMessage());
+    }
 }
 
 function fm_coordinate_score(?float $lat, ?float $lng, ?int $stateId = null, ?int $lgaId = null): array
