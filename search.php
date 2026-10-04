@@ -20,7 +20,8 @@ foreach ($static as $item) {
     }
 }
 if ($q !== '' && app_table_exists($pdo, 'marketplace_listings')) {
-    $stmt = $pdo->prepare("SELECT l.id, l.title, l.summary, s.store_name FROM marketplace_listings l JOIN marketplace_sellers s ON s.id=l.seller_id WHERE l.approval_status='approved' AND (l.title LIKE ? OR l.summary LIKE ? OR s.store_name LIKE ?) ORDER BY l.updated_at DESC, l.id DESC LIMIT 12");
+    $mlSoft = app_column_exists($pdo, 'marketplace_listings', 'deleted_at') ? ' AND l.deleted_at IS NULL' : '';
+    $stmt = $pdo->prepare("SELECT l.id, l.title, l.summary, s.store_name FROM marketplace_listings l JOIN marketplace_sellers s ON s.id=l.seller_id WHERE l.approval_status='approved'{$mlSoft} AND (l.title LIKE ? OR l.summary LIKE ? OR s.store_name LIKE ?) ORDER BY l.updated_at DESC, l.id DESC LIMIT 12");
     $like = '%' . $q . '%';
     $stmt->execute([$like, $like, $like]);
     foreach ($stmt->fetchAll() as $row) {

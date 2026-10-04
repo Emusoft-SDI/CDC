@@ -237,7 +237,8 @@ try {
         $sellerStmt->execute([$userId]);
         $sellerId = (int) ($sellerStmt->fetchColumn() ?: 0);
         if ($sellerId > 0 && app_table_exists($pdo, 'marketplace_listings')) {
-            $sellerStats['listings'] = gd_count($pdo, "SELECT COUNT(*) FROM marketplace_listings WHERE seller_id = ? AND approval_status = 'approved'", [$sellerId]);
+            $mlSoft = app_column_exists($pdo, 'marketplace_listings', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+            $sellerStats['listings'] = gd_count($pdo, "SELECT COUNT(*) FROM marketplace_listings WHERE seller_id = ? AND approval_status = 'approved'{$mlSoft}", [$sellerId]);
         }
         if ($sellerId > 0 && app_table_exists($pdo, 'marketplace_orders')) {
             $sellerStats['orders'] = gd_count($pdo, "SELECT COUNT(*) FROM marketplace_orders WHERE seller_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)", [$sellerId]);

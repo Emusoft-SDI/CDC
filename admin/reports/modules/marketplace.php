@@ -2,7 +2,7 @@
 $marketRows = report_rows($pdo, "
     SELECT ms.store_name, ms.seller_type, COUNT(ml.id) listings, COALESCE(SUM(mo.total_amount), 0) order_value
     FROM marketplace_sellers ms
-    LEFT JOIN marketplace_listings ml ON ml.seller_id = ms.id
+    LEFT JOIN marketplace_listings ml ON ml.seller_id = ms.id AND ml.deleted_at IS NULL
     LEFT JOIN marketplace_orders mo ON mo.seller_id = ms.id AND mo.created_at BETWEEN ? AND ?
     WHERE ms.deleted_at IS NULL
     GROUP BY ms.id, ms.store_name, ms.seller_type

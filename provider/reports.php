@@ -38,7 +38,7 @@ if (app_table_exists($pdo, 'marketplace_sellers')) {
 }
 $sellerWhere = $sellerIds ? 'seller_id IN (' . implode(',', array_fill(0, count($sellerIds), '?')) . ')' : '1=0';
 $orderRows = $sellerIds ? pr_rows($pdo, "SELECT order_ref, buyer_name, total_amount, status, payment_status, delivery_status, created_at FROM marketplace_orders WHERE {$sellerWhere} AND created_at BETWEEN ? AND ? ORDER BY created_at DESC LIMIT 120", [...$sellerIds, $periodStart, $periodEnd]) : [];
-$listingRows = $sellerIds ? pr_rows($pdo, "SELECT title, listing_type, approval_status, availability_status, price, quantity_available, created_at FROM marketplace_listings WHERE {$sellerWhere} ORDER BY created_at DESC LIMIT 120", $sellerIds) : [];
+$listingRows = $sellerIds ? pr_rows($pdo, "SELECT title, listing_type, approval_status, availability_status, price, quantity_available, created_at FROM marketplace_listings WHERE {$sellerWhere} AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 120", $sellerIds) : [];
 $wallet = wallet_get_or_create($pdo, $userId);
 $walletRows = pr_rows($pdo, 'SELECT created_at, type, direction, description, reference, amount, status FROM wallet_transactions WHERE wallet_id = ? AND created_at BETWEEN ? AND ? ORDER BY created_at DESC LIMIT 120', [(int) $wallet['id'], $periodStart, $periodEnd]);
 $supportRows = pr_rows($pdo, 'SELECT ticket_ref, category, priority, status, subject, last_activity_at FROM support_tickets WHERE user_id = ? ORDER BY last_activity_at DESC LIMIT 80', [$userId]);

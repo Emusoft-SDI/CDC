@@ -71,7 +71,7 @@ $coconutStands = nd_sum($pdo, 'grower_farms', 'coconut_stands', 'deleted_at IS N
 $livestockUnits = nd_sum($pdo, 'grower_farms', 'livestock_count', 'deleted_at IS NULL');
 $intercropFarms = nd_count($pdo, 'grower_farms', "COALESCE(intercrops, '') <> '' AND deleted_at IS NULL");
 $marketplaceGMV = nd_sum($pdo, 'marketplace_orders', 'total_amount', "status <> 'cancelled'");
-$activeListings = nd_count($pdo, 'marketplace_listings', "approval_status = 'approved'");
+$activeListings = nd_count($pdo, 'marketplace_listings', "approval_status = 'approved' AND deleted_at IS NULL");
 $providers = nd_count($pdo, 'provider_registry', "status IN ('approved','verified','active') AND deleted_at IS NULL");
 $academyRegistrations = nd_count($pdo, 'webinar_registrations');
 $academyCompleted = nd_count($pdo, 'webinar_registrations', "completion_status = 'completed'");

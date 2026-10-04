@@ -78,7 +78,7 @@ try {
         FROM marketplace_listings l
         JOIN marketplace_sellers s ON s.id = l.seller_id AND s.deleted_at IS NULL
         LEFT JOIN marketplace_categories c ON c.id = l.category_id
-        WHERE l.approval_status = 'approved' AND s.approval_status = 'approved' {$excludeSql}
+        WHERE l.approval_status = 'approved' AND l.deleted_at IS NULL AND s.approval_status = 'approved' {$excludeSql}
         ORDER BY l.is_featured DESC, l.created_at DESC
         LIMIT 4
     ";
@@ -89,7 +89,7 @@ try {
     $stmt = $pdo->query("
         SELECT s.*, COUNT(l.id) listing_count
         FROM marketplace_sellers s
-        LEFT JOIN marketplace_listings l ON l.seller_id = s.id AND l.approval_status = 'approved'
+        LEFT JOIN marketplace_listings l ON l.seller_id = s.id AND l.approval_status = 'approved' AND l.deleted_at IS NULL
         WHERE s.approval_status = 'approved'
           AND s.deleted_at IS NULL
         GROUP BY s.id

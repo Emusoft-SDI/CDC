@@ -32,7 +32,7 @@ if ($selectedRef !== '') {
     $itemStmt = $pdo->prepare("
         SELECT o.*, l.title listing_title, s.store_name
         FROM marketplace_orders o
-        LEFT JOIN marketplace_listings l ON l.id = o.listing_id
+        LEFT JOIN marketplace_listings l ON l.id = o.listing_id AND l.deleted_at IS NULL
         LEFT JOIN marketplace_sellers s ON s.id = o.seller_id
         WHERE o.buyer_user_id = ? AND o.checkout_ref = ?
         ORDER BY o.id ASC

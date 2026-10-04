@@ -9,7 +9,7 @@ $stmt = $pdo->prepare("
     SELECT l.title, l.listing_type, c.name category_name
     FROM marketplace_listings l
     LEFT JOIN marketplace_categories c ON c.id = l.category_id
-    WHERE l.id = ?
+    WHERE l.id = ? AND l.deleted_at IS NULL
     LIMIT 1
 ");
 $stmt->execute([$id]);

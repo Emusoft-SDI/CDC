@@ -131,12 +131,14 @@ function market_cart_rows(PDO $pdo): array
     $placeholders = implode(',', array_fill(0, count($ids), '?'));
     // A soft-deleted seller's listings are not purchasable.
     $msSoft = app_column_exists($pdo, 'marketplace_sellers', 'deleted_at') ? ' AND s.deleted_at IS NULL' : '';
+    // A soft-deleted listing must not be purchasable.
+    $mlSoft = app_column_exists($pdo, 'marketplace_listings', 'deleted_at') ? ' AND l.deleted_at IS NULL' : '';
     $stmt = $pdo->prepare("
         SELECT l.*, c.name category_name, s.store_name, s.slug seller_slug, s.user_id seller_user_id
         FROM marketplace_listings l
         JOIN marketplace_sellers s ON s.id = l.seller_id{$msSoft}
         LEFT JOIN marketplace_categories c ON c.id = l.category_id
-        WHERE l.id IN ($placeholders) AND l.approval_status = 'approved' AND s.approval_status = 'approved'
+        WHERE l.id IN ($placeholders) AND l.approval_status = 'approved' AND s.approval_status = 'approved'{$mlSoft}
         ORDER BY s.store_name, l.title
     ");
     $stmt->execute($ids);

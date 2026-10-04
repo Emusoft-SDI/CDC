@@ -21,7 +21,7 @@ $stmt = $pdo->prepare("
     FROM marketplace_listings l
     JOIN marketplace_sellers s ON s.id = l.seller_id AND s.deleted_at IS NULL
     LEFT JOIN marketplace_categories c ON c.id = l.category_id
-    WHERE l.seller_id = ? AND l.approval_status = 'approved'
+    WHERE l.seller_id = ? AND l.approval_status = 'approved' AND l.deleted_at IS NULL
     ORDER BY l.is_featured DESC, l.created_at DESC
 ");
 $stmt->execute([(int) $seller['id']]);

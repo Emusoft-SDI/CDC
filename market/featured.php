@@ -17,6 +17,7 @@ $totalCount = (int) $pdo->query("
     FROM marketplace_listings l
     JOIN marketplace_sellers s ON s.id = l.seller_id AND s.deleted_at IS NULL
     WHERE l.approval_status = 'approved' 
+      AND l.deleted_at IS NULL
       AND l.availability_status = 'available' 
       AND l.is_featured = 1 
       AND s.approval_status = 'approved'
@@ -31,6 +32,7 @@ $stmt = $pdo->prepare("
     JOIN marketplace_sellers s ON s.id = l.seller_id AND s.deleted_at IS NULL
     LEFT JOIN marketplace_categories c ON c.id = l.category_id
     WHERE l.approval_status = 'approved' 
+      AND l.deleted_at IS NULL
       AND l.availability_status = 'available' 
       AND l.is_featured = 1 
       AND s.approval_status = 'approved'
@@ -45,14 +47,14 @@ $listings = $stmt->fetchAll();
 $categories = $pdo->query("
     SELECT c.*, COUNT(l.id) listing_count
     FROM marketplace_categories c
-    LEFT JOIN marketplace_listings l ON l.category_id = c.id AND l.approval_status = 'approved'
+    LEFT JOIN marketplace_listings l ON l.category_id = c.id AND l.approval_status = 'approved' AND l.deleted_at IS NULL
     WHERE c.is_active = 1
     GROUP BY c.id
     ORDER BY c.sort_order, c.name
 ")->fetchAll();
 
 $stats = [
-    'total_listings' => (int) $pdo->query("SELECT COUNT(*) FROM marketplace_listings WHERE approval_status = 'approved'")->fetchColumn(),
+    'total_listings' => (int) $pdo->query("SELECT COUNT(*) FROM marketplace_listings WHERE approval_status = 'approved' AND deleted_at IS NULL")->fetchColumn(),
 ];
 
 $logo = app_primary_logo_url();

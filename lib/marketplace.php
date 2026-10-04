@@ -14,8 +14,10 @@ function marketplace_unique_slug(PDO $pdo, string $table, string $base, int $ign
     $base = marketplace_slug($base);
     $slug = $base;
     $i = 2;
+    // Ignore soft-deleted rows so a new listing can reuse a soft-deleted slug.
+    $soft = app_column_exists($pdo, $table, 'deleted_at') ? ' AND deleted_at IS NULL' : '';
     while (true) {
-        $sql = "SELECT id FROM {$table} WHERE slug = ?";
+        $sql = "SELECT id FROM {$table} WHERE slug = ?{$soft}";
         $params = [$slug];
         if ($ignoreId > 0) {
             $sql .= " AND id <> ?";
@@ -199,6 +201,7 @@ function marketplace_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     app_ensure_primary_auto_increment($pdo, 'marketplace_listings');
+    app_add_column_if_missing($pdo, 'marketplace_listings', 'deleted_at', "DATETIME NULL");
     foreach ([
         'mpn' => "VARCHAR(120) NULL",
         'origin_country' => "VARCHAR(120) NULL",
@@ -574,7 +577,8 @@ function marketplace_seed_featured_promotions(PDO $pdo): void
         return;
     }
     $sellerId = marketplace_official_seller_id($pdo);
-    $listingStmt = $pdo->query("SELECT id, title FROM marketplace_listings WHERE approval_status = 'approved' ORDER BY is_featured DESC, id LIMIT 10");
+    $mlSoft = app_column_exists($pdo, 'marketplace_listings', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+    $listingStmt = $pdo->query("SELECT id, title FROM marketplace_listings WHERE approval_status = 'approved'{$mlSoft} ORDER BY is_featured DESC, id LIMIT 10");
     $listings = $listingStmt->fetchAll();
     $placements = [
         ['Premium Dwarf Coconut Seedlings', 'High survival seedlings for serious growers.', 'homepage_banner', 'assets/market/featured/vendor-ad-01.png'],
@@ -611,13 +615,14 @@ function marketplace_active_promotions(PDO $pdo, string $placement, int $limit =
     if (!app_table_exists($pdo, 'marketplace_promotions')) {
         return [];
     }
-    // Keep the promotion row; a soft-deleted seller simply stops enriching it.
+    // Keep the promotion row; a soft-deleted seller or listing simply stops enriching it.
     $msSoft = app_column_exists($pdo, 'marketplace_sellers', 'deleted_at') ? ' AND s.deleted_at IS NULL' : '';
+    $mlSoft = app_column_exists($pdo, 'marketplace_listings', 'deleted_at') ? ' AND l.deleted_at IS NULL' : '';
     $stmt = $pdo->prepare("
         SELECT p.*, s.store_name, s.slug seller_slug, l.title listing_title
         FROM marketplace_promotions p
         LEFT JOIN marketplace_sellers s ON s.id = p.seller_id{$msSoft}
-        LEFT JOIN marketplace_listings l ON l.id = p.listing_id
+        LEFT JOIN marketplace_listings l ON l.id = p.listing_id{$mlSoft}
         WHERE p.placement = ?
           AND p.status = 'active'
           AND (p.starts_at IS NULL OR p.starts_at <= NOW())

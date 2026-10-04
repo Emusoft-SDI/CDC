@@ -22,7 +22,7 @@ if (($_GET['export'] ?? '') === 'sellers') {
     header('Content-Disposition: attachment; filename="natcodev-marketplace-sellers.csv"');
     $out = fopen('php://output', 'w');
     fputcsv($out, ['Seller ID', 'Store', 'Type', 'Owner Email', 'Approval', 'Verification', 'Listings', 'Created']);
-    $rows = $pdo->query("SELECT s.*,u.email user_email,(SELECT COUNT(*) FROM marketplace_listings l WHERE l.seller_id=s.id) listing_count FROM marketplace_sellers s LEFT JOIN users u ON u.id=s.user_id WHERE s.deleted_at IS NULL ORDER BY s.created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+    $rows = $pdo->query("SELECT s.*,u.email user_email,(SELECT COUNT(*) FROM marketplace_listings l WHERE l.seller_id=s.id AND l.deleted_at IS NULL) listing_count FROM marketplace_sellers s LEFT JOIN users u ON u.id=s.user_id WHERE s.deleted_at IS NULL ORDER BY s.created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
     foreach ($rows as $row) {
         fputcsv($out, [(int) $row['id'], (string) $row['store_name'], (string) $row['seller_type'], (string) ($row['user_email'] ?? $row['email'] ?? ''), (string) $row['approval_status'], (string) $row['verification_status'], (int) $row['listing_count'], (string) $row['created_at']]);
     }

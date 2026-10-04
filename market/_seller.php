@@ -11,6 +11,9 @@ function seller_query_context(PDO $pdo, array $user, bool $handlePost = false): 
     $listingTypes = marketplace_listing_types();
     $categories = marketplace_categories($pdo);
     $seller = marketplace_current_seller($pdo, $userId);
+    // Soft-deleted listings disappear from the seller workspace and its pickers.
+    $mlSoft = app_column_exists($pdo, 'marketplace_listings', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+    $mlSoftL = app_column_exists($pdo, 'marketplace_listings', 'deleted_at') ? ' AND l.deleted_at IS NULL' : '';
     $message = '';
     $error = '';
 
@@ -67,7 +70,7 @@ function seller_query_context(PDO $pdo, array $user, bool $handlePost = false): 
                     $uploadedGalleryPaths = market_upload_listing_images('listing_images', 4);
                     $existingListing = null;
                     if ($listingId > 0) {
-                        $existingStmt = $pdo->prepare("SELECT image_path, image_gallery FROM marketplace_listings WHERE id = ? AND seller_id = ? LIMIT 1");
+                        $existingStmt = $pdo->prepare("SELECT image_path, image_gallery FROM marketplace_listings WHERE id = ? AND seller_id = ?{$mlSoft} LIMIT 1");
                         $existingStmt->execute([$listingId, (int) $seller['id']]);
                         $existingListing = $existingStmt->fetch() ?: null;
                     }
@@ -124,7 +127,7 @@ function seller_query_context(PDO $pdo, array $user, bool $handlePost = false): 
                     if ($listingId <= 0) {
                         throw new RuntimeException('Listing ID is required.');
                     }
-                    $stmt = $pdo->prepare("SELECT id, title FROM marketplace_listings WHERE id = ? AND seller_id = ? LIMIT 1");
+                    $stmt = $pdo->prepare("SELECT id, title FROM marketplace_listings WHERE id = ? AND seller_id = ?{$mlSoft} LIMIT 1");
                     $stmt->execute([$listingId, (int) $seller['id']]);
                     $listing = $stmt->fetch();
                     if ($listing) {
@@ -149,7 +152,7 @@ function seller_query_context(PDO $pdo, array $user, bool $handlePost = false): 
 
                 if ($action === 'create_order' && $seller) {
                     $inquiryId = (int) ($_POST['inquiry_id'] ?? 0);
-                    $stmt = $pdo->prepare("SELECT i.*, l.price FROM marketplace_inquiries i JOIN marketplace_listings l ON l.id=i.listing_id WHERE i.id=? AND i.seller_id=? LIMIT 1");
+                    $stmt = $pdo->prepare("SELECT i.*, l.price FROM marketplace_inquiries i JOIN marketplace_listings l ON l.id=i.listing_id WHERE i.id=? AND i.seller_id=?{$mlSoftL} LIMIT 1");
                     $stmt->execute([$inquiryId, (int) $seller['id']]);
                     $inq = $stmt->fetch();
                     if ($inq) {
@@ -196,7 +199,7 @@ function seller_query_context(PDO $pdo, array $user, bool $handlePost = false): 
     $listings = $inquiries = $orders = [];
     $editListing = null;
     if ($seller) {
-        $stmt = $pdo->prepare("SELECT l.*, c.name category_name FROM marketplace_listings l LEFT JOIN marketplace_categories c ON c.id=l.category_id WHERE l.seller_id=? ORDER BY l.created_at DESC");
+        $stmt = $pdo->prepare("SELECT l.*, c.name category_name FROM marketplace_listings l LEFT JOIN marketplace_categories c ON c.id=l.category_id WHERE l.seller_id=?{$mlSoftL} ORDER BY l.created_at DESC");
         $stmt->execute([(int) $seller['id']]);
         $listings = $stmt->fetchAll();
         $stmt = $pdo->prepare("SELECT i.*, l.title listing_title FROM marketplace_inquiries i JOIN marketplace_listings l ON l.id=i.listing_id WHERE i.seller_id=? ORDER BY i.created_at DESC LIMIT 80");

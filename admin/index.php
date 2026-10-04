@@ -169,7 +169,7 @@ $todayOrders = hub_count($pdo, 'marketplace_orders', "DATE(created_at) = CURDATE
 $certificatesIssued = hub_count($pdo, 'academy_certificates', "status = 'issued'");
 $pendingApplications = hub_count($pdo, 'applications', "status IN ('pending','submitted','under_review')");
 $docsForReview = hub_count($pdo, 'user_documents', "status IN ('pending','submitted','under_review')");
-$activeListings = hub_count($pdo, 'marketplace_listings', "approval_status = 'approved'");
+$activeListings = hub_count($pdo, 'marketplace_listings', "approval_status = 'approved' AND deleted_at IS NULL");
 $activeCourses = hub_count($pdo, 'webinars', "status = 'active'");
 $settlementsPending = hub_count($pdo, 'marketplace_orders', "payment_status = 'paid' AND settled_at IS NULL");
 $reportsGenerated = hub_count($pdo, 'audit_log');

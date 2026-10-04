@@ -12,7 +12,7 @@ $stmt = $pdo->prepare("
     FROM marketplace_listings l
     JOIN marketplace_sellers s ON s.id = l.seller_id AND s.deleted_at IS NULL
     LEFT JOIN marketplace_categories c ON c.id = l.category_id
-    WHERE l.id = ? AND l.approval_status = 'approved' AND s.approval_status = 'approved'
+    WHERE l.id = ? AND l.approval_status = 'approved' AND l.deleted_at IS NULL AND s.approval_status = 'approved'
     LIMIT 1
 ");
 $stmt->execute([$id]);
@@ -97,7 +97,7 @@ $relatedStmt = $pdo->prepare("
     FROM marketplace_listings l
     JOIN marketplace_sellers s ON s.id = l.seller_id AND s.deleted_at IS NULL
     LEFT JOIN marketplace_categories c ON c.id = l.category_id
-    WHERE l.id <> ? AND l.approval_status = 'approved' AND s.approval_status = 'approved'
+    WHERE l.id <> ? AND l.approval_status = 'approved' AND l.deleted_at IS NULL AND s.approval_status = 'approved'
       AND (l.category_id = ? OR l.seller_id = ?)
     ORDER BY l.is_featured DESC, l.created_at DESC
     LIMIT 4

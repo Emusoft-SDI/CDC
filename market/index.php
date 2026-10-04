@@ -35,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf($_POST['_csrf'] ?? null
 $categories = $pdo->query("
     SELECT c.*, COUNT(s.id) listing_count
     FROM marketplace_categories c
-    LEFT JOIN marketplace_listings l ON l.category_id = c.id AND l.approval_status = 'approved'
+    LEFT JOIN marketplace_listings l ON l.category_id = c.id AND l.approval_status = 'approved' AND l.deleted_at IS NULL
     LEFT JOIN marketplace_sellers s ON s.id = l.seller_id AND s.approval_status = 'approved' AND s.deleted_at IS NULL
     WHERE c.is_active = 1
     GROUP BY c.id
@@ -56,7 +56,7 @@ $featuredSellers = $pdo->query("
         (
             SELECT COUNT(*)
             FROM marketplace_listings l
-            WHERE l.seller_id = s.id AND l.approval_status = 'approved'
+            WHERE l.seller_id = s.id AND l.approval_status = 'approved' AND l.deleted_at IS NULL
         ) item_count
     FROM marketplace_sellers s
     WHERE s.approval_status = 'approved'
@@ -64,7 +64,7 @@ $featuredSellers = $pdo->query("
       AND EXISTS (
           SELECT 1
           FROM marketplace_listings l2
-          WHERE l2.seller_id = s.id AND l2.approval_status = 'approved'
+          WHERE l2.seller_id = s.id AND l2.approval_status = 'approved' AND l2.deleted_at IS NULL
       )
     ORDER BY s.is_featured DESC, s.verification_status = 'verified' DESC, item_count DESC, s.created_at DESC
     LIMIT 8
@@ -78,6 +78,7 @@ if ($featuredSellers) {
         FROM marketplace_listings l
         LEFT JOIN marketplace_categories c ON c.id = l.category_id
         WHERE l.approval_status = 'approved'
+          AND l.deleted_at IS NULL
           AND l.seller_id IN ($placeholders)
         ORDER BY l.is_featured DESC, l.created_at DESC
     ");

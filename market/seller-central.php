@@ -103,7 +103,7 @@ foreach ($ctx['orders'] as $order) {
 usort($productPerformance, static fn(array $a, array $b): int => $b['revenue'] <=> $a['revenue']);
 $sellerPromotions = [];
 if ($seller) {
-    $promoStmt = $pdo->prepare("SELECT p.*,l.title listing_title FROM marketplace_promotions p LEFT JOIN marketplace_listings l ON l.id=p.listing_id WHERE p.seller_id = ? ORDER BY p.created_at DESC LIMIT 20");
+    $promoStmt = $pdo->prepare("SELECT p.*,l.title listing_title FROM marketplace_promotions p LEFT JOIN marketplace_listings l ON l.id=p.listing_id AND l.deleted_at IS NULL WHERE p.seller_id = ? ORDER BY p.created_at DESC LIMIT 20");
     $promoStmt->execute([(int) $seller['id']]);
     $sellerPromotions = $promoStmt->fetchAll();
 }

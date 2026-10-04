@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * NATCODEV Super Admin Governance Test Suite
  * Covers the governance controls added to the console:
- * - Soft-delete (notification_templates, staff_profiles, farm_verifications, user_import_records, document_requirements, grower_farms, provider_registry, marketplace_sellers, certificates, academy_certificates) read isolation + reactivation
+ * - Soft-delete (notification_templates, staff_profiles, farm_verifications, user_import_records, document_requirements, grower_farms, provider_registry, marketplace_sellers, marketplace_listings, certificates, academy_certificates) read isolation + reactivation
  * - Recycle-bin snapshot + restore
  * - Console-managed secrets (settings-first, .env fallback)
  * - Module mode kill-switch (paused/setup disables a module)
@@ -370,4 +370,34 @@ function run_governance_tests(): void
     $pdo->prepare("UPDATE academy_certificates SET deleted_at = NULL WHERE id = ?")->execute([$govAcadId]);
     $restoredAcad = (int) $pdo->query("SELECT COUNT(*) FROM academy_certificates WHERE id = {$govAcadId} AND deleted_at IS NULL")->fetchColumn();
     TestHarness::assertEqual(1, $restoredAcad, 'Soft-delete: restored academy certificate is visible again');
+
+    // =====================================================================
+    // 16. Soft-delete: marketplace_listings read isolation + restore
+    // =====================================================================
+    marketplace_ensure_schema($pdo);
+    $govListingSlug = 'gov-listing-' . bin2hex(random_bytes(4));
+    $pdo->prepare("INSERT INTO marketplace_listings (seller_id, title, slug, approval_status, availability_status) VALUES (?, ?, ?, 'approved', 'available')")
+        ->execute([$govSellerId, 'Gov Marketplace Listing', $govListingSlug]);
+    $govListingId = (int) $pdo->lastInsertId();
+
+    $liveListing = (int) $pdo->query("SELECT COUNT(*) FROM marketplace_listings WHERE id = {$govListingId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $liveListing, 'Soft-delete: live marketplace listing is visible to the filtered read');
+
+    // The approved-delete path must soft-delete (set deleted_at), never remove the row,
+    // so the orders, inquiries, promotions and reports that reference the listing survive.
+    admin_execute_approved_delete($pdo, [
+        'id' => 0,
+        'target_table' => 'marketplace_listings',
+        'target_id' => $govListingId,
+        'target_key' => null,
+        'payload_json' => null,
+    ]);
+    $hiddenListing = (int) $pdo->query("SELECT COUNT(*) FROM marketplace_listings WHERE id = {$govListingId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(0, $hiddenListing, 'Soft-delete: approved delete hides the listing from the filtered read');
+    TestHarness::assertEqual(1, (int) $pdo->query("SELECT COUNT(*) FROM marketplace_listings WHERE id = {$govListingId}")->fetchColumn(), 'Soft-delete: approved delete keeps the marketplace_listings row');
+    TestHarness::assert($pdo->query("SELECT deleted_at FROM marketplace_listings WHERE id = {$govListingId}")->fetchColumn() !== null, 'Soft-delete: approved delete stamps deleted_at on marketplace_listings');
+
+    $pdo->prepare("UPDATE marketplace_listings SET deleted_at = NULL WHERE id = ?")->execute([$govListingId]);
+    $restoredListing = (int) $pdo->query("SELECT COUNT(*) FROM marketplace_listings WHERE id = {$govListingId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $restoredListing, 'Soft-delete: restored marketplace listing is visible again');
 }

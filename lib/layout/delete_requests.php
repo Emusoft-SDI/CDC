@@ -133,7 +133,12 @@ function admin_execute_approved_delete(PDO $pdo, array $request): void
     }
 
     if ($table === 'marketplace_listings') {
-        $pdo->prepare('DELETE FROM marketplace_listings WHERE id = ?')->execute([$id]);
+        if (app_column_exists($pdo, 'marketplace_listings', 'deleted_at')) {
+            // In-place soft-delete: keep the row so orders, inquiries, promotions and reports that reference it survive.
+            $pdo->prepare('UPDATE marketplace_listings SET deleted_at = NOW() WHERE id = ?')->execute([$id]);
+        } else {
+            $pdo->prepare('DELETE FROM marketplace_listings WHERE id = ?')->execute([$id]);
+        }
         return;
     }
 

@@ -211,7 +211,7 @@ $agentRows = sc_rows($pdo, "
 ", [$state, $stateLike]);
 
 $marketplaceProviders = sc_scalar($pdo, "SELECT COUNT(*) FROM provider_registry WHERE (states_served LIKE ? OR business_address LIKE ?) AND status IN ('verified','active','approved') AND deleted_at IS NULL", [$stateLike, $stateLike]);
-$activeListings = sc_scalar($pdo, "SELECT COUNT(*) FROM marketplace_listings ml JOIN marketplace_sellers ms ON ms.id = ml.seller_id AND ms.deleted_at IS NULL WHERE ml.approval_status = 'approved' AND ml.availability_status = 'available' AND (ml.location_label LIKE ? OR ms.location_label LIKE ? OR ms.coverage_area LIKE ?)", [$stateLike, $stateLike, $stateLike]);
+$activeListings = sc_scalar($pdo, "SELECT COUNT(*) FROM marketplace_listings ml JOIN marketplace_sellers ms ON ms.id = ml.seller_id AND ms.deleted_at IS NULL WHERE ml.approval_status = 'approved' AND ml.deleted_at IS NULL AND ml.availability_status = 'available' AND (ml.location_label LIKE ? OR ms.location_label LIKE ? OR ms.coverage_area LIKE ?)", [$stateLike, $stateLike, $stateLike]);
 $ordersThisMonth = sc_scalar($pdo, "SELECT COUNT(*) FROM marketplace_orders WHERE created_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')");
 $gmvThisMonth = sc_float($pdo, "SELECT COALESCE(SUM(total_amount), 0) FROM marketplace_orders WHERE created_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')");
 

@@ -109,8 +109,8 @@ $buyerOrders = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM marketplace_orders
 $buyerSpend = stakeholder_scalar($pdo, "SELECT COALESCE(SUM(total_amount), 0) FROM marketplace_orders WHERE buyer_user_id = ? AND created_at BETWEEN ? AND ?", [$userId, $periodStart, $periodEnd], true);
 $buyerInquiries = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM marketplace_inquiries WHERE buyer_user_id = ? AND created_at BETWEEN ? AND ?", [$userId, $periodStart, $periodEnd]);
 $savedListings = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM marketplace_favorites WHERE user_id = ?", [$userId]);
-$sellerListings = $sellerId > 0 ? stakeholder_scalar($pdo, "SELECT COUNT(*) FROM marketplace_listings WHERE seller_id = ?", [$sellerId]) : 0;
-$sellerPending = $sellerId > 0 ? stakeholder_scalar($pdo, "SELECT COUNT(*) FROM marketplace_listings WHERE seller_id = ? AND approval_status <> 'approved'", [$sellerId]) : 0;
+$sellerListings = $sellerId > 0 ? stakeholder_scalar($pdo, "SELECT COUNT(*) FROM marketplace_listings WHERE seller_id = ? AND deleted_at IS NULL", [$sellerId]) : 0;
+$sellerPending = $sellerId > 0 ? stakeholder_scalar($pdo, "SELECT COUNT(*) FROM marketplace_listings WHERE seller_id = ? AND deleted_at IS NULL AND approval_status <> 'approved'", [$sellerId]) : 0;
 $sellerOrders = $sellerId > 0 ? stakeholder_scalar($pdo, "SELECT COUNT(*) FROM marketplace_orders WHERE seller_id = ? AND created_at BETWEEN ? AND ?", [$sellerId, $periodStart, $periodEnd]) : 0;
 $sellerRevenue = $sellerId > 0 ? stakeholder_scalar($pdo, "SELECT COALESCE(SUM(total_amount), 0) FROM marketplace_orders WHERE seller_id = ? AND status <> 'cancelled' AND created_at BETWEEN ? AND ?", [$sellerId, $periodStart, $periodEnd], true) : 0.0;
 $supportOpen = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM messages WHERE user_id = ? AND status IN ('open','in_progress')", [$userId]);

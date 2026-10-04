@@ -34,7 +34,7 @@ if ($q !== '') {
         SELECT 'Marketplace' type, l.title, COALESCE(l.summary, s.store_name) description, CONCAT('../market/product.php?id=', l.id) href
         FROM marketplace_listings l
         JOIN marketplace_sellers s ON s.id = l.seller_id
-        WHERE l.approval_status = 'approved' AND (l.title LIKE ? OR l.summary LIKE ? OR l.description LIKE ? OR s.store_name LIKE ?)
+        WHERE l.approval_status = 'approved' AND l.deleted_at IS NULL AND (l.title LIKE ? OR l.summary LIKE ? OR l.description LIKE ? OR s.store_name LIKE ?)
         ORDER BY l.is_featured DESC, l.created_at DESC
         LIMIT 20
     ");
