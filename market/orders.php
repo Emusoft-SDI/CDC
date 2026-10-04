@@ -76,7 +76,7 @@ try {
     $sponsoredSql = "
         SELECT l.*, c.name category_name, s.store_name, s.slug seller_slug, s.seller_type, s.verification_status, s.location_label seller_location
         FROM marketplace_listings l
-        JOIN marketplace_sellers s ON s.id = l.seller_id
+        JOIN marketplace_sellers s ON s.id = l.seller_id AND s.deleted_at IS NULL
         LEFT JOIN marketplace_categories c ON c.id = l.category_id
         WHERE l.approval_status = 'approved' AND s.approval_status = 'approved' {$excludeSql}
         ORDER BY l.is_featured DESC, l.created_at DESC
@@ -91,6 +91,7 @@ try {
         FROM marketplace_sellers s
         LEFT JOIN marketplace_listings l ON l.seller_id = s.id AND l.approval_status = 'approved'
         WHERE s.approval_status = 'approved'
+          AND s.deleted_at IS NULL
         GROUP BY s.id
         ORDER BY s.is_featured DESC, s.verification_status = 'verified' DESC, listing_count DESC, s.created_at DESC
         LIMIT 3

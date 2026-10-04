@@ -5,7 +5,7 @@ require_once __DIR__ . '/_market.php';
 
 $pdo = market_boot();
 $q = trim((string) ($_GET['q'] ?? ''));
-$where = ["approval_status = 'approved'"];
+$where = ["approval_status = 'approved'", 'deleted_at IS NULL'];
 $params = [];
 if ($q !== '') {
     $where[] = "(store_name LIKE ? OR description LIKE ? OR location_label LIKE ? OR seller_type LIKE ?)";

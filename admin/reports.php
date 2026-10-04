@@ -256,7 +256,7 @@ $verifiedFarms = report_count($pdo, "
 ", $locationFilterParams);
 $providersApproved = report_count($pdo, "SELECT COUNT(*) FROM provider_registry WHERE status IN ('approved','verified') AND deleted_at IS NULL");
 $providersPending = report_count($pdo, "SELECT COUNT(*) FROM provider_registry WHERE status IN ('pending','pending_review') AND deleted_at IS NULL");
-$sellerCount = report_count($pdo, "SELECT COUNT(*) FROM marketplace_sellers WHERE approval_status = 'approved'");
+$sellerCount = report_count($pdo, "SELECT COUNT(*) FROM marketplace_sellers WHERE approval_status = 'approved' AND deleted_at IS NULL");
 $listingCount = report_count($pdo, "SELECT COUNT(*) FROM marketplace_listings WHERE approval_status = 'approved'");
 $registered = report_count($pdo, "SELECT COUNT(*) FROM webinar_registrations");
 $orderCount = report_count($pdo, "SELECT COUNT(*) FROM marketplace_orders WHERE created_at BETWEEN ? AND ?", $dateParams);
@@ -300,6 +300,7 @@ $marketRows = report_rows($pdo, "
     FROM marketplace_sellers ms
     LEFT JOIN marketplace_listings ml ON ml.seller_id = ms.id
     LEFT JOIN marketplace_orders mo ON mo.seller_id = ms.id AND mo.created_at BETWEEN ? AND ?
+    WHERE ms.deleted_at IS NULL
     GROUP BY ms.id, ms.store_name, ms.seller_type
     ORDER BY order_value DESC, listings DESC
     LIMIT 12

@@ -277,7 +277,7 @@ $workspaceCatalog = [
         'feature' => 'marketplace',
         'href' => 'marketplace.php',
         'text' => 'Oversee sellers, products, orders, and transactions.',
-        'metrics' => [['Active Sellers', hub_count($pdo, 'marketplace_sellers', "approval_status = 'approved'")], ['Active Products', $activeListings], ["Today's Orders", $todayOrders]],
+        'metrics' => [['Active Sellers', hub_count($pdo, 'marketplace_sellers', "approval_status = 'approved' AND deleted_at IS NULL")], ['Active Products', $activeListings], ["Today's Orders", $todayOrders]],
         'tone' => 'orange',
         'status' => 'Operational',
         'sections' => [

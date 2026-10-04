@@ -33,7 +33,7 @@ if ($type === 'providers') {
     })();
 } elseif ($type === 'sellers') {
     $headers = ['Seller ID', 'Store Name', 'Email', 'Phone', 'Approval Status', 'Verification Status', 'Location', 'Created At'];
-    $stmt = $pdo->query("SELECT id, store_name, email, phone, approval_status, verification_status, location_label, created_at FROM marketplace_sellers ORDER BY created_at DESC");
+    $stmt = $pdo->query("SELECT id, store_name, email, phone, approval_status, verification_status, location_label, created_at FROM marketplace_sellers WHERE deleted_at IS NULL ORDER BY created_at DESC");
     $rows = (function () use ($stmt): Generator {
         while ($row = $stmt->fetch()) {
             yield [
@@ -79,7 +79,7 @@ if ($type === 'providers') {
             }
         }
         if (app_table_exists($pdo, 'marketplace_sellers')) {
-            $stmt3 = $pdo->query("SELECT 'Seller' type, CONCAT('SEL-', id) reference, store_name name, email, phone, approval_status status, created_at FROM marketplace_sellers WHERE approval_status IN ('pending','unverified') ORDER BY created_at DESC");
+            $stmt3 = $pdo->query("SELECT 'Seller' type, CONCAT('SEL-', id) reference, store_name name, email, phone, approval_status status, created_at FROM marketplace_sellers WHERE approval_status IN ('pending','unverified') AND deleted_at IS NULL ORDER BY created_at DESC");
             while ($row = $stmt3->fetch()) {
                 yield [$row['type'], $row['reference'], $row['name'], $row['email'], $row['phone'], $row['status'], $row['created_at']];
             }

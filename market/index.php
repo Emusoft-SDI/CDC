@@ -36,7 +36,7 @@ $categories = $pdo->query("
     SELECT c.*, COUNT(s.id) listing_count
     FROM marketplace_categories c
     LEFT JOIN marketplace_listings l ON l.category_id = c.id AND l.approval_status = 'approved'
-    LEFT JOIN marketplace_sellers s ON s.id = l.seller_id AND s.approval_status = 'approved'
+    LEFT JOIN marketplace_sellers s ON s.id = l.seller_id AND s.approval_status = 'approved' AND s.deleted_at IS NULL
     WHERE c.is_active = 1
     GROUP BY c.id
     ORDER BY c.sort_order, c.name
@@ -60,6 +60,7 @@ $featuredSellers = $pdo->query("
         ) item_count
     FROM marketplace_sellers s
     WHERE s.approval_status = 'approved'
+      AND s.deleted_at IS NULL
       AND EXISTS (
           SELECT 1
           FROM marketplace_listings l2

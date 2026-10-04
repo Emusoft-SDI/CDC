@@ -142,7 +142,8 @@ function market_user_role_keys(PDO $pdo, array $user): array
         }
     }
     if ($userId > 0 && app_table_exists($pdo, 'marketplace_sellers')) {
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM marketplace_sellers WHERE user_id=?");
+        $msSoft = app_column_exists($pdo, 'marketplace_sellers', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM marketplace_sellers WHERE user_id=?{$msSoft}");
         $stmt->execute([$userId]);
         if ((int) $stmt->fetchColumn() > 0) {
             $roles[] = 'seller';

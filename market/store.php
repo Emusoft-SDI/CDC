@@ -5,7 +5,7 @@ require_once __DIR__ . '/_market.php';
 
 $pdo = market_boot();
 $slug = trim((string) ($_GET['seller'] ?? ''));
-$stmt = $pdo->prepare("SELECT * FROM marketplace_sellers WHERE slug = ? AND approval_status = 'approved' LIMIT 1");
+$stmt = $pdo->prepare("SELECT * FROM marketplace_sellers WHERE slug = ? AND approval_status = 'approved' AND deleted_at IS NULL LIMIT 1");
 $stmt->execute([$slug]);
 $seller = $stmt->fetch();
 if (!$seller) {
@@ -19,7 +19,7 @@ if (!$seller) {
 $stmt = $pdo->prepare("
     SELECT l.*, c.name category_name, s.store_name, s.slug seller_slug, s.seller_type, s.verification_status, s.location_label seller_location
     FROM marketplace_listings l
-    JOIN marketplace_sellers s ON s.id = l.seller_id
+    JOIN marketplace_sellers s ON s.id = l.seller_id AND s.deleted_at IS NULL
     LEFT JOIN marketplace_categories c ON c.id = l.category_id
     WHERE l.seller_id = ? AND l.approval_status = 'approved'
     ORDER BY l.is_featured DESC, l.created_at DESC

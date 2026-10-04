@@ -452,7 +452,8 @@ function provider_counts(PDO $pdo, ?array $provider, ?array $user): array
     }
     if ($user) {
         if ($userId > 0 && app_table_exists($pdo, 'marketplace_sellers')) {
-            $stmt = $pdo->prepare("SELECT id FROM marketplace_sellers WHERE user_id = ?");
+            $msSoft = app_column_exists($pdo, 'marketplace_sellers', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+            $stmt = $pdo->prepare("SELECT id FROM marketplace_sellers WHERE user_id = ?{$msSoft}");
             $stmt->execute([$userId]);
             $sellerIds = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
         }

@@ -366,10 +366,12 @@ function revenue_sync_active_marketplace_promotions(PDO $pdo): int
     if (!app_table_exists($pdo, 'marketplace_promotions')) {
         return 0;
     }
+    // Keep the promotion row; a soft-deleted seller simply stops enriching it.
+    $msSoft = app_column_exists($pdo, 'marketplace_sellers', 'deleted_at') ? ' AND s.deleted_at IS NULL' : '';
     $stmt = $pdo->query("
         SELECT p.*, s.user_id seller_user_id
         FROM marketplace_promotions p
-        LEFT JOIN marketplace_sellers s ON s.id = p.seller_id
+        LEFT JOIN marketplace_sellers s ON s.id = p.seller_id{$msSoft}
         WHERE p.status = 'active' AND p.amount > 0
         ORDER BY p.approved_at DESC, p.id DESC
         LIMIT 1000

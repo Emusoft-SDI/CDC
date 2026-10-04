@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * NATCODEV Super Admin Governance Test Suite
  * Covers the governance controls added to the console:
- * - Soft-delete (notification_templates, staff_profiles, farm_verifications, user_import_records, document_requirements, grower_farms, provider_registry) read isolation + reactivation
+ * - Soft-delete (notification_templates, staff_profiles, farm_verifications, user_import_records, document_requirements, grower_farms, provider_registry, marketplace_sellers) read isolation + reactivation
  * - Recycle-bin snapshot + restore
  * - Console-managed secrets (settings-first, .env fallback)
  * - Module mode kill-switch (paused/setup disables a module)
@@ -20,6 +20,7 @@ require_once __DIR__ . '/../lib/notification-dispatch.php';
 require_once __DIR__ . '/../lib/field-management.php';
 require_once __DIR__ . '/../lib/admin-user-import.php';
 require_once __DIR__ . '/../lib/platform-governance.php';
+require_once __DIR__ . '/../lib/marketplace.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     // Start before any suite output so requiring this file cannot emit a warning.
@@ -268,4 +269,39 @@ function run_governance_tests(): void
     $pdo->prepare("UPDATE provider_registry SET deleted_at = NULL WHERE id = ?")->execute([$govProviderId]);
     $restoredProvider = (int) $pdo->query("SELECT COUNT(*) FROM provider_registry WHERE id = {$govProviderId} AND deleted_at IS NULL")->fetchColumn();
     TestHarness::assertEqual(1, $restoredProvider, 'Soft-delete: restored provider is visible again');
+
+    // =====================================================================
+    // 13. Soft-delete: marketplace_sellers read isolation + restore
+    // =====================================================================
+    marketplace_ensure_schema($pdo);
+    $govSellerEmail = 'gov_seller_' . bin2hex(random_bytes(3)) . '@example.test';
+    $pdo->prepare("INSERT INTO users (name, email, password, role, platform_role, account_status, created_at) VALUES ('Gov Seller', ?, 'x', 'grower', 'seller', 'active', NOW())")->execute([$govSellerEmail]);
+    $govSellerUserId = (int) $pdo->lastInsertId();
+    $govSellerSlug = 'gov-seller-' . bin2hex(random_bytes(4));
+    $pdo->prepare("INSERT INTO marketplace_sellers (user_id, seller_type, store_name, slug, approval_status, verification_status) VALUES (?, 'grower', ?, ?, 'approved', 'verified')")
+        ->execute([$govSellerUserId, 'Gov Seller Store', $govSellerSlug]);
+    $govSellerId = (int) $pdo->lastInsertId();
+
+    $liveSeller = (int) $pdo->query("SELECT COUNT(*) FROM marketplace_sellers WHERE id = {$govSellerId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $liveSeller, 'Soft-delete: live marketplace seller is visible to the filtered read');
+    TestHarness::assert(marketplace_current_seller($pdo, $govSellerUserId) !== null, 'Soft-delete: live seller resolves for its owner');
+
+    // The approved-delete path must soft-delete (set deleted_at), never remove the row,
+    // so the listings, orders and payouts that reference the seller survive.
+    admin_execute_approved_delete($pdo, [
+        'id' => 0,
+        'target_table' => 'marketplace_sellers',
+        'target_id' => $govSellerId,
+        'target_key' => null,
+        'payload_json' => null,
+    ]);
+    $hiddenSeller = (int) $pdo->query("SELECT COUNT(*) FROM marketplace_sellers WHERE id = {$govSellerId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(0, $hiddenSeller, 'Soft-delete: approved delete hides the marketplace seller from the filtered read');
+    TestHarness::assertEqual(1, (int) $pdo->query("SELECT COUNT(*) FROM marketplace_sellers WHERE id = {$govSellerId}")->fetchColumn(), 'Soft-delete: approved delete keeps the marketplace_sellers row');
+    TestHarness::assert($pdo->query("SELECT deleted_at FROM marketplace_sellers WHERE id = {$govSellerId}")->fetchColumn() !== false, 'Soft-delete: approved delete stamps deleted_at on marketplace_sellers');
+    TestHarness::assert(marketplace_current_seller($pdo, $govSellerUserId) === null, 'Soft-delete: deleted seller loses seller-central context');
+
+    $pdo->prepare("UPDATE marketplace_sellers SET deleted_at = NULL WHERE id = ?")->execute([$govSellerId]);
+    $restoredSeller = (int) $pdo->query("SELECT COUNT(*) FROM marketplace_sellers WHERE id = {$govSellerId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $restoredSeller, 'Soft-delete: restored marketplace seller is visible again');
 }

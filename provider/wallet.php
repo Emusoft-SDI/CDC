@@ -62,7 +62,8 @@ $wdStmt->execute([(int) $wallet['id']]);
 $withdrawals = $wdStmt->fetchAll();
 $sellerRows = [];
 if (app_table_exists($pdo, 'marketplace_sellers') && app_table_exists($pdo, 'marketplace_orders')) {
-    $stmt = $pdo->prepare("SELECT o.*, l.title listing_title, s.store_name FROM marketplace_orders o JOIN marketplace_sellers s ON s.id=o.seller_id LEFT JOIN marketplace_listings l ON l.id=o.listing_id WHERE s.user_id=? ORDER BY o.created_at DESC LIMIT 40");
+    $msSoft = app_column_exists($pdo, 'marketplace_sellers', 'deleted_at') ? ' AND s.deleted_at IS NULL' : '';
+    $stmt = $pdo->prepare("SELECT o.*, l.title listing_title, s.store_name FROM marketplace_orders o JOIN marketplace_sellers s ON s.id=o.seller_id{$msSoft} LEFT JOIN marketplace_listings l ON l.id=o.listing_id WHERE s.user_id=? ORDER BY o.created_at DESC LIMIT 40");
     $stmt->execute([$userId]);
     $sellerRows = $stmt->fetchAll();
 }

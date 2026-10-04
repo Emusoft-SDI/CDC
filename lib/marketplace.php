@@ -167,6 +167,7 @@ function marketplace_ensure_schema(PDO $pdo): void
     ");
     app_ensure_primary_auto_increment($pdo, 'marketplace_sellers');
     app_add_column_if_missing($pdo, 'marketplace_sellers', 'logo_path', "VARCHAR(255) NULL");
+    app_add_column_if_missing($pdo, 'marketplace_sellers', 'deleted_at', "DATETIME NULL");
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS marketplace_listings (
@@ -610,10 +611,12 @@ function marketplace_active_promotions(PDO $pdo, string $placement, int $limit =
     if (!app_table_exists($pdo, 'marketplace_promotions')) {
         return [];
     }
+    // Keep the promotion row; a soft-deleted seller simply stops enriching it.
+    $msSoft = app_column_exists($pdo, 'marketplace_sellers', 'deleted_at') ? ' AND s.deleted_at IS NULL' : '';
     $stmt = $pdo->prepare("
         SELECT p.*, s.store_name, s.slug seller_slug, l.title listing_title
         FROM marketplace_promotions p
-        LEFT JOIN marketplace_sellers s ON s.id = p.seller_id
+        LEFT JOIN marketplace_sellers s ON s.id = p.seller_id{$msSoft}
         LEFT JOIN marketplace_listings l ON l.id = p.listing_id
         WHERE p.placement = ?
           AND p.status = 'active'
@@ -646,7 +649,9 @@ function marketplace_categories(PDO $pdo, ?string $type = null): array
 
 function marketplace_current_seller(PDO $pdo, int $userId): ?array
 {
-    $stmt = $pdo->prepare("SELECT * FROM marketplace_sellers WHERE user_id = ? ORDER BY id DESC LIMIT 1");
+    // Soft-deleted sellers lose seller-central/storefront context.
+    $msSoft = app_column_exists($pdo, 'marketplace_sellers', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+    $stmt = $pdo->prepare("SELECT * FROM marketplace_sellers WHERE user_id = ?{$msSoft} ORDER BY id DESC LIMIT 1");
     $stmt->execute([$userId]);
     $seller = $stmt->fetch();
     return $seller ?: null;

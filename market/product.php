@@ -10,7 +10,7 @@ $stmt = $pdo->prepare("
     SELECT l.*, c.name category_name, s.store_name, s.slug seller_slug, s.seller_type, s.verification_status, s.location_label seller_location,
            s.contact_person, s.phone seller_phone, s.email seller_email, s.whatsapp seller_whatsapp, s.coverage_area, s.fulfillment_options
     FROM marketplace_listings l
-    JOIN marketplace_sellers s ON s.id = l.seller_id
+    JOIN marketplace_sellers s ON s.id = l.seller_id AND s.deleted_at IS NULL
     LEFT JOIN marketplace_categories c ON c.id = l.category_id
     WHERE l.id = ? AND l.approval_status = 'approved' AND s.approval_status = 'approved'
     LIMIT 1
@@ -95,7 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $relatedStmt = $pdo->prepare("
     SELECT l.*, c.name category_name, s.store_name, s.slug seller_slug, s.seller_type, s.verification_status, s.location_label seller_location
     FROM marketplace_listings l
-    JOIN marketplace_sellers s ON s.id = l.seller_id
+    JOIN marketplace_sellers s ON s.id = l.seller_id AND s.deleted_at IS NULL
     LEFT JOIN marketplace_categories c ON c.id = l.category_id
     WHERE l.id <> ? AND l.approval_status = 'approved' AND s.approval_status = 'approved'
       AND (l.category_id = ? OR l.seller_id = ?)

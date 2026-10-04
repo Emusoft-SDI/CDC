@@ -208,7 +208,7 @@ $activeUsers = rx_scalar($pdo, "SELECT COUNT(*) FROM users WHERE COALESCE(accoun
 $pendingUsers = rx_scalar($pdo, "SELECT COUNT(*) FROM users WHERE COALESCE(account_status,'active') IN ('needs_confirmation','pending','unconfirmed') OR email_verified_at IS NULL");
 $totalApplications = rx_scalar($pdo, "SELECT COUNT(*) FROM applications");
 $totalProviders = rx_scalar($pdo, "SELECT COUNT(*) FROM provider_registry WHERE deleted_at IS NULL");
-$totalSellers = rx_scalar($pdo, "SELECT COUNT(*) FROM marketplace_sellers");
+$totalSellers = rx_scalar($pdo, "SELECT COUNT(*) FROM marketplace_sellers WHERE deleted_at IS NULL");
 $totalBuyers = rx_scalar($pdo, "SELECT COUNT(*) FROM buyer_profiles");
 $totalLearners = rx_scalar($pdo, "SELECT COUNT(DISTINCT user_id) FROM webinar_registrations");
 $openSupport = rx_scalar($pdo, "SELECT COUNT(*) FROM support_tickets WHERE status NOT IN ('resolved','closed','rejected')");
@@ -222,16 +222,16 @@ $todayStart = date('Y-m-d') . ' 00:00:00';
 $newUsersToday = rx_scalar($pdo, 'SELECT COUNT(*) FROM users WHERE created_at >= ?', [$todayStart]);
 $newVerifiedToday = rx_scalar($pdo, "SELECT COUNT(*) FROM users WHERE email_verified_at >= ? AND COALESCE(account_status,'active')='active'", [$todayStart]);
 $newProviderProfilesToday = rx_scalar($pdo, 'SELECT COUNT(*) FROM provider_registry WHERE created_at >= ? AND deleted_at IS NULL', [$todayStart]);
-$newSellerProfilesToday = rx_scalar($pdo, 'SELECT COUNT(*) FROM marketplace_sellers WHERE created_at >= ?', [$todayStart]);
+$newSellerProfilesToday = rx_scalar($pdo, 'SELECT COUNT(*) FROM marketplace_sellers WHERE created_at >= ? AND deleted_at IS NULL', [$todayStart]);
 $pendingProviderProfiles = rx_scalar($pdo, "SELECT COUNT(*) FROM provider_registry WHERE status IN ('pending_review','under_review','needs_confirmation') AND deleted_at IS NULL");
-$pendingSellerProfiles = rx_scalar($pdo, "SELECT COUNT(*) FROM marketplace_sellers WHERE approval_status IN ('pending','unverified')");
+$pendingSellerProfiles = rx_scalar($pdo, "SELECT COUNT(*) FROM marketplace_sellers WHERE approval_status IN ('pending','unverified') AND deleted_at IS NULL");
 $pendingGrowerApplications = rx_scalar($pdo, "SELECT COUNT(*) FROM applications WHERE review_status IN ('pending','under_review') OR confirmed = 0");
 $verifiedUsers = rx_scalar($pdo, "SELECT COUNT(*) FROM users WHERE email_verified_at IS NOT NULL AND COALESCE(account_status,'active')='active'");
 $approvedProviderToday = app_table_exists($pdo, 'provider_registry') && app_column_exists($pdo, 'provider_registry', 'updated_at') ? rx_scalar($pdo, "SELECT COUNT(*) FROM provider_registry WHERE status IN ('approved','active') AND updated_at >= ? AND deleted_at IS NULL", [$todayStart]) : 0;
-$approvedSellerToday = app_table_exists($pdo, 'marketplace_sellers') && app_column_exists($pdo, 'marketplace_sellers', 'updated_at') ? rx_scalar($pdo, "SELECT COUNT(*) FROM marketplace_sellers WHERE approval_status = 'approved' AND updated_at >= ?", [$todayStart]) : 0;
+$approvedSellerToday = app_table_exists($pdo, 'marketplace_sellers') && app_column_exists($pdo, 'marketplace_sellers', 'updated_at') ? rx_scalar($pdo, "SELECT COUNT(*) FROM marketplace_sellers WHERE approval_status = 'approved' AND updated_at >= ? AND deleted_at IS NULL", [$todayStart]) : 0;
 $approvalVelocity = $approvedProviderToday + $approvedSellerToday;
 $oldestPendingProviderHours = app_table_exists($pdo, 'provider_registry') && app_column_exists($pdo, 'provider_registry', 'created_at') ? rx_scalar($pdo, "SELECT COALESCE(TIMESTAMPDIFF(HOUR, MIN(created_at), NOW()), 0) FROM provider_registry WHERE status IN ('pending_review','under_review','needs_confirmation') AND deleted_at IS NULL") : 0;
-$oldestPendingSellerHours = app_table_exists($pdo, 'marketplace_sellers') && app_column_exists($pdo, 'marketplace_sellers', 'created_at') ? rx_scalar($pdo, "SELECT COALESCE(TIMESTAMPDIFF(HOUR, MIN(created_at), NOW()), 0) FROM marketplace_sellers WHERE approval_status IN ('pending','unverified')") : 0;
+$oldestPendingSellerHours = app_table_exists($pdo, 'marketplace_sellers') && app_column_exists($pdo, 'marketplace_sellers', 'created_at') ? rx_scalar($pdo, "SELECT COALESCE(TIMESTAMPDIFF(HOUR, MIN(created_at), NOW()), 0) FROM marketplace_sellers WHERE approval_status IN ('pending','unverified') AND deleted_at IS NULL") : 0;
 $oldestPendingApplicationHours = app_table_exists($pdo, 'applications') && app_column_exists($pdo, 'applications', 'created_at') ? rx_scalar($pdo, "SELECT COALESCE(TIMESTAMPDIFF(HOUR, MIN(created_at), NOW()), 0) FROM applications WHERE review_status IN ('pending','under_review') OR confirmed = 0") : 0;
 $dataReflectionNote = date('j M Y H:i');
 
@@ -369,7 +369,7 @@ foreach (rx_rows($pdo, "SELECT pr.*, u.account_status FROM provider_registry pr 
     ]);
 }
 
-foreach (rx_rows($pdo, "SELECT ms.*, u.email user_email, u.account_status FROM marketplace_sellers ms LEFT JOIN users u ON u.id=ms.user_id ORDER BY ms.created_at DESC LIMIT 300") as $s) {
+foreach (rx_rows($pdo, "SELECT ms.*, u.email user_email, u.account_status FROM marketplace_sellers ms LEFT JOIN users u ON u.id=ms.user_id WHERE ms.deleted_at IS NULL ORDER BY ms.created_at DESC LIMIT 300") as $s) {
     $addRow([
         'user_id' => (int) ($s['user_id'] ?? 0),
         'ref' => 'SEL-' . str_pad((string) ($s['id'] ?? 0), 5, '0', STR_PAD_LEFT),

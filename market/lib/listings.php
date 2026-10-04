@@ -4,6 +4,10 @@ declare(strict_types=1);
 function market_listing_query(PDO $pdo, array $filters = [], int $limit = 24): array
 {
     $where = ["l.approval_status = 'approved'", "s.approval_status = 'approved'"];
+    if (app_column_exists($pdo, 'marketplace_sellers', 'deleted_at')) {
+        // Browse/storefront: a soft-deleted seller's listings drop out of the catalogue.
+        $where[] = 's.deleted_at IS NULL';
+    }
     $params = [];
     if (!empty($filters['q'])) {
         $where[] = "(l.title LIKE ? OR l.summary LIKE ? OR l.description LIKE ? OR l.location_label LIKE ? OR s.store_name LIKE ? OR s.location_label LIKE ? OR s.coverage_area LIKE ? OR c.name LIKE ?)";

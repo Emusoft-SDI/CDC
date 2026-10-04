@@ -74,8 +74,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf($_POST['_csrf'] ?? null
 
 $stats = [
     ['Buyers', mx_count($pdo, 'buyer_profiles'), 'buyers'],
-    ['Sellers', mx_count($pdo, 'marketplace_sellers'), 'sellers'],
-    ['Pending sellers', mx_count($pdo, 'marketplace_sellers', "approval_status='pending'"), 'sellers'],
+    ['Sellers', mx_count($pdo, 'marketplace_sellers', 'deleted_at IS NULL'), 'sellers'],
+    ['Pending sellers', mx_count($pdo, 'marketplace_sellers', "approval_status='pending' AND deleted_at IS NULL"), 'sellers'],
     ['Products', mx_count($pdo, 'marketplace_listings'), 'products'],
     ['Pending products', mx_count($pdo, 'marketplace_listings', "approval_status='pending'"), 'products'],
     ['Orders', mx_count($pdo, 'marketplace_orders'), 'orders'],
@@ -98,7 +98,7 @@ $buyers = mx_rows($pdo, "
     ORDER BY last_order_at IS NULL, last_order_at DESC, bp.created_at DESC
     LIMIT 500
 ");
-$sellers = mx_rows($pdo, "SELECT s.*,u.name user_name,u.email user_email,(SELECT COUNT(*) FROM marketplace_listings l WHERE l.seller_id=s.id) listing_count FROM marketplace_sellers s LEFT JOIN users u ON u.id=s.user_id ORDER BY FIELD(s.approval_status,'pending','approved','rejected','suspended'),s.created_at DESC LIMIT 500");
+$sellers = mx_rows($pdo, "SELECT s.*,u.name user_name,u.email user_email,(SELECT COUNT(*) FROM marketplace_listings l WHERE l.seller_id=s.id) listing_count FROM marketplace_sellers s LEFT JOIN users u ON u.id=s.user_id WHERE s.deleted_at IS NULL ORDER BY FIELD(s.approval_status,'pending','approved','rejected','suspended'),s.created_at DESC LIMIT 500");
 $listings = mx_rows($pdo, "SELECT l.*,s.store_name,c.name category_name FROM marketplace_listings l JOIN marketplace_sellers s ON s.id=l.seller_id LEFT JOIN marketplace_categories c ON c.id=l.category_id ORDER BY FIELD(l.approval_status,'pending','approved','rejected','suspended'),l.created_at DESC LIMIT 500");
 $orders = mx_rows($pdo, "SELECT o.*,l.title listing_title,s.store_name,u.email buyer_account_email FROM marketplace_orders o JOIN marketplace_listings l ON l.id=o.listing_id JOIN marketplace_sellers s ON s.id=o.seller_id LEFT JOIN users u ON u.id=o.buyer_user_id ORDER BY o.created_at DESC LIMIT 500");
 $inquiries = mx_rows($pdo, "SELECT i.*,l.title listing_title,s.store_name FROM marketplace_inquiries i JOIN marketplace_listings l ON l.id=i.listing_id JOIN marketplace_sellers s ON s.id=i.seller_id ORDER BY i.created_at DESC LIMIT 500");

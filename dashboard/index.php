@@ -230,7 +230,8 @@ try {
 
     $sellerStats = ['listings' => 0, 'orders' => 0, 'sales' => 0.0];
     if (app_table_exists($pdo, 'marketplace_sellers')) {
-        $sellerStmt = $pdo->prepare("SELECT id FROM marketplace_sellers WHERE user_id = ? ORDER BY id DESC LIMIT 1");
+        $msSoft = app_column_exists($pdo, 'marketplace_sellers', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+        $sellerStmt = $pdo->prepare("SELECT id FROM marketplace_sellers WHERE user_id = ?{$msSoft} ORDER BY id DESC LIMIT 1");
         $sellerStmt->execute([$userId]);
         $sellerId = (int) ($sellerStmt->fetchColumn() ?: 0);
         if ($sellerId > 0 && app_table_exists($pdo, 'marketplace_listings')) {
