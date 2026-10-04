@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * NATCODEV Super Admin Governance Test Suite
  * Covers the governance controls added to the console:
- * - Soft-delete (notification_templates, staff_profiles, farm_verifications, user_import_records, document_requirements, grower_farms, provider_registry, marketplace_sellers) read isolation + reactivation
+ * - Soft-delete (notification_templates, staff_profiles, farm_verifications, user_import_records, document_requirements, grower_farms, provider_registry, marketplace_sellers, certificates, academy_certificates) read isolation + reactivation
  * - Recycle-bin snapshot + restore
  * - Console-managed secrets (settings-first, .env fallback)
  * - Module mode kill-switch (paused/setup disables a module)
@@ -304,4 +304,70 @@ function run_governance_tests(): void
     $pdo->prepare("UPDATE marketplace_sellers SET deleted_at = NULL WHERE id = ?")->execute([$govSellerId]);
     $restoredSeller = (int) $pdo->query("SELECT COUNT(*) FROM marketplace_sellers WHERE id = {$govSellerId} AND deleted_at IS NULL")->fetchColumn();
     TestHarness::assertEqual(1, $restoredSeller, 'Soft-delete: restored marketplace seller is visible again');
+
+    // =====================================================================
+    // 14. Soft-delete: certificates read isolation + restore
+    // =====================================================================
+    app_ensure_certificate_schema($pdo);
+    $govCertAppRef = 'GOVCERT-' . strtoupper(bin2hex(random_bytes(4)));
+    $pdo->prepare("INSERT INTO applications (app_ref, name, location, farm_size, phone, email, commitments, confirmed) VALUES (?, 'Gov Cert Grower', 'Lagos', 4.5, ?, ?, 'confirmed', 1)")
+        ->execute([$govCertAppRef, '234' . random_int(1000000000, 9999999999), strtolower($govCertAppRef) . '@example.test']);
+    $govCertAppId = (int) $pdo->lastInsertId();
+    $govCertRef = 'CERT-' . strtoupper(bin2hex(random_bytes(4)));
+    $pdo->prepare("INSERT INTO certificates (certificate_ref, application_id, user_id, certificate_path, status, qr_code_hash) VALUES (?, ?, ?, ?, 'issued', ?)")
+        ->execute([$govCertRef, $govCertAppId, $staffUserId, 'certificates/gov-' . strtolower($govCertRef) . '.html', $govCertRef]);
+    $govCertId = (int) $pdo->lastInsertId();
+
+    $liveCert = (int) $pdo->query("SELECT COUNT(*) FROM certificates WHERE id = {$govCertId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $liveCert, 'Soft-delete: live certificate is visible to the filtered read');
+
+    // The approved-delete path must soft-delete (set deleted_at), never remove the row,
+    // so the application, payments, and reports that reference it survive.
+    admin_execute_approved_delete($pdo, [
+        'id' => 0,
+        'target_table' => 'certificates',
+        'target_id' => $govCertId,
+        'target_key' => null,
+        'payload_json' => null,
+    ]);
+    $hiddenCert = (int) $pdo->query("SELECT COUNT(*) FROM certificates WHERE id = {$govCertId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(0, $hiddenCert, 'Soft-delete: approved delete hides the certificate from the filtered read');
+    TestHarness::assertEqual(1, (int) $pdo->query("SELECT COUNT(*) FROM certificates WHERE id = {$govCertId}")->fetchColumn(), 'Soft-delete: approved delete keeps the certificates row');
+    TestHarness::assert($pdo->query("SELECT deleted_at FROM certificates WHERE id = {$govCertId}")->fetchColumn() !== false, 'Soft-delete: approved delete stamps deleted_at on certificates');
+
+    $pdo->prepare("UPDATE certificates SET deleted_at = NULL WHERE id = ?")->execute([$govCertId]);
+    $restoredCert = (int) $pdo->query("SELECT COUNT(*) FROM certificates WHERE id = {$govCertId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $restoredCert, 'Soft-delete: restored certificate is visible again');
+
+    // =====================================================================
+    // 15. Soft-delete: academy_certificates read isolation + restore
+    // =====================================================================
+    academy_ensure_schema($pdo);
+    $pdo->prepare("INSERT INTO webinars (title, start_time) VALUES (?, NOW())")->execute(['Gov Academy ' . bin2hex(random_bytes(3))]);
+    $govWebinarId = (int) $pdo->lastInsertId();
+    $govAcadRef = 'NAT-ACAD-GOV-' . strtoupper(bin2hex(random_bytes(4)));
+    $pdo->prepare("INSERT INTO academy_certificates (user_id, webinar_id, certificate_ref, status, issued_at) VALUES (?, ?, ?, 'issued', NOW())")
+        ->execute([$staffUserId, $govWebinarId, $govAcadRef]);
+    $govAcadId = (int) $pdo->lastInsertId();
+
+    $liveAcad = (int) $pdo->query("SELECT COUNT(*) FROM academy_certificates WHERE id = {$govAcadId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $liveAcad, 'Soft-delete: live academy certificate is visible to the filtered read');
+
+    // The approved-delete path must soft-delete (set deleted_at), never remove the row,
+    // so the registration and Academy history that reference it survive.
+    admin_execute_approved_delete($pdo, [
+        'id' => 0,
+        'target_table' => 'academy_certificates',
+        'target_id' => $govAcadId,
+        'target_key' => null,
+        'payload_json' => null,
+    ]);
+    $hiddenAcad = (int) $pdo->query("SELECT COUNT(*) FROM academy_certificates WHERE id = {$govAcadId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(0, $hiddenAcad, 'Soft-delete: approved delete hides the academy certificate from the filtered read');
+    TestHarness::assertEqual(1, (int) $pdo->query("SELECT COUNT(*) FROM academy_certificates WHERE id = {$govAcadId}")->fetchColumn(), 'Soft-delete: approved delete keeps the academy_certificates row');
+    TestHarness::assert($pdo->query("SELECT deleted_at FROM academy_certificates WHERE id = {$govAcadId}")->fetchColumn() !== false, 'Soft-delete: approved delete stamps deleted_at on academy_certificates');
+
+    $pdo->prepare("UPDATE academy_certificates SET deleted_at = NULL WHERE id = ?")->execute([$govAcadId]);
+    $restoredAcad = (int) $pdo->query("SELECT COUNT(*) FROM academy_certificates WHERE id = {$govAcadId} AND deleted_at IS NULL")->fetchColumn();
+    TestHarness::assertEqual(1, $restoredAcad, 'Soft-delete: restored academy certificate is visible again');
 }

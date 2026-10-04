@@ -96,7 +96,8 @@ $fieldVisits = stakeholder_scalar($pdo, "
 $documentsTotal = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM document_requirements WHERE user_id = ?{$docSoft}", [$userId]);
 $documentsVerified = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM document_requirements WHERE user_id = ? AND verification_status = 'verified'{$docSoft}", [$userId]);
 $documentsPending = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM document_requirements WHERE user_id = ? AND verification_status IN ('pending','needs_review'){$docSoft}", [$userId]);
-$certificateCount = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM certificates WHERE user_id = ? OR application_id = (SELECT application_id FROM users WHERE id = ? LIMIT 1)", [$userId, $userId]);
+$certSoft = app_column_exists($pdo, 'certificates', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+$certificateCount = stakeholder_scalar($pdo, "SELECT COUNT(*) FROM certificates WHERE (user_id = ? OR application_id = (SELECT application_id FROM users WHERE id = ? LIMIT 1)){$certSoft}", [$userId, $userId]);
 $walletBalance = stakeholder_scalar($pdo, "SELECT COALESCE(balance, 0) FROM wallets WHERE user_id = ?", [$userId], true);
 $walletVolume = stakeholder_scalar($pdo, "
     SELECT COALESCE(SUM(wt.amount), 0)

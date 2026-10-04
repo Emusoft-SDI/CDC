@@ -76,7 +76,7 @@ $providers = nd_count($pdo, 'provider_registry', "status IN ('approved','verifie
 $academyRegistrations = nd_count($pdo, 'webinar_registrations');
 $academyCompleted = nd_count($pdo, 'webinar_registrations', "completion_status = 'completed'");
 $academyCompletion = nd_pct($academyCompleted, $academyRegistrations);
-$certificatesIssued = nd_count($pdo, 'academy_certificates', "status = 'issued'");
+$certificatesIssued = nd_count($pdo, 'academy_certificates', "status = 'issued' AND deleted_at IS NULL");
 $supportEscalations = nd_count($pdo, 'support_tickets', "status = 'escalated' OR priority = 'high'");
 $pendingDocuments = nd_count($pdo, 'document_requirements', "verification_status IN ('pending','needs_review') AND deleted_at IS NULL");
 $survivalRate = $farms > 0 ? 92.4 : 0.0;

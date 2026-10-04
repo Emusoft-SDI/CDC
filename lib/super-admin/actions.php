@@ -308,7 +308,8 @@ function super_admin_review_certificate_revocation(PDO $pdo): string
         throw new RuntimeException('Select a valid revocation request and decision.');
     }
 
-    $stmt = $pdo->prepare("SELECT ar.*, c.certificate_ref, c.status certificate_status FROM admin_action_requests ar LEFT JOIN certificates c ON c.id = ar.target_id WHERE ar.id = ? AND ar.request_type = 'revoke_certificate' AND ar.target_table = 'certificates' AND ar.status = 'pending' LIMIT 1");
+    $certSoft = app_column_exists($pdo, 'certificates', 'deleted_at') ? ' AND c.deleted_at IS NULL' : '';
+    $stmt = $pdo->prepare("SELECT ar.*, c.certificate_ref, c.status certificate_status FROM admin_action_requests ar LEFT JOIN certificates c ON c.id = ar.target_id{$certSoft} WHERE ar.id = ? AND ar.request_type = 'revoke_certificate' AND ar.target_table = 'certificates' AND ar.status = 'pending' LIMIT 1");
     $stmt->execute([$requestId]);
     $request = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$request) {

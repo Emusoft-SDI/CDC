@@ -285,6 +285,7 @@ function academy_ensure_schema(PDO $pdo): void
     app_add_column_if_missing($pdo, 'academy_certificates', 'certificate_pdf_path', 'VARCHAR(255) NULL');
     app_add_column_if_missing($pdo, 'academy_certificates', 'resubmission_notes', 'TEXT NULL');
     app_add_column_if_missing($pdo, 'academy_certificates', 'resubmitted_at', 'DATETIME NULL');
+    app_add_column_if_missing($pdo, 'academy_certificates', 'deleted_at', 'DATETIME NULL');
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS academy_certificate_groups (

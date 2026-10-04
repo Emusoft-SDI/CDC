@@ -169,11 +169,12 @@ try {
 
     $certificate = null;
     if (!empty($profile['application_id'])) {
+        $certSoft = app_column_exists($pdo, 'certificates', 'deleted_at') ? ' AND c.deleted_at IS NULL' : '';
         $certStmt = $pdo->prepare("
             SELECT c.*, COALESCE(c.certificate_ref, c.qr_code_hash, a.app_ref) display_ref
             FROM certificates c
             JOIN applications a ON a.id = c.application_id
-            WHERE c.application_id = ? AND COALESCE(c.status, 'issued') = 'issued'
+            WHERE c.application_id = ? AND COALESCE(c.status, 'issued') = 'issued'{$certSoft}
             ORDER BY c.issued_at DESC
             LIMIT 1
         ");
@@ -206,7 +207,8 @@ try {
         }
     }
     if (app_table_exists($pdo, 'academy_certificates')) {
-        $academy['certificates'] += gd_count($pdo, "SELECT COUNT(*) FROM academy_certificates WHERE user_id = ? AND status = 'issued'", [$userId]);
+        $acSoft = app_column_exists($pdo, 'academy_certificates', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+        $academy['certificates'] += gd_count($pdo, "SELECT COUNT(*) FROM academy_certificates WHERE user_id = ? AND status = 'issued'{$acSoft}", [$userId]);
     }
     if (app_table_exists($pdo, 'academy_group_certificates')) {
         $academy['certificates'] += gd_count($pdo, "SELECT COUNT(*) FROM academy_group_certificates WHERE user_id = ? AND status = 'issued'", [$userId]);

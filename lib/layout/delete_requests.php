@@ -193,12 +193,22 @@ function admin_execute_approved_delete(PDO $pdo, array $request): void
     }
 
     if ($table === 'certificates') {
-        $pdo->prepare('DELETE FROM certificates WHERE id = ?')->execute([$id]);
+        if (app_column_exists($pdo, 'certificates', 'deleted_at')) {
+            // In-place soft-delete: keep the row so applications, payments, and reports that reference it survive.
+            $pdo->prepare('UPDATE certificates SET deleted_at = NOW() WHERE id = ?')->execute([$id]);
+        } else {
+            $pdo->prepare('DELETE FROM certificates WHERE id = ?')->execute([$id]);
+        }
         return;
     }
 
     if ($table === 'academy_certificates') {
-        $pdo->prepare('DELETE FROM academy_certificates WHERE id = ?')->execute([$id]);
+        if (app_column_exists($pdo, 'academy_certificates', 'deleted_at')) {
+            // In-place soft-delete: keep the row so registrations and Academy history that reference it survive.
+            $pdo->prepare('UPDATE academy_certificates SET deleted_at = NOW() WHERE id = ?')->execute([$id]);
+        } else {
+            $pdo->prepare('DELETE FROM academy_certificates WHERE id = ?')->execute([$id]);
+        }
         return;
     }
 

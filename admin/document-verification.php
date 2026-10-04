@@ -131,6 +131,7 @@ try {
         FROM certificates c
         JOIN applications a ON a.id = c.application_id
         LEFT JOIN users u ON u.id = c.user_id
+        WHERE c.deleted_at IS NULL
         ORDER BY c.issued_at DESC
         LIMIT 120
     ")->fetchAll();

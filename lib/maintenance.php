@@ -388,6 +388,7 @@ if (!function_exists('app_ensure_certificate_schema')) {
     app_add_column_if_missing($pdo, 'certificates', 'verification_url', "VARCHAR(255) NULL");
     app_add_column_if_missing($pdo, 'certificates', 'revoked_at', "DATETIME NULL");
     app_add_column_if_missing($pdo, 'certificates', 'revoked_reason', "TEXT NULL");
+    app_add_column_if_missing($pdo, 'certificates', 'deleted_at', "DATETIME NULL");
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS certificate_types (
             id INT AUTO_INCREMENT PRIMARY KEY,

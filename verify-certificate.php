@@ -37,6 +37,7 @@ function vc_lookup_certificate(PDO $pdo, string $ref): ?array
 
     academy_ensure_schema($pdo);
     if (app_table_exists($pdo, 'academy_certificates')) {
+        $acSoft = app_column_exists($pdo, 'academy_certificates', 'deleted_at') ? ' AND c.deleted_at IS NULL' : '';
         $stmt = $pdo->prepare("
             SELECT c.certificate_ref, c.status, c.user_id, c.issued_at, c.certificate_pdf_path, NULL expires_at, NULL revoked_at, NULL revoked_reason,
                    u.name, w.title app_ref, 'NATCODEV Academy' certificate_program,
@@ -44,7 +45,7 @@ function vc_lookup_certificate(PDO $pdo, string $ref): ?array
             FROM academy_certificates c
             JOIN users u ON u.id = c.user_id
             JOIN webinars w ON w.id = c.webinar_id
-            WHERE c.certificate_ref = ?
+            WHERE c.certificate_ref = ?{$acSoft}
             LIMIT 1
         ");
         $stmt->execute([$ref]);

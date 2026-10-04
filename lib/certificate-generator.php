@@ -147,6 +147,7 @@ function certificate_qr_svg(string $value, int $cells = 17): string
 function findCertificate(string $ref, PDO $pdo): ?array
 {
     app_ensure_certificate_schema($pdo);
+    $certSoft = app_column_exists($pdo, 'certificates', 'deleted_at') ? ' AND c.deleted_at IS NULL' : '';
     $stmt = $pdo->prepare("
         SELECT COALESCE(c.certificate_ref, c.qr_code_hash, a.app_ref) certificate_ref,
                COALESCE(c.status, 'issued') status,
@@ -154,7 +155,7 @@ function findCertificate(string $ref, PDO $pdo): ?array
                a.app_ref, a.name, a.location, a.farm_size
         FROM certificates c
         JOIN applications a ON a.id = c.application_id
-        WHERE c.certificate_ref = ? OR c.qr_code_hash = ? OR a.app_ref = ?
+        WHERE (c.certificate_ref = ? OR c.qr_code_hash = ? OR a.app_ref = ?){$certSoft}
         ORDER BY c.issued_at DESC
         LIMIT 1
     ");

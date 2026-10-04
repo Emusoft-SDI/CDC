@@ -322,7 +322,8 @@ function grower_certificate_pay_access(PDO $pdo, int $userId, int $applicationId
     }
     $certificate = null;
     if ($certificateId) {
-        $certStmt = $pdo->prepare('SELECT * FROM certificates WHERE id = ? AND user_id = ? LIMIT 1');
+        $certSoft = app_column_exists($pdo, 'certificates', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+        $certStmt = $pdo->prepare('SELECT * FROM certificates WHERE id = ? AND user_id = ?' . $certSoft . ' LIMIT 1');
         $certStmt->execute([$certificateId, $userId]);
         $certificate = $certStmt->fetch(PDO::FETCH_ASSOC) ?: null;
     }
@@ -533,7 +534,8 @@ function grower_certificate_readiness(int $userId, PDO $pdo): array
     $accessRequired = grower_certificate_access_required($pdo, $grower);
     $add('access_fee', 'Certificate access fee policy', true, $accessRequired ? 'Access or renewal fee is collected before viewing or downloading the issued certificate.' : 'No certificate access fee is currently required.');
 
-    $issuedStmt = $pdo->prepare("SELECT COUNT(*) FROM certificates WHERE application_id = ? AND status = 'issued'");
+    $certSoft = app_column_exists($pdo, 'certificates', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+    $issuedStmt = $pdo->prepare("SELECT COUNT(*) FROM certificates WHERE application_id = ? AND status = 'issued'{$certSoft}");
     $issuedStmt->execute([(int) $grower['application_id']]);
     $issued = (int) $issuedStmt->fetchColumn() > 0;
     $ready = !array_filter($checks, static fn(array $check): bool => !$check['passed']);
@@ -550,10 +552,11 @@ function generateCertificate(int $applicationId, int $userId, PDO $pdo): array
     app_ensure_core_schema($pdo);
     app_ensure_certificate_schema($pdo);
 
+    $certSoft = app_column_exists($pdo, 'certificates', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
     $existing = $pdo->prepare("
         SELECT *
         FROM certificates
-        WHERE application_id = ? AND status = 'issued'
+        WHERE application_id = ? AND status = 'issued'{$certSoft}
         ORDER BY issued_at DESC
         LIMIT 1
     ");

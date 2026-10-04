@@ -423,6 +423,7 @@ $certificates = $pdo->query("
     FROM academy_certificates c
     JOIN users u ON u.id = c.user_id
     JOIN webinars w ON w.id = c.webinar_id
+    WHERE c.deleted_at IS NULL
     UNION ALL
     SELECT gc.id, gc.user_id, gc.certificate_ref, gc.status, gc.requested_at, gc.issued_at, gc.notes,
            'group' certificate_kind, u.name user_name, u.email, g.title course_title
@@ -497,13 +498,13 @@ $stats = [
     'lessons' => (int) $pdo->query("SELECT COUNT(*) FROM academy_lessons")->fetchColumn(),
     'enrollments' => (int) $pdo->query("SELECT COUNT(*) FROM webinar_registrations")->fetchColumn(),
     'completed' => (int) $pdo->query("SELECT COUNT(*) FROM webinar_registrations WHERE completion_status = 'completed'")->fetchColumn(),
-    'certificates' => (int) $pdo->query("SELECT COUNT(*) FROM academy_certificates")->fetchColumn(),
+    'certificates' => (int) $pdo->query("SELECT COUNT(*) FROM academy_certificates WHERE deleted_at IS NULL")->fetchColumn(),
     'cohorts' => (int) $pdo->query("SELECT COUNT(*) FROM academy_cohorts")->fetchColumn(),
     'attendance' => (int) $pdo->query("SELECT COUNT(*) FROM academy_attendance")->fetchColumn(),
     'feedback' => (int) $pdo->query("SELECT COUNT(*) FROM academy_feedback")->fetchColumn(),
 ];
 $stats['active_courses'] = (int) $pdo->query("SELECT COUNT(*) FROM webinars WHERE status = 'active'")->fetchColumn();
-$stats['pending_certificates'] = (int) $pdo->query("SELECT COUNT(*) FROM academy_certificates WHERE status = 'pending'")->fetchColumn();
+$stats['pending_certificates'] = (int) $pdo->query("SELECT COUNT(*) FROM academy_certificates WHERE status = 'pending' AND deleted_at IS NULL")->fetchColumn();
 $stats['pending_refunds'] = (int) $pdo->query("SELECT COUNT(*) FROM academy_refund_requests WHERE status IN ('pending','under_review','approved')")->fetchColumn();
 $stats['completed_percent'] = $stats['enrollments'] > 0 ? round(((int) $stats['completed'] / (int) $stats['enrollments']) * 100, 1) : 0.0;
 $academyCollections = (float) $pdo->query("

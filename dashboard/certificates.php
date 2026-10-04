@@ -73,23 +73,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+$certSoft = app_column_exists($pdo, 'certificates', 'deleted_at') ? ' AND c.deleted_at IS NULL' : '';
 $growerStmt = $pdo->prepare("
     SELECT COALESCE(c.certificate_ref, c.qr_code_hash, a.app_ref) display_ref,
            c.id certificate_id, c.certificate_ref, c.status, c.issued_at, c.expires_at, c.verification_url, c.certificate_path, c.certificate_pdf_path,
            a.app_ref, a.name, a.location, a.member_type
     FROM certificates c
     JOIN applications a ON a.id = c.application_id
-    WHERE c.user_id = ? OR c.application_id = ?
+    WHERE (c.user_id = ? OR c.application_id = ?){$certSoft}
     ORDER BY c.issued_at DESC
 ");
 $growerStmt->execute([$userId, $applicationId]);
 $growerCertificates = $growerStmt->fetchAll();
 
+$acSoft = app_column_exists($pdo, 'academy_certificates', 'deleted_at') ? ' AND ac.deleted_at IS NULL' : '';
 $academyStmt = $pdo->prepare("
     SELECT ac.*, w.title course_title, w.certification_required
     FROM academy_certificates ac
     JOIN webinars w ON w.id = ac.webinar_id
-    WHERE ac.user_id = ?
+    WHERE ac.user_id = ?{$acSoft}
     ORDER BY ac.requested_at DESC
 ");
 $academyStmt->execute([$userId]);

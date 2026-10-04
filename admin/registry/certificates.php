@@ -37,7 +37,8 @@ if ($downloadRef !== '') {
         SELECT c.*, a.app_ref, a.name, a.location, a.farm_size
         FROM certificates c
         JOIN applications a ON a.id = c.application_id
-        WHERE c.certificate_ref = ? OR c.qr_code_hash = ?
+        WHERE (c.certificate_ref = ? OR c.qr_code_hash = ?)
+          AND c.deleted_at IS NULL
         LIMIT 1
     ");
     $stmt->execute([$downloadRef, $downloadRef]);
@@ -107,9 +108,9 @@ function cert_query_clause(string $alias, string $search, string $statusFilter, 
 }
 
 $growerCounts = [
-    'total' => rx_scalar($pdo, "SELECT COUNT(*) FROM certificates"),
-    'issued' => rx_scalar($pdo, "SELECT COUNT(*) FROM certificates WHERE status='issued'"),
-    'revoked' => rx_scalar($pdo, "SELECT COUNT(*) FROM certificates WHERE status='revoked'"),
+    'total' => rx_scalar($pdo, "SELECT COUNT(*) FROM certificates WHERE deleted_at IS NULL"),
+    'issued' => rx_scalar($pdo, "SELECT COUNT(*) FROM certificates WHERE status='issued' AND deleted_at IS NULL"),
+    'revoked' => rx_scalar($pdo, "SELECT COUNT(*) FROM certificates WHERE status='revoked' AND deleted_at IS NULL"),
 ];
 $hasProviderCertificates = app_table_exists($pdo, 'provider_accreditation_certificates') && app_table_exists($pdo, 'provider_registry');
 $providerCounts = $hasProviderCertificates ? [
@@ -118,9 +119,9 @@ $providerCounts = $hasProviderCertificates ? [
     'revoked' => rx_scalar($pdo, "SELECT COUNT(*) FROM provider_accreditation_certificates WHERE status='revoked'"),
 ] : ['total' => 0, 'issued' => 0, 'revoked' => 0];
 $academyCounts = app_table_exists($pdo, 'academy_certificates') ? [
-    'total' => rx_scalar($pdo, "SELECT COUNT(*) FROM academy_certificates"),
-    'issued' => rx_scalar($pdo, "SELECT COUNT(*) FROM academy_certificates WHERE status='issued'"),
-    'revoked' => rx_scalar($pdo, "SELECT COUNT(*) FROM academy_certificates WHERE status='revoked'"),
+    'total' => rx_scalar($pdo, "SELECT COUNT(*) FROM academy_certificates WHERE deleted_at IS NULL"),
+    'issued' => rx_scalar($pdo, "SELECT COUNT(*) FROM academy_certificates WHERE status='issued' AND deleted_at IS NULL"),
+    'revoked' => rx_scalar($pdo, "SELECT COUNT(*) FROM academy_certificates WHERE status='revoked' AND deleted_at IS NULL"),
 ] : ['total' => 0, 'issued' => 0, 'revoked' => 0];
 $groupCounts = app_table_exists($pdo, 'academy_group_certificates') ? [
     'total' => rx_scalar($pdo, "SELECT COUNT(*) FROM academy_group_certificates"),
@@ -134,6 +135,7 @@ $totalRows = 0;
 $params = [];
 if ($tab === 'grower') {
     $where = cert_query_clause('c', $search, $statusFilter, $params, ['c.certificate_ref', 'c.qr_code_hash', 'a.name', 'a.email', 'a.app_ref']);
+    $where .= ' AND c.deleted_at IS NULL';
     $totalRows = rx_scalar($pdo, "SELECT COUNT(*) FROM certificates c JOIN applications a ON a.id=c.application_id WHERE {$where}", $params);
     $rows = rx_rows($pdo, "SELECT c.*, a.name, a.email, a.app_ref, u.role, u.platform_role FROM certificates c JOIN applications a ON a.id=c.application_id LEFT JOIN users u ON u.id=c.user_id WHERE {$where} ORDER BY c.issued_at DESC, c.id DESC LIMIT {$limit} OFFSET {$offset}", $params);
 } elseif ($tab === 'provider' && $hasProviderCertificates) {
@@ -142,6 +144,7 @@ if ($tab === 'grower') {
     $rows = rx_rows($pdo, "SELECT c.*, pr.company_name, pr.contact_person, u.email, u.name user_name FROM provider_accreditation_certificates c LEFT JOIN provider_registry pr ON pr.id=c.provider_id AND pr.deleted_at IS NULL LEFT JOIN users u ON u.id=c.user_id WHERE {$where} ORDER BY c.issued_at DESC, c.id DESC LIMIT {$limit} OFFSET {$offset}", $params);
 } elseif ($tab === 'academy' && app_table_exists($pdo, 'academy_certificates')) {
     $where = cert_query_clause('c', $search, $statusFilter, $params, ['c.certificate_ref', 'u.name', 'u.email', 'w.title']);
+    $where .= ' AND c.deleted_at IS NULL';
     $totalRows = rx_scalar($pdo, "SELECT COUNT(*) FROM academy_certificates c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN webinars w ON w.id=c.webinar_id WHERE {$where}", $params);
     $rows = rx_rows($pdo, "SELECT c.*, u.name, u.email, w.title course_title FROM academy_certificates c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN webinars w ON w.id=c.webinar_id WHERE {$where} ORDER BY c.issued_at DESC, c.id DESC LIMIT {$limit} OFFSET {$offset}", $params);
 } elseif ($tab === 'grouped' && app_table_exists($pdo, 'academy_group_certificates')) {

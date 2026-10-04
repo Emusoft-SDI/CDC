@@ -23,6 +23,7 @@ if ($ref === '') {
     exit('Certificate reference is required.');
 }
 
+$certSoft = app_column_exists($pdo, 'certificates', 'deleted_at') ? ' AND c.deleted_at IS NULL' : '';
 $stmt = $pdo->prepare("
     SELECT c.id certificate_id, c.application_id, COALESCE(c.certificate_ref, c.qr_code_hash, a.app_ref) display_ref,
            COALESCE(c.status, 'issued') status,
@@ -39,7 +40,7 @@ $stmt = $pdo->prepare("
     JOIN applications a ON a.id = c.application_id
     WHERE c.user_id = ?
       AND COALESCE(c.status, 'issued') = 'issued'
-      AND (c.certificate_ref = ? OR c.qr_code_hash = ? OR a.app_ref = ?)
+      AND (c.certificate_ref = ? OR c.qr_code_hash = ? OR a.app_ref = ?){$certSoft}
     ORDER BY c.issued_at DESC
     LIMIT 1
 ");

@@ -271,7 +271,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($fixNote === '') {
                     throw new RuntimeException('Tell the review team what you fixed before resubmitting.');
                 }
-                $certStmt = $pdo->prepare("SELECT c.*, r.id registration_id FROM academy_certificates c JOIN webinar_registrations r ON r.id = c.registration_id WHERE c.id = ? AND c.user_id = ? AND c.status = 'rejected' LIMIT 1");
+                $acCertSoft = app_column_exists($pdo, 'academy_certificates', 'deleted_at') ? ' AND c.deleted_at IS NULL' : '';
+                $certStmt = $pdo->prepare("SELECT c.*, r.id registration_id FROM academy_certificates c JOIN webinar_registrations r ON r.id = c.registration_id WHERE c.id = ? AND c.user_id = ? AND c.status = 'rejected'{$acCertSoft} LIMIT 1");
                 $certStmt->execute([$certificateId, (int) $user['id']]);
                 $cert = $certStmt->fetch();
                 if (!$cert) {
@@ -363,9 +364,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($courseId <= 0) {
                     throw new RuntimeException('This is not an Academy training payment.');
                 }
+                $acCertSoft = app_column_exists($pdo, 'academy_certificates', 'deleted_at') ? ' AND c.deleted_at IS NULL' : '';
                 $regStmt = $pdo->prepare("
                     SELECT r.completion_status, r.certificate_status,
-                           (SELECT COUNT(*) FROM academy_certificates c WHERE c.registration_id = r.id AND c.status = 'issued') issued_certificates
+                           (SELECT COUNT(*) FROM academy_certificates c WHERE c.registration_id = r.id AND c.status = 'issued'{$acCertSoft}) issued_certificates
                     FROM webinar_registrations r
                     WHERE r.user_id = ? AND r.webinar_id = ?
                     LIMIT 1
@@ -538,7 +540,8 @@ $journeySteps = ac_journey_steps(
 );
 $programs = $pdo->query("SELECT * FROM academy_programs WHERE status = 'active' ORDER BY sort_order ASC, title ASC")->fetchAll();
 $certificateGroups = academy_certificate_groups($pdo, $role, true);
-$certStmt = $pdo->prepare("SELECT c.*, w.title course_title FROM academy_certificates c JOIN webinars w ON w.id = c.webinar_id WHERE c.user_id = ? ORDER BY c.requested_at DESC");
+$acCertSoft = app_column_exists($pdo, 'academy_certificates', 'deleted_at') ? ' AND c.deleted_at IS NULL' : '';
+$certStmt = $pdo->prepare("SELECT c.*, w.title course_title FROM academy_certificates c JOIN webinars w ON w.id = c.webinar_id WHERE c.user_id = ?{$acCertSoft} ORDER BY c.requested_at DESC");
 $certStmt->execute([(int) $user['id']]);
 $certificates = $certStmt->fetchAll();
 $currentCourseCertificate = null;
@@ -556,7 +559,7 @@ $completedStmt = $pdo->prepare("
            c.certificate_ref, c.status certificate_record_status
     FROM webinar_registrations r
     JOIN webinars w ON w.id = r.webinar_id
-    LEFT JOIN academy_certificates c ON c.registration_id = r.id AND c.user_id = r.user_id
+    LEFT JOIN academy_certificates c ON c.registration_id = r.id AND c.user_id = r.user_id{$acCertSoft}
     WHERE r.user_id = ? AND r.completion_status = 'completed'
     ORDER BY COALESCE(r.completed_at, r.registered_at) DESC
     LIMIT 6

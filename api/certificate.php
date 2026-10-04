@@ -21,11 +21,12 @@ if ($ref !== '') {
 try {
     $pdo = db();
     app_ensure_certificate_schema($pdo);
+    $certSoft = app_column_exists($pdo, 'certificates', 'deleted_at') ? ' AND c.deleted_at IS NULL' : '';
     $stmt = $pdo->query("
         SELECT COALESCE(c.certificate_ref, c.qr_code_hash, a.app_ref) certificate_ref, a.app_ref, a.name, c.issued_at
         FROM certificates c
         JOIN applications a ON c.application_id = a.id
-        WHERE COALESCE(c.status, 'issued') = 'issued'
+        WHERE COALESCE(c.status, 'issued') = 'issued'{$certSoft}
         ORDER BY c.issued_at DESC
         LIMIT 500
     ");

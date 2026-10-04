@@ -43,6 +43,7 @@ function admin_certificate_lookup(PDO $pdo, string $ref): ?array
         JOIN users u ON u.id = c.user_id
         JOIN webinars w ON w.id = c.webinar_id
         WHERE c.certificate_ref = ?
+          AND c.deleted_at IS NULL
         LIMIT 1
     ");
     $stmt->execute([$ref]);

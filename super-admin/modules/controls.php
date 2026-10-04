@@ -1,6 +1,6 @@
 <?php defined('NATCODEV_SUPER_ADMIN') || exit; 
 admin_ensure_action_request_schema($pdo);
-$pendingRevocationRequests = $pdo->query("SELECT ar.*, c.certificate_ref, c.status certificate_status, u.name requester_name, u.email requester_email FROM admin_action_requests ar LEFT JOIN certificates c ON c.id = ar.target_id LEFT JOIN users u ON u.id = ar.requested_by WHERE ar.request_type = 'revoke_certificate' AND ar.target_table = 'certificates' AND ar.status = 'pending' ORDER BY ar.created_at DESC LIMIT 25")->fetchAll();
+$pendingRevocationRequests = $pdo->query("SELECT ar.*, c.certificate_ref, c.status certificate_status, u.name requester_name, u.email requester_email FROM admin_action_requests ar LEFT JOIN certificates c ON c.id = ar.target_id AND c.deleted_at IS NULL LEFT JOIN users u ON u.id = ar.requested_by WHERE ar.request_type = 'revoke_certificate' AND ar.target_table = 'certificates' AND ar.status = 'pending' ORDER BY ar.created_at DESC LIMIT 25")->fetchAll();
 $settings = super_admin_control_settings($pdo);
 $accessMatrix = super_admin_access_matrix($pdo, $roles);
 $moduleSettings = super_admin_module_settings($pdo);

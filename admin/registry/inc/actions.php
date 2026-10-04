@@ -124,7 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $valid = 0;
             $invalid = 0;
-            $stmt = $pdo->prepare("SELECT id, status FROM certificates WHERE certificate_ref = ? OR qr_code_hash = ? LIMIT 1");
+            $stmt = $pdo->prepare("SELECT id, status FROM certificates WHERE (certificate_ref = ? OR qr_code_hash = ?) AND deleted_at IS NULL LIMIT 1");
             $mark = $pdo->prepare('UPDATE certificates SET verified_at = NOW() WHERE id = ?');
             foreach ($refs as $ref) {
                 $stmt->execute([$ref, $ref]);

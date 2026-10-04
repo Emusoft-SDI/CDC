@@ -16,13 +16,14 @@ if ($ref === '') {
     exit('Academy certificate reference is required.');
 }
 
+$acSoft = app_column_exists($pdo, 'academy_certificates', 'deleted_at') ? ' AND c.deleted_at IS NULL' : '';
 $stmt = $pdo->prepare("
     SELECT c.id, c.user_id, c.webinar_id, NULL group_id, c.certificate_ref, c.status, c.issued_at, c.certificate_pdf_path,
            'course' certificate_kind, u.name user_name, w.title, w.description
     FROM academy_certificates c
     JOIN users u ON u.id = c.user_id
     JOIN webinars w ON w.id = c.webinar_id
-    WHERE c.user_id = ? AND c.certificate_ref = ? AND c.status = 'issued'
+    WHERE c.user_id = ? AND c.certificate_ref = ? AND c.status = 'issued'{$acSoft}
     LIMIT 1
 ");
 $stmt->execute([$userId, $ref]);
