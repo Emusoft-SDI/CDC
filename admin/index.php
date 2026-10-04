@@ -430,6 +430,19 @@ $kpis = [
     ['Training Completion', $trainingCompletion . '%', '9.5%', 'fa-graduation-cap', 'purple'],
     ['Open Tickets', number_format($openTickets), $openTickets > 0 ? 'Needs action' : 'Clear', 'fa-headset', 'red'],
 ];
+?><?php
+/* Admin UI v2 (P5a) opt-in chrome swap for the Workspace Hub (admin/index.php).
+   Flag OFF (default, production) => the legacy chrome below renders byte-identically.
+   Flag ON  (ADMIN_UI_V2 + area allow-list) => the shared v2 shell is rendered and only
+   the hub body between the gates below is emitted. */
+if (!function_exists('admin_ui_enabled')) {
+    $__ajUiShell = __DIR__ . '/../lib/admin-ui/ui.php';
+    if (is_file($__ajUiShell)) { require_once $__ajUiShell; }
+}
+$__uiV2 = function_exists('admin_ui_enabled') && admin_ui_enabled('hub');
+if ($__uiV2) {
+    admin_ui_page_start('NATCODEV Workspace Hub', ['area' => 'hub', 'active' => 'index.php', 'description' => 'Welcome back to the NATCODEV Workspace Hub - the operating outlook across registry, wallet, academy, marketplace and support.']);
+} else {
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -515,6 +528,9 @@ $kpis = [
       </div>
     </header>
     <main class="content">
+<?php
+} /* __uiV2 open-branch end */
+?>
       <div class="layout">
         <section>
           <div class="head"><div><h1>NATCODEV Workspace Hub</h1><p>Welcome back, <?= e(explode(' ', $name)[0] ?: 'Admin') ?>. Here is what is happening across the platform today.</p></div><div class="date-pill"><?= e(date('M j, Y')) ?> <i class="far fa-calendar"></i></div></div>
@@ -564,9 +580,11 @@ $kpis = [
           <footer class="footer"><span>&copy; <?= e(date('Y')) ?> NATCODEV. All rights reserved.</span><span>Version 2.1.0</span><span>NATCODEV Coconut Development & Propagation Initiative</span></footer>
         </section>
       </div>
+<?php if (!$__uiV2) { ?>
     </main>
   </section>
 </div>
+<?php } /* __uiV2 closes */ ?>
 <script>
 document.querySelectorAll('[data-menu-toggle]').forEach((button) => {
   button.addEventListener('click', (event) => {
@@ -609,5 +627,13 @@ document.addEventListener('click', () => {
   render();
 })();
 </script>
+<?php
+if ($__uiV2) {
+    admin_ui_page_end();
+} else {
+?>
 </body>
 </html>
+<?php
+} /* __uiV2 close gate end */
+?>

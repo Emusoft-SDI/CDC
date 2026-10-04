@@ -56,6 +56,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $resendAvailable = !$restartRequired;
     }
 }
+?><?php
+/* Admin UI v2 (P5b) opt-in auth layout for the operator OTP screen (admin/verify-otp.php).
+   Flag OFF (default) => the legacy centered page below renders byte-identically.
+   Flag ON  => the shared v2 auth layout renders the same OTP form. */
+if (!function_exists('admin_ui_enabled')) {
+    $__ajUiShell = __DIR__ . '/../lib/admin-ui/ui.php';
+    if (is_file($__ajUiShell)) { require_once $__ajUiShell; }
+}
+$__uiV2 = function_exists('admin_ui_enabled') && admin_ui_enabled('login');
+if ($__uiV2) {
+    admin_ui_auth_page_start('Operator OTP', ['area' => 'login', 'brand' => 'Operator Verification']);
+} else {
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -70,6 +82,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
   <main class="card">
     <div class="brand"><img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV"><span>NATCODEV<br><small>Operator Verification</small></span></div>
+<?php
+} /* __uiV2 open-branch end */
+?>
     <h1>Enter operator OTP</h1>
     <p>For platform operator access, confirm the 6-digit code sent after the admin password was accepted.</p>
     <?php if ($notice): ?><p class="ok"><?= $notice ?></p><?php endif; ?>
@@ -87,7 +102,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </form>
     <?php if ($resendAvailable): ?><form method="post" class="resend-form"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="resend_otp" value="1"><button type="submit">Resend operator OTP</button></form><?php endif; ?>
     <div class="links"><a href="login.php">Start again</a><a href="../support/index.php">Support</a></div>
+<?php if (!$__uiV2) { ?>
   </main>
+<?php } /* __uiV2 mid gate */ ?>
   <script>
     (() => {
       const fields = Array.from(document.querySelectorAll('.otp-grid input'));
@@ -163,5 +180,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       firstEmpty?.focus();
     })();
   </script>
+<?php
+if ($__uiV2) {
+    admin_ui_auth_page_end();
+} else {
+?>
 </body>
-</html>
+</html><?php
+} /* __uiV2 close gate end */
+?>

@@ -96,6 +96,39 @@ function run_admin_ui_tests(): void
     }
     TestHarness::assert($p4Gated, 'AdminUI P4: every admin workspace page gates its chrome on admin_ui_enabled(<area>) and closes via admin_ui_page_end()');
 
+    // P5: the Workspace Hub and the auth screens (admin + wallet login, operator OTP)
+    // opt in through the same allow-list, each gating its chrome on its area key.
+    $setEnv('ADMIN_UI_V2_AREAS', 'hub,login');
+    TestHarness::assert(admin_ui_enabled('hub') === true, 'AdminUI: allow-list admits the hub area');
+    TestHarness::assert(admin_ui_enabled('login') === true, 'AdminUI: allow-list admits the login area');
+    $setEnv('ADMIN_UI_V2_AREAS', null);
+
+    $p5GatedPages = [
+        'admin/index.php' => ['hub', 'admin_ui_page_start(', 'admin_ui_page_end()'],
+        'admin/login.php' => ['login', 'admin_ui_auth_page_start(', 'admin_ui_auth_page_end()'],
+        'admin/wallet/login.php' => ['login', 'admin_ui_auth_page_start(', 'admin_ui_auth_page_end()'],
+        'admin/verify-otp.php' => ['login', 'admin_ui_auth_page_start(', 'admin_ui_auth_page_end()'],
+    ];
+    $p5Gated = true;
+    foreach ($p5GatedPages as $path => [$area, $startNeedle, $endNeedle]) {
+        $p5Source = (string) file_get_contents(__DIR__ . '/../' . $path);
+        $p5Gated = $p5Gated
+            && str_contains($p5Source, "admin_ui_enabled('" . $area . "')")
+            && str_contains($p5Source, $startNeedle)
+            && str_contains($p5Source, $endNeedle);
+    }
+    TestHarness::assert($p5Gated, 'AdminUI P5: the hub and auth pages gate their chrome on admin_ui_enabled(<area>)');
+
+    // The new auth layout renders the shared v2 head (data-admin-ui + assets) with a
+    // centered card and NO sidebar/topbar.
+    ob_start();
+    admin_ui_auth_page_start('Sign in', ['area' => 'login', 'brand' => 'Registry']);
+    $authHead = (string) ob_get_clean();
+    TestHarness::assert(str_contains($authHead, 'data-admin-ui'), 'AdminUI P5: auth layout emits the v2 shell marker (data-admin-ui)');
+    TestHarness::assert(str_contains($authHead, 'a-auth') && str_contains($authHead, 'max-width:28rem'), 'AdminUI P5: auth layout renders the centered card');
+    TestHarness::assert(!str_contains($authHead, 'a-sidebar') && !str_contains($authHead, 'a-topbar'), 'AdminUI P5: auth layout has no sidebar/topbar');
+    $GLOBALS['admin_ui_active'] = false;
+
     // Env switch alone is enough.
     $pdo->prepare("DELETE FROM settings WHERE key_name = 'admin_ui_v2'")->execute();
     $setEnv('ADMIN_UI_V2', '1');

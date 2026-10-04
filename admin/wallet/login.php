@@ -24,6 +24,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Invalid admin password.';
     }
 }
+?><?php
+/* Admin UI v2 (P5b) opt-in auth layout for the admin login screen (admin/wallet/login.php).
+   Flag OFF (default) => the legacy centered page below renders byte-identically.
+   Flag ON  => the shared v2 auth layout renders the same form. */
+if (!function_exists('admin_ui_enabled')) {
+    $__ajUiShell = __DIR__ . '/../../lib/admin-ui/ui.php';
+    if (is_file($__ajUiShell)) { require_once $__ajUiShell; }
+}
+$__uiV2 = function_exists('admin_ui_enabled') && admin_ui_enabled('login');
+if ($__uiV2) {
+    admin_ui_auth_page_start('Admin Login', ['area' => 'login', 'brand' => 'NATCODEV Registry']);
+} else {
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -57,6 +69,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
     <main class="login-shell">
       <div class="brand"><img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV"><span>NATCODEV Registry</span></div>
+<?php
+} /* __uiV2 open-branch end */
+?>
       <form method="post">
         <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
         <h1>Admin Login</h1>
@@ -72,7 +87,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <button type="submit">Login</button>
         <a class="home-link" href="../index.php">Back to home</a>
       </form>
+<?php if (!$__uiV2) { ?>
     </main>
+<?php } /* __uiV2 mid gate */ ?>
     <script>
         document.querySelectorAll('.password-toggle').forEach((button) => {
           button.addEventListener('click', () => {
@@ -85,5 +102,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           });
         });
     </script>
+<?php
+if ($__uiV2) {
+    admin_ui_auth_page_end();
+} else {
+?>
 </body>
 </html>
+<?php
+} /* __uiV2 close gate end */
+?>
