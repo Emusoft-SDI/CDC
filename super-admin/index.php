@@ -7,7 +7,7 @@ require_once __DIR__ . '/../lib/otp-delivery.php';
 require_once __DIR__ . '/../lib/workspace-account.php';
 require_once __DIR__ . '/../lib/super-admin-console.php';
 
-const SUPER_ADMIN_SCHEMA_VERSION = '20260513-3';
+const SUPER_ADMIN_SCHEMA_VERSION = '20261005-1';
 
 session_start();
 
@@ -25,13 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'logou
 }
 
 if (isset($_GET['logout'])) {
-    unset(
-        $_SESSION['super_admin_authenticated'],
-        $_SESSION['super_admin_user_id'],
-        $_SESSION['super_admin_login_audited'],
-        $_SESSION['super_admin_schema_version']
-    );
-    redirect_to('index.php');
+    super_admin_logout();
 }
 
 if (empty($_SESSION['super_admin_authenticated']) && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'login') {
@@ -88,6 +82,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'expor
     super_admin_export_users($pdo);
 }
 
+if (($_GET['export'] ?? '') === 'users') {
+    super_admin_export_users($pdo);
+}
+
+if (($_GET['export'] ?? '') === 'audit') {
+    super_admin_export_audit_log($pdo);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array((string) ($_POST['action'] ?? ''), ['login', 'logout'], true)) {
     if (!verify_csrf($_POST['_csrf'] ?? null)) {
         $error = 'Invalid security token.';
@@ -115,9 +117,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array((string) ($_POST['action'
             } elseif ($action === 'restore_user') {
                 super_admin_restore_user($pdo);
                 $message = 'Archived user profile restored to active status.';
+            } elseif ($action === 'force_logout_user') {
+                super_admin_force_logout_user($pdo);
+                $message = 'All active sessions for the selected user were signed out.';
+            } elseif ($action === 'unlock_user') {
+                super_admin_unlock_user($pdo);
+                $message = 'User profile unlocked and set to active.';
             } elseif ($action === 'save_controls') {
                 super_admin_save_controls($pdo);
                 $message = 'System announcement and security controls saved.';
+            } elseif ($action === 'save_secrets') {
+                super_admin_save_secrets($pdo);
+                $message = 'Integration secrets updated.';
+            } elseif ($action === 'restore_deleted_record') {
+                super_admin_restore_deleted_record($pdo);
+                $message = 'Deleted record restored from the recycle bin.';
             } elseif ($action === 'review_certificate_revocation') {
                 $message = super_admin_review_certificate_revocation($pdo);
             } elseif ($action === 'save_access_controls') {
@@ -146,9 +160,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array((string) ($_POST['action'
                 $message = 'Site node updated.';
             } elseif ($action === 'create_backup_manifest') {
                 $backup = dr_create_backup_manifest($pdo, $_SESSION['super_admin_user_id'] ?? null);
+                super_admin_audit($pdo, 'backup_manifest_created', 'Created backup manifest ' . $backup['backup_ref'] . '.');
                 $message = 'Backup manifest created: ' . $backup['backup_ref'] . ' at ' . $backup['path'];
             } elseif ($action === 'queue_sync_ping') {
                 dr_queue_sync_event($pdo, 'health_ping', ['queued_by' => 'super_admin', 'queued_at' => date('c')], trim((string) ($_POST['target_node'] ?? '')) ?: null);
+                super_admin_audit($pdo, 'sync_ping_queued', 'Queued multisite health ping.');
                 $message = 'Health ping queued for multisite sync.';
             }
         } catch (Throwable $e) {
@@ -168,6 +184,7 @@ super_admin_page_start($pageMeta['title'], $pageMeta['description'], $view);
 <?php if ($message): ?><div class="notice ok"><?= e($message) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="notice error"><?= e($error) ?></div><?php endif; ?>
 
+<?php if (!in_array($view, ['controls', 'disaster'], true)): ?>
 <section class="stats">
   <div class="stat"><span>Total Users</span><strong><?= (int) $stats['total_users'] ?></strong></div>
   <div class="stat"><span>Privileged Profiles</span><strong><?= (int) $stats['privileged'] ?></strong></div>
@@ -175,10 +192,11 @@ super_admin_page_start($pageMeta['title'], $pageMeta['description'], $view);
   <div class="stat"><span>Suspended</span><strong><?= (int) $stats['suspended'] ?></strong></div>
   <div class="stat"><span>Archived</span><strong><?= (int) $stats['archived'] ?></strong></div>
 </section>
+<?php endif; ?>
 
 <?php
 define('NATCODEV_SUPER_ADMIN', true);
-if (in_array($view, ['disaster', 'profile', 'overview', 'users', 'controls'], true)) {
+if (in_array($view, ['disaster', 'profile', 'overview', 'users', 'controls', 'finance'], true)) {
     require __DIR__ . '/modules/' . $view . '.php';
 }
 ?>

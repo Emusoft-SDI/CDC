@@ -160,6 +160,18 @@ $users = $usersStmt->fetchAll();
                   <input type="hidden" name="user_id" value="<?= (int) $user['id'] ?>">
                   <button type="submit" class="secondary" data-busy-text="Resetting...">Reset Password</button>
                 </form>
+                <form method="post" class="mini-form">
+                  <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+                  <input type="hidden" name="action" value="force_logout_user">
+                  <input type="hidden" name="user_id" value="<?= (int) $user['id'] ?>">
+                  <button type="submit" class="secondary" data-busy-text="Signing out...">Force Sign-out</button>
+                </form>
+                <form method="post" class="mini-form">
+                  <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+                  <input type="hidden" name="action" value="unlock_user">
+                  <input type="hidden" name="user_id" value="<?= (int) $user['id'] ?>">
+                  <button type="submit" class="secondary" data-busy-text="Unlocking...">Unlock</button>
+                </form>
                 <form method="post" class="mini-form danger-zone">
                   <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
                   <input type="hidden" name="action" value="delete_user">

@@ -8,11 +8,15 @@ function super_admin_logout(): void
         $_SESSION['super_admin_user_id'],
         $_SESSION['super_admin_login_audited'],
         $_SESSION['super_admin_schema_version'],
+        $_SESSION['user_id'],
         $_SESSION['login_otp_pending'],
         $_SESSION['login_otp_user_id'],
         $_SESSION['login_otp_email'],
         $_SESSION['otp_next_destination']
     );
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_regenerate_id(true);
+    }
     redirect_to('index.php');
 }
 
@@ -83,13 +87,21 @@ function super_admin_is_authorized(PDO $pdo): bool
         return false;
     }
 
-    $stmt = $pdo->prepare("SELECT id, is_super_admin, account_status FROM users WHERE id = ? LIMIT 1");
+    $epochColumn = app_column_exists($pdo, 'users', 'session_epoch');
+    $stmt = $pdo->prepare("SELECT id, is_super_admin, account_status" . ($epochColumn ? ", session_epoch" : "") . " FROM users WHERE id = ? LIMIT 1");
     $stmt->execute([$userId]);
     $user = $stmt->fetch();
+    if ($user && $epochColumn && isset($_SESSION['session_epoch']) && (int) ($user['session_epoch'] ?? 0) !== (int) $_SESSION['session_epoch']) {
+        unset($_SESSION['super_admin_authenticated'], $_SESSION['super_admin_user_id'], $_SESSION['user_id'], $_SESSION['session_epoch']);
+        return false;
+    }
     if ($user && (int) $user['is_super_admin'] === 1 && strtolower((string) ($user['account_status'] ?? 'active')) === 'active') {
         $_SESSION['user_id'] = $userId;
         $_SESSION['super_admin_authenticated'] = true;
         $_SESSION['super_admin_user_id'] = $userId;
+        if ($epochColumn) {
+            $_SESSION['session_epoch'] = (int) ($user['session_epoch'] ?? 0);
+        }
         return true;
     }
 
@@ -102,11 +114,14 @@ function super_admin_auth_role(string $platformRole): string
     if ($platformRole === 'investor') {
         return 'investor';
     }
-    if ($platformRole === 'grower') {
+    if (in_array($platformRole, ['grower', 'seller', 'buyer', 'provider', 'learner'], true)) {
         return 'grower';
     }
     if (in_array($platformRole, ['field_agent', 'agronomist', 'agric_extensionist'], true)) {
         return 'field_agent';
+    }
+    if ($platformRole === 'support_agent') {
+        return 'admin';
     }
 
     return 'admin';

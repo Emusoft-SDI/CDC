@@ -52,6 +52,7 @@ function super_admin_ensure_schema(PDO $pdo): void
     app_add_column_if_missing($pdo, 'users', 'last_login_at', "DATETIME NULL");
     app_add_column_if_missing($pdo, 'users', 'admin_notes', "TEXT NULL");
     app_add_column_if_missing($pdo, 'users', 'location', "VARCHAR(255) NULL");
+    app_add_column_if_missing($pdo, 'users', 'session_epoch', "INT NOT NULL DEFAULT 0");
 
     foreach (super_admin_control_settings() as $key => $default) {
         $stmt = $pdo->prepare("INSERT IGNORE INTO settings (key_name, value) VALUES (?, ?)");

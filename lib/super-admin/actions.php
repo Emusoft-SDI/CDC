@@ -164,6 +164,113 @@ function super_admin_restore_user(PDO $pdo): void
     super_admin_audit($pdo, 'user_restored', 'Restored archived user profile ' . $user['email'] . '.');
 }
 
+function super_admin_force_logout_user(PDO $pdo): void
+{
+    $userId = (int) ($_POST['user_id'] ?? 0);
+    if ($userId <= 0) {
+        throw new RuntimeException('User not found.');
+    }
+    if (!app_column_exists($pdo, 'users', 'session_epoch')) {
+        throw new RuntimeException('Session control is not available until the schema upgrade completes.');
+    }
+    $stmt = $pdo->prepare("SELECT email FROM users WHERE id = ? LIMIT 1");
+    $stmt->execute([$userId]);
+    $email = (string) $stmt->fetchColumn();
+    if ($email === '') {
+        throw new RuntimeException('User not found.');
+    }
+    $pdo->prepare("UPDATE users SET session_epoch = session_epoch + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$userId]);
+    super_admin_audit($pdo, 'user_force_logout', 'Forced sign-out of all active sessions for ' . $email . '.');
+}
+
+function super_admin_unlock_user(PDO $pdo): void
+{
+    $userId = (int) ($_POST['user_id'] ?? 0);
+    if ($userId <= 0) {
+        throw new RuntimeException('User not found.');
+    }
+    $stmt = $pdo->prepare("SELECT email FROM users WHERE id = ? LIMIT 1");
+    $stmt->execute([$userId]);
+    $email = (string) $stmt->fetchColumn();
+    if ($email === '') {
+        throw new RuntimeException('User not found.');
+    }
+    $pdo->prepare("
+        UPDATE users
+        SET account_status = 'active', suspended_until = NULL, deactivated_at = NULL, archived_at = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    ")->execute([$userId]);
+    super_admin_audit($pdo, 'user_unlocked', 'Unlocked/activated user profile ' . $email . '.');
+}
+
+function super_admin_save_secrets(PDO $pdo): void
+{
+    $fields = [
+        'paystack_secret_key',
+        'flutterwave_secret_key',
+        'monnify_api_key',
+        'monnify_secret_key',
+        'monnify_contract_code',
+        'twilio_sid',
+        'twilio_token',
+        'mail_from_address',
+        'mail_from_name',
+        'mail_reply_to',
+        'mail_transport',
+    ];
+    $stmt = $pdo->prepare("
+        INSERT INTO settings (key_name, value) VALUES (?, ?)
+        ON DUPLICATE KEY UPDATE value = VALUES(value)
+    ");
+    $changed = [];
+    foreach ($fields as $key) {
+        if (!empty($_POST['clear_' . $key])) {
+            $stmt->execute([$key, '']);
+            $changed[] = $key . ' (cleared)';
+            continue;
+        }
+        $value = trim((string) ($_POST[$key] ?? ''));
+        if ($value !== '') {
+            $stmt->execute([$key, $value]);
+            $changed[] = $key;
+        }
+    }
+    // Never log secret values — only which keys changed.
+    super_admin_audit($pdo, 'integration_secrets_updated', 'Updated integration secrets: ' . (implode(', ', $changed) ?: 'no changes') . '.');
+}
+
+function super_admin_restore_deleted_record(PDO $pdo): void
+{
+    $recordId = (int) ($_POST['record_id'] ?? 0);
+    if ($recordId <= 0) {
+        throw new RuntimeException('Deleted record not found.');
+    }
+    if (!app_table_exists($pdo, 'admin_deleted_records')) {
+        throw new RuntimeException('The delete archive is not available.');
+    }
+    $stmt = $pdo->prepare("SELECT * FROM admin_deleted_records WHERE id = ? LIMIT 1");
+    $stmt->execute([$recordId]);
+    $record = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$record) {
+        throw new RuntimeException('Deleted record not found.');
+    }
+    $table = preg_replace('/[^a-zA-Z0-9_]/', '', (string) $record['target_table']);
+    $row = json_decode((string) $record['record_json'], true);
+    if ($table === '' || !is_array($row) || !$row || !app_table_exists($pdo, $table)) {
+        throw new RuntimeException('Stored record is not restorable.');
+    }
+
+    $columns = array_values(array_filter(array_keys($row), static fn ($column): bool => is_string($column)));
+    $quoted = array_map(static fn (string $column): string => '`' . str_replace('`', '', $column) . '`', $columns);
+    $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+    $updates = implode(', ', array_map(static fn (string $column): string => $column . ' = VALUES(' . $column . ')', $quoted));
+    $sql = 'INSERT INTO `' . $table . '` (' . implode(', ', $quoted) . ') VALUES (' . $placeholders . ') ON DUPLICATE KEY UPDATE ' . $updates;
+    $pdo->prepare($sql)->execute(array_values($row));
+    $pdo->prepare("DELETE FROM admin_deleted_records WHERE id = ?")->execute([$recordId]);
+
+    super_admin_audit($pdo, 'deleted_record_restored', 'Restored a deleted ' . $table . ' record from the recycle bin.');
+}
+
 function super_admin_save_controls(PDO $pdo): void
 {
     $allowed = array_keys(super_admin_control_settings());
@@ -340,6 +447,11 @@ function super_admin_save_dr_settings(PDO $pdo): void
             $value = preg_replace('/[^a-zA-Z0-9_.-]/', '', (string) ($_POST[$key] ?? ''));
         } elseif ($key === 'dr_backup_retention_days') {
             $value = (string) max(1, min(3650, (int) ($_POST[$key] ?? 30)));
+        } elseif ($key === 'dr_auto_backup_token') {
+            $value = trim((string) ($_POST[$key] ?? ''));
+            if ($value === '') {
+                continue; // keep the existing token when the field is left blank
+            }
         } else {
             $value = trim((string) ($_POST[$key] ?? ''));
         }
@@ -486,6 +598,62 @@ function super_admin_export_users(PDO $pdo): void
         fputcsv($out, app_csv_row(array_values($row)));
     }
     super_admin_audit($pdo, 'users_exported', 'Exported users CSV from Super Admin console.');
+    fclose($out);
+    exit;
+}
+
+function super_admin_audit_filters(PDO $pdo): array
+{
+    $hasActor = app_column_exists($pdo, 'audit_log', 'actor_name');
+    $q = trim((string) ($_GET['audit_q'] ?? ''));
+    $from = trim((string) ($_GET['audit_from'] ?? ''));
+    $to = trim((string) ($_GET['audit_to'] ?? ''));
+    $where = [];
+    $params = [];
+    if ($q !== '') {
+        $where[] = '(action LIKE ? OR description LIKE ?' . ($hasActor ? ' OR actor_name LIKE ?' : '') . ')';
+        $needle = '%' . $q . '%';
+        array_push($params, $needle, $needle);
+        if ($hasActor) {
+            $params[] = $needle;
+        }
+    }
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) {
+        $where[] = 'created_at >= ?';
+        $params[] = $from . ' 00:00:00';
+    }
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
+        $where[] = 'created_at <= ?';
+        $params[] = $to . ' 23:59:59';
+    }
+
+    return [$where ? 'WHERE ' . implode(' AND ', $where) : '', $params, $hasActor];
+}
+
+function super_admin_export_audit_log(PDO $pdo): void
+{
+    if (!app_table_exists($pdo, 'audit_log')) {
+        http_response_code(404);
+        exit('Audit log is not available.');
+    }
+    [$where, $params, $hasActor] = super_admin_audit_filters($pdo);
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="natcodev-audit-' . date('Ymd-His') . '.csv"');
+    $out = fopen('php://output', 'w');
+    fputcsv($out, app_csv_row(array_merge(['id', 'created_at', 'action'], $hasActor ? ['actor'] : [], ['description', 'ip_address'])));
+    $sql = "SELECT id, created_at, action" . ($hasActor ? ", actor_name" : "") . ", description, ip_address FROM audit_log {$where} ORDER BY created_at DESC, id DESC LIMIT 20000";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    foreach ($stmt->fetchAll() as $row) {
+        $line = [$row['id'], $row['created_at'], $row['action']];
+        if ($hasActor) {
+            $line[] = $row['actor_name'] ?? '';
+        }
+        $line[] = $row['description'];
+        $line[] = $row['ip_address'];
+        fputcsv($out, app_csv_row($line));
+    }
+    super_admin_audit($pdo, 'audit_log_exported', 'Exported audit log CSV from Super Admin console.');
     fclose($out);
     exit;
 }
