@@ -5,6 +5,15 @@ require_once __DIR__ . '/admin-layout.php';
 
 function admin_workspace_operator_strip(PDO $pdo, array $options = []): string
 {
+    // The shared master shell (admin_page_start) already renders the operator
+    // header, search, profile links and logout. Rendering this legacy strip on top
+    // of it produced a double header on every conformed workspace. Return nothing
+    // when the master shell is active; legacy pages that manage their own chrome
+    // are unaffected (the flag is only set by admin_page_start).
+    if (!empty($GLOBALS['admin_page_chrome'])) {
+        return '';
+    }
+
     $user = current_user($pdo) ?: [];
     $name = (string) ($user['name'] ?? 'Operator');
     $role = function_exists('admin_current_platform_role') ? (admin_current_platform_role($pdo) ?? (string) ($user['role'] ?? 'admin')) : (string) ($user['role'] ?? 'admin');

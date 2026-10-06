@@ -7,6 +7,26 @@ function status_label(string $status): string
 
 
 
+if (!function_exists('admin_csp_nonce')) {
+    /**
+     * Per-request CSP nonce (Phase 9). Emitted on the shell's own inline <style>
+     * and <script> tags so the Content-Security-Policy can move off
+     * 'unsafe-inline' once every page's inline scripts carry the nonce.
+     */
+    function admin_csp_nonce(): string
+    {
+        static $nonce = null;
+        if ($nonce === null) {
+            try {
+                $nonce = base64_encode(random_bytes(16));
+            } catch (Throwable $e) {
+                $nonce = 'nc' . bin2hex(random_bytes(8));
+            }
+        }
+        return $nonce;
+    }
+}
+
 function admin_chrome_base_path(): string
 {
     $scriptName = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? '/admin/index.php'));
@@ -93,16 +113,159 @@ function admin_nav_item_is_active(string $active, string $href): bool
     return false;
 }
 
+/**
+ * Lightweight "needs attention" counts for the shared admin topbar.
+ *
+ * Every lookup is guarded by a table/column existence check and wrapped so a
+ * missing module can never break the chrome.
+ *
+ * @return array<string,int>
+ */
+function admin_shell_attention_counts(PDO $pdo): array
+{
+    // Phase 3 wiring: these counters run several COUNT(*) queries on every admin
+    // page load. Cache them in the metrics store with a short TTL; fall back to a
+    // direct compute when the metrics library is unavailable.
+    if (!function_exists('admin_metric')) {
+        $metricsLib = __DIR__ . '/../admin-metrics.php';
+        if (is_file($metricsLib)) {
+            require_once $metricsLib;
+        }
+    }
+    if (function_exists('admin_metric')) {
+        return admin_metric($pdo, 'shell:attention_counts', 90, static fn(): array => admin_shell_attention_counts_uncached($pdo));
+    }
+
+    return admin_shell_attention_counts_uncached($pdo);
+}
+
+/**
+ * Uncached computation behind admin_shell_attention_counts().
+ *
+ * @return array<string,int>
+ */
+function admin_shell_attention_counts_uncached(PDO $pdo): array
+{
+    $count = static function (string $table, string $where = '1=1') use ($pdo): int {
+        if (!app_table_exists($pdo, $table)) {
+            return 0;
+        }
+        try {
+            return (int) $pdo->query("SELECT COUNT(*) FROM {$table} WHERE {$where}")->fetchColumn();
+        } catch (Throwable $e) {
+            return 0;
+        }
+    };
+    $soft = static fn(string $table): string => app_column_exists($pdo, $table, 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+
+    $documents = $count('document_requirements', "verification_status IN ('pending','submitted','under_review','needs_review')" . $soft('document_requirements'));
+    if ($documents === 0 && app_table_exists($pdo, 'user_documents')) {
+        $documents = $count('user_documents', "status IN ('pending','submitted','under_review')" . $soft('user_documents'));
+    }
+    $tickets = $count('support_tickets', "status IN ('open','in_progress','waiting_on_user','escalated')");
+    $applications = $count('applications', "status IN ('pending','submitted','under_review')" . $soft('applications'));
+    $ordersToday = $count('marketplace_orders', 'DATE(created_at) = CURDATE()');
+    $notifications = app_table_exists($pdo, 'notification_logs')
+        ? $count('notification_logs', "status IN ('pending','failed','queued')")
+        : ($tickets + $applications);
+    $deleteApprovals = function_exists('admin_pending_delete_request_count') ? admin_pending_delete_request_count($pdo) : 0;
+
+    return [
+        'documents' => $documents,
+        'tickets' => $tickets,
+        'applications' => $applications,
+        'ordersToday' => $ordersToday,
+        'notifications' => $notifications,
+        'deleteApprovals' => $deleteApprovals,
+    ];
+}
+
+/**
+ * Shared admin chrome. Renders the NATCODEV Workspace Hub master design
+ * (admin/index.php) so every admin page shares one uniform shell.
+ *
+ * Options (unchanged API):
+ *   active          - nav key used to highlight the current item
+ *   description     - subtitle shown under the page title
+ *   wide            - kept for back-compat (content is already fluid)
+ *   chrome          - false renders just the html shell + <main> wrapper
+ *   action_html     - extra markup placed beside the page title
+ *   css             - extra CSS injected into the page <style>
+ *   location_picker - loads lib/location-picker.js in the footer
+ */
 function admin_page_start(string $title, array $options = []): void
 {
+    // Phase 9: harden this page's output for a nonce-based CSP. Every script/style
+    // tag gets a nonce and legacy inline handlers are rewritten to data attributes
+    // (behaviour implemented by assets/js/nc-csp.js). The buffer is flushed by
+    // admin_page_end().
+    $cspLib = __DIR__ . '/../admin-csp.php';
+    if (!function_exists('admin_csp_harden') && is_file($cspLib)) {
+        require_once $cspLib;
+    }
+    if (function_exists('admin_csp_harden') && !isset($GLOBALS['nc_csp_ob_base'])) {
+        if (function_exists('admin_csp_send_header')) {
+            admin_csp_send_header();
+        }
+        $GLOBALS['nc_csp_ob_base'] = ob_get_level();
+        ob_start('admin_csp_harden');
+    }
+
     $active = admin_active_key($options['active'] ?? null);
     $description = (string) ($options['description'] ?? '');
     $wide = !empty($options['wide']);
     $chrome = (bool) ($options['chrome'] ?? true);
     $GLOBALS['admin_page_chrome'] = $chrome;
     $GLOBALS['admin_page_uses_location_picker'] = !empty($options['location_picker']);
-    $max = $wide ? '1320px' : '1180px';
-    $navGroups = admin_allowed_nav_groups(db());
+
+    $pdo = db();
+    $navGroups = function_exists('admin_allowed_nav_groups') ? admin_allowed_nav_groups($pdo) : [];
+    $user = function_exists('current_user') ? (current_user($pdo) ?: []) : [];
+    $userName = trim((string) ($user['name'] ?? '')) ?: 'Administrator';
+    $roleRaw = (string) ($user['platform_role'] ?? $user['role'] ?? 'admin');
+    $roleLabel = function_exists('status_label') ? status_label($roleRaw === '' ? 'admin' : $roleRaw) : 'Administrator';
+    $avatarRaw = trim((string) ($user['avatar'] ?? $user['photo_path'] ?? ''));
+    $avatarUrl = $avatarRaw !== '' ? admin_public_url($avatarRaw) : '';
+    $initial = strtoupper(substr($userName, 0, 1));
+    $isSuperAdmin = function_exists('admin_current_user_is_super_admin') ? admin_current_user_is_super_admin($pdo) : false;
+    $homeUrl = admin_public_url('index.php');
+    $hubUrl = admin_chrome_url('index.php');
+
+    if ($chrome) {
+        $attention = admin_shell_attention_counts($pdo);
+        $featureOk = static fn(?string $feature): bool => $feature === null || (function_exists('admin_feature_is_allowed') && admin_feature_is_allowed($pdo, $feature));
+
+        $notifyItems = array_values(array_filter([
+            ['label' => 'Document reviews', 'hint' => 'Awaiting verification', 'value' => $attention['documents'], 'href' => 'document-verification.php', 'feature' => 'documents'],
+            ['label' => 'Open support tickets', 'hint' => 'Needs a response', 'value' => $attention['tickets'], 'href' => 'support.php', 'feature' => 'support'],
+            ['label' => 'Pending applications', 'hint' => 'In the registry queue', 'value' => $attention['applications'], 'href' => 'admin.php', 'feature' => 'applications'],
+            ['label' => 'Delete approvals', 'hint' => 'Super-admin sign-off', 'value' => $attention['deleteApprovals'], 'href' => '../super-admin/index.php?view=approvals', 'feature' => $isSuperAdmin ? null : '__deny__'],
+        ], static fn(array $item): bool => $featureOk($item['feature'])));
+
+        $messageItems = array_values(array_filter([
+            ['label' => 'Support queue', 'hint' => 'Open & escalated tickets', 'value' => $attention['tickets'], 'href' => 'support.php', 'feature' => 'support'],
+            ['label' => 'Marketplace orders', 'hint' => 'Received today', 'value' => $attention['ordersToday'], 'href' => 'marketplace.php?section=orders', 'feature' => 'marketplace'],
+            ['label' => 'Notification log', 'hint' => 'Delivery & template events', 'value' => $attention['notifications'], 'href' => 'notifications.php', 'feature' => 'notifications'],
+        ], static fn(array $item): bool => $featureOk($item['feature'])));
+
+        $quickItems = array_values(array_filter([
+            ['label' => 'Search everything', 'icon' => 'fa-magnifying-glass', 'href' => 'search.php', 'feature' => 'dashboard'],
+            ['label' => 'Generate reports', 'icon' => 'fa-chart-line', 'href' => 'reports.php', 'feature' => 'reports'],
+            ['label' => 'Send notification', 'icon' => 'fa-bullhorn', 'href' => 'notifications.php', 'feature' => 'notifications'],
+            ['label' => 'Import users', 'icon' => 'fa-file-import', 'href' => 'import-users.php', 'feature' => 'imports'],
+            ['label' => 'Create backup', 'icon' => 'fa-box-archive', 'href' => 'backups.php', 'feature' => 'backups'],
+            ['label' => 'Review approvals', 'icon' => 'fa-shield-halved', 'href' => '../super-admin/index.php?view=approvals', 'feature' => $isSuperAdmin ? null : '__deny__'],
+        ], static fn(array $item): bool => $featureOk($item['feature'])));
+
+        $notificationTotal = 0;
+        foreach ($notifyItems as $item) {
+            $notificationTotal += (int) $item['value'];
+        }
+        $messageTotal = 0;
+        foreach ($messageItems as $item) {
+            $messageTotal += (int) $item['value'];
+        }
+    }
     ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -110,224 +273,214 @@ function admin_page_start(string $title, array $options = []): void
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><?= e($title) ?> - NATCODEV Admin</title>
-  <style>
-    :root { --primary:#1a5276; --green:#1f8a55; --green-dark:#166b41; --ink:#1f2937; --muted:#667085; --line:#d8e2dc; --bg:#f5f8f6; --panel:#fff; --danger:#a32020; --warn:#9b6500; --shadow:0 14px 34px rgba(16,24,40,.08); }
-    * { box-sizing:border-box; }
-    body { margin:0; background:var(--bg); color:var(--ink); font-family:"Segoe UI", Tahoma, Geneva, Verdana, sans-serif; }
-    a { color:var(--green-dark); font-weight:750; text-decoration:none; }
-    a:hover { text-decoration:underline; }
-    .admin-shell { min-height:100vh; display:flex; flex-direction:column; }
-    .admin-header { background:#fff; border-bottom:1px solid rgba(16,24,40,.08); box-shadow:0 8px 24px rgba(16,24,40,.06); position:sticky; top:0; z-index:20; }
-    .admin-bar { max-width:<?= $max ?>; margin:0 auto; padding:14px 22px; display:flex; align-items:center; justify-content:space-between; gap:18px; }
-    .admin-brand { display:flex; align-items:center; gap:11px; color:var(--primary); font-weight:900; min-width:220px; }
-    .admin-brand img { width:46px; height:46px; object-fit:contain; border-radius:50%; border:1px solid var(--line); background:#fff; }
-    .admin-brand span { display:block; color:var(--muted); font-size:.82rem; font-weight:650; margin-top:3px; }
-    .admin-nav { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
-    .admin-nav details { position:relative; }
-    .admin-nav summary, .admin-nav .nav-link { display:inline-flex; align-items:center; gap:7px; min-height:39px; padding:9px 11px; border-radius:7px; border:1px solid transparent; color:#344054; font-size:.92rem; font-weight:800; cursor:pointer; list-style:none; }
-    .admin-nav summary::-webkit-details-marker { display:none; }
-    .admin-nav summary::after { content:""; width:7px; height:7px; border-right:2px solid currentColor; border-bottom:2px solid currentColor; transform:rotate(45deg) translateY(-2px); opacity:.7; }
-    .admin-nav details.active:not([open]) > summary, .admin-nav .nav-link.active { background:var(--green-dark); border-color:var(--green-dark); color:#fff; box-shadow:0 10px 22px rgba(6,63,36,.16); }
-    .admin-nav details[open] > summary { background:var(--green-dark); border-color:var(--green-dark); color:#fff; text-decoration:none; }
-    .admin-nav summary:hover, .admin-nav .nav-link:hover { background:#e1f3e8; border-color:#b8dec7; color:var(--green-dark); text-decoration:none; }
-    .admin-nav details[open] summary::after { transform:rotate(225deg) translate(-2px,-1px); }
-    .admin-menu { position:absolute; right:0; top:calc(100% + 8px); width:min(280px, calc(100vw - 44px)); padding:8px; background:#fff; border:1px solid rgba(16,24,40,.11); border-radius:8px; box-shadow:0 18px 38px rgba(16,24,40,.16); display:grid; gap:4px; z-index:100; }
-    .admin-menu a { color:#344054; padding:10px 11px; border-radius:6px; font-size:.92rem; }
-    .admin-menu a:focus-visible, .admin-nav summary:focus-visible, .admin-nav .nav-link:focus-visible { outline:3px solid rgba(31,138,85,.22); outline-offset:2px; }
-    .admin-menu a.active { background:var(--green-dark); color:#fff; text-decoration:none; }
-    .admin-menu a:hover { background:#e1f3e8; color:var(--green-dark); text-decoration:none; }
-    .admin-user { min-width:120px; text-align:right; }
-    .admin-main { width:100%; max-width:<?= $max ?>; margin:0 auto; padding:28px 22px 38px; flex:1; }
-    .page-title { margin-bottom:20px; display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
-    .page-title h1 { color:var(--primary); margin:0; font-size:clamp(2rem,4vw,3rem); line-height:1.06; }
-    .page-title p { color:var(--muted); margin:8px 0 0; max-width:780px; line-height:1.6; }
-    .panel, .card, .stat, table { background:var(--panel); border:1px solid rgba(16,24,40,.08); border-radius:8px; box-shadow:var(--shadow); }
-    .panel, .card, .stat { padding:18px; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; }
-    .layout { display:grid; grid-template-columns:340px 1fr; gap:18px; align-items:start; }
-    .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:14px; margin:18px 0; }
-    .metric { color:var(--primary); font-size:2rem; font-weight:900; line-height:1; }
-    .toolbar, .actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:14px 0; }
-    .pagination { margin:14px 0; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:12px; background:#fff; border:1px solid rgba(16,24,40,.08); border-radius:8px; }
-    .pagination-links { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-    .pagination-size { display:flex; align-items:center; gap:8px; margin:0; }
-    .pagination-size select { width:auto; min-width:86px; }
-    table { width:100%; border-collapse:collapse; overflow:hidden; }
-    th, td { padding:11px; border-bottom:1px solid #edf1ea; text-align:left; vertical-align:top; }
-    th { background:#eef6e9; color:#243b1d; }
-    label { display:block; font-weight:800; margin:10px 0 6px; }
-    input, select, textarea { padding:11px 12px; border:1px solid var(--line); border-radius:6px; font:inherit; max-width:100%; }
-    input:not([type="checkbox"]), select, textarea { width:100%; }
-    textarea { min-height:110px; }
-    input:focus, select:focus, textarea:focus { border-color:var(--green); box-shadow:0 0 0 3px rgba(31,138,85,.14); outline:none; }
-    .password-field { position:relative; }
-    .password-field input { padding-right:76px; }
-    .password-toggle { position:absolute; right:8px; top:50%; transform:translateY(-50%); width:auto; margin:0; padding:7px 9px; border:0; background:#eef7f1; color:var(--green-dark); font-size:.82rem; box-shadow:none; }
-    button, .button { display:inline-flex; align-items:center; justify-content:center; gap:8px; background:var(--green); color:#fff; border:0; border-radius:6px; padding:11px 14px; font-weight:850; cursor:pointer; text-decoration:none; box-shadow:0 10px 24px rgba(31,138,85,.18); }
-    button:hover, .button:hover { background:var(--green-dark); color:#fff; text-decoration:none; }
-    button[disabled], button.is-busy, .button[aria-disabled="true"] { opacity:.82; cursor:wait; pointer-events:none; }
-    button.is-busy::before { content:""; width:14px; height:14px; border:2px solid rgba(255,255,255,.5); border-top-color:#fff; border-radius:50%; animation:admin-spin .7s linear infinite; }
-    button.is-busy { background:var(--green-dark); color:#fff; box-shadow:0 10px 24px rgba(31,138,85,.24); }
-    .button.secondary, button.secondary { background:#eef7f1; color:var(--green-dark); border:1px solid var(--line); box-shadow:none; }
-    button.secondary.is-busy::before { border-color:rgba(22,107,65,.25); border-top-color:var(--green-dark); }
-    .button.danger, button.danger { background:var(--danger); }
-    .badge { display:inline-flex; align-items:center; border-radius:999px; padding:5px 9px; font-size:.78rem; font-weight:850; white-space:nowrap; }
-    .ok, .success, .verified, .resolved { background:#eaf8f0; color:#0f6b3c; }
-    .pending, .in_progress, .warning { background:#fff7df; color:#8a5a00; }
-    .error, .rejected, .danger { background:#fff3f3; color:var(--danger); }
-    .open, .closed, .muted-badge { background:#eef2f6; color:#475467; }
-    .notice { padding:13px 15px; border-radius:8px; margin:16px 0; border:1px solid transparent; }
-    .notice.ok { border-color:#bfe8cf; }
-    .notice.error { border-color:#ffd2d2; }
-    .muted, .meta, small { color:var(--muted); }
-    .empty { color:var(--muted); border:1px dashed var(--line); border-radius:8px; padding:18px; }
-    .admin-footer { background:#12344a; color:#e6f0f5; margin-top:auto; }
-    .admin-footer-inner { max-width:<?= $max ?>; margin:0 auto; padding:18px 22px; display:flex; align-items:center; justify-content:space-between; gap:22px; flex-wrap:wrap; }
-    .footer-links { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:10px; }
-    .footer-links a, .footer-logout { color:#f6fff2; font-size:.9rem; font-weight:750; padding:7px 10px; border:1px solid rgba(255,255,255,.16); border-radius:6px; background:transparent; font:inherit; cursor:pointer; }
-    .footer-links a:hover, .footer-logout:hover { background:rgba(255,255,255,.1); text-decoration:none; }
-    .admin-action-overlay { position:fixed; left:0; right:0; top:0; height:4px; background:linear-gradient(90deg, var(--green), #c9a227, var(--primary), var(--green)); background-size:220% 100%; z-index:90; display:none; pointer-events:none; animation:admin-progress 1s linear infinite; }
-    .admin-working-toast { position:fixed; right:18px; bottom:18px; z-index:91; display:none; align-items:center; gap:10px; padding:12px 14px; border-radius:8px; background:#12344a; color:#fff; box-shadow:0 14px 30px rgba(16,24,40,.2); font-weight:850; }
-    .admin-working-toast::before { content:""; width:16px; height:16px; border:2px solid rgba(255,255,255,.45); border-top-color:#fff; border-radius:50%; animation:admin-spin .7s linear infinite; }
-    body.admin-submitting .admin-action-overlay, body.admin-submitting .admin-working-toast { display:flex; }
-    @keyframes admin-spin { to { transform:rotate(360deg); } }
-    @keyframes admin-progress { to { background-position:-220% 0; } }
-    @media (max-width:960px) {
-      .admin-bar { align-items:flex-start; flex-direction:column; }
-      .admin-nav { justify-content:flex-start; }
-      .admin-menu { left:0; right:auto; }
-      .admin-user { text-align:left; }
-      .layout { grid-template-columns:1fr; }
-      .page-title { flex-direction:column; }
-      .admin-footer-inner { align-items:flex-start; flex-direction:column; }
-    }
-    @media (max-width:560px) {
-      .admin-bar, .admin-main, .admin-footer-inner { padding-left:16px; padding-right:16px; }
-      .admin-nav { width:100%; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
-      .admin-nav details, .admin-nav summary, .admin-nav .nav-link { width:100%; }
-      .admin-nav summary, .admin-nav .nav-link { justify-content:center; }
-      .admin-menu { width:calc(100vw - 32px); }
-      .footer-links { justify-content:flex-start; }
-    }
-    <?= $options['css'] ?? '' ?>
+  <style id="nc-critical" nonce="<?= e(admin_csp_nonce()) ?>">
+/* Critical shell fallback: keeps the hub grid, KPI cards and collapse cards
+   correct even if admin-hub.css is stale, truncated by a proxy or 404s.
+   admin-hub.css is linked afterwards and overrides these when it loads. */
+.nc-hub{display:grid;grid-template-columns:292px minmax(0,1fr);min-height:100vh;background:#f7faf8}
+.nc-side{background:linear-gradient(180deg,#074b2a,#003719);color:#fff;padding:18px 16px}
+.nc-content{min-width:0}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:4px 0 22px}
+.kpi-card{position:relative;display:flex;justify-content:space-between;gap:14px;align-items:flex-start;background:#fff;border:1px solid rgba(16,24,40,.08);border-radius:14px;box-shadow:0 14px 34px rgba(16,24,40,.07);padding:18px 18px 18px 22px;min-height:128px;overflow:hidden}
+.kpi-card .kpi-label{display:block;text-transform:uppercase;letter-spacing:.05em;font-size:.72rem;font-weight:900;color:#667085}
+.kpi-card .kpi-value{display:block;font-size:1.95rem;font-weight:900;color:#0b1f16;margin-top:10px;line-height:1.02;letter-spacing:-.02em}
+.kpi-card .kpi-sub{display:flex;align-items:center;gap:6px;color:#079455;font-size:.78rem;font-weight:850;margin-top:8px}
+.kpi-card .kpi-icon{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;background:#e8f6ec;color:#006838;font-size:1.5rem;flex:none;margin-top:18px}
+.collapse-card{border:1px solid #dfe7e2;border-radius:14px;background:#fff;margin:0 0 20px;box-shadow:0 10px 26px rgba(16,24,40,.06);overflow:hidden}
+.collapse-card>summary{display:flex;align-items:center;gap:12px;padding:16px 18px;cursor:pointer;list-style:none;font-weight:900}
+.collapse-card>summary::-webkit-details-marker{display:none}
+.collapse-card .collapse-body{padding:0 18px 18px}
+@media(max-width:1024px){.nc-hub{grid-template-columns:1fr}.nc-side{position:relative;height:auto}}
   </style>
-  <link rel="stylesheet" href="<?= e(admin_public_url('assets/css/natcodev-ui.css?v=20260530')) ?>">
+  <?= $options['head_pre'] ?? '' ?>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <?php $ncHubCssVersion = @filemtime(__DIR__ . '/../../assets/css/admin-hub.css') ?: '20261005'; ?>
+  <link rel="stylesheet" href="<?= e(admin_public_url('assets/css/admin-hub.css?v=' . $ncHubCssVersion)) ?>">
+  <?= $options['head_html'] ?? '' ?>
+  <style><?= $options['css'] ?? '' ?></style>
 </head>
 <body>
-<div class="admin-shell">
-  <div class="admin-action-overlay" aria-hidden="true"></div>
-  <div class="admin-working-toast" role="status" aria-live="polite">Processing request...</div>
-  <?php if ($chrome): ?>
-  <header class="admin-header">
-    <div class="admin-bar">
-      <a class="admin-brand" href="<?= e(admin_chrome_url('index.php')) ?>">
-        <img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV">
-        <span><strong>NATCODEV Admin</strong><span>Workspace operations hub</span></span>
-      </a>
-      <nav class="admin-nav" aria-label="Admin navigation">
-        <?php foreach ($navGroups as $groupLabel => $items): ?>
-          <?php $groupActive = array_reduce($items, static fn(bool $carry, array $item): bool => $carry || admin_nav_item_is_active($active, (string) $item['href']), false); ?>
-          <details class="<?= $groupActive ? 'active' : '' ?>">
-            <summary><?= e((string) $groupLabel) ?></summary>
-            <div class="admin-menu">
-              <?php foreach ($items as $item): ?>
-                <a class="<?= admin_nav_item_is_active($active, (string) $item['href']) ? 'active' : '' ?>" href="<?= e(admin_chrome_url((string) $item['href'])) ?>"><?= e($item['label']) ?></a>
-              <?php endforeach; ?>
-            </div>
-          </details>
-        <?php endforeach; ?>
-      </nav>
-      <div class="admin-user"><form method="post" action="<?= e(admin_logout_action_path()) ?>"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="logout" value="1"><button class="secondary" type="submit">Logout</button></form></div>
+<div class="admin-action-overlay" aria-hidden="true"></div>
+<div class="admin-working-toast" role="status" aria-live="polite">Processing request...</div>
+<?php
+$topbarOnly = !empty($options['topbar_only']);
+$GLOBALS['admin_page_topbar_only'] = $topbarOnly;
+?>
+<?php if ($chrome): ?>
+<div class="<?= $topbarOnly ? 'nc-topbar-page' : 'nc-hub' ?>">
+<?php if (!$topbarOnly): ?>
+  <aside class="nc-side">
+    <a class="nc-brand" href="<?= e(admin_chrome_url('index.php')) ?>">
+      <img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV">
+      <span><strong>NATCODEV</strong><small>Admin Workspace Hub</small></span>
+    </a>
+    <div class="nc-person">
+      <span class="nc-avatar"><?php if ($avatarUrl !== ''): ?><img src="<?= e($avatarUrl) ?>" alt=""><?php else: ?><?= e($initial) ?><?php endif; ?></span>
+      <span><b><?= e($userName) ?></b><span><?= e($roleLabel) ?></span><span class="nc-online"><i class="fas fa-circle"></i> Online</span></span>
     </div>
-  </header>
-  <?php endif; ?>
-  <main class="admin-main">
-    <?php if ($chrome): ?>
-    <section class="page-title">
-      <div>
-        <h1><?= e($title) ?></h1>
-        <?php if ($description !== ''): ?><p><?= e($description) ?></p><?php endif; ?>
+    <div class="nc-nav-title">Main Navigation</div>
+    <nav class="nc-nav" aria-label="Admin navigation">
+      <a class="<?= $active === 'index.php' ? 'nc-active' : '' ?>" href="<?= e(admin_chrome_url('index.php')) ?>"><i class="fas fa-house"></i> Workspace Hub</a>
+      <?php foreach ($navGroups as $groupLabel => $items): ?>
+        <?php $groupActive = array_reduce($items, static fn(bool $carry, array $item): bool => $carry || admin_nav_item_is_active($active, (string) $item['href']), false); ?>
+        <details<?= $groupActive ? ' open' : '' ?>>
+          <summary><i class="fas fa-folder"></i> <?= e((string) $groupLabel) ?></summary>
+          <?php foreach ($items as $item): ?>
+            <a class="<?= admin_nav_item_is_active($active, (string) $item['href']) ? 'nc-active' : '' ?>" href="<?= e(admin_chrome_url((string) $item['href'])) ?>"><?= e((string) $item['label']) ?></a>
+          <?php endforeach; ?>
+        </details>
+      <?php endforeach; ?>
+    </nav>
+    <div class="nc-quick">
+      <div class="nc-nav-title">Quick Actions</div>
+      <nav class="nc-nav">
+        <a href="<?= e(admin_chrome_url('index.php')) ?>"><i class="fas fa-gauge-high"></i> Dashboard</a>
+        <a href="<?= e(admin_chrome_url('profile.php')) ?>"><i class="fas fa-user-gear"></i> My Profile</a>
+        <a href="<?= e(admin_chrome_url('notifications.php')) ?>"><i class="fas fa-bullhorn"></i> Notifications</a>
+        <a href="<?= e(admin_chrome_url('reports.php')) ?>"><i class="fas fa-chart-line"></i> Reports</a>
+      </nav>
+    </div>
+    <div class="nc-platform"><strong><i class="fas fa-shield-halved"></i> NATCODEV Platform</strong><p>Every admin workspace shares one uniform, access-controlled design.</p></div>
+  </aside>
+  <section class="nc-main">
+<?php else: ?>
+  <section class="nc-topbar-body">
+<?php endif; ?>
+    <header class="nc-top">
+      <div class="nc-topbar-left">
+        <a class="nc-quicklink primary" href="<?= e($homeUrl) ?>" title="Back to the NATCODEV home page"><i class="fas fa-house-chimney"></i><span>Home</span></a>
+        <a class="nc-quicklink" href="<?= e($hubUrl) ?>" title="Admin Workspace Hub"><i class="fas fa-gauge-high"></i><span>Workspace Hub</span></a>
+        <form class="nc-search" action="<?= e(admin_chrome_url('search.php')) ?>" method="get"><i class="fas fa-search"></i><input name="q" placeholder="Search growers, applications, documents, courses..."><span class="nc-kbd">CTRL + K</span></form>
       </div>
-      <?php if (!empty($options['action_html'])): ?><div><?= $options['action_html'] ?></div><?php endif; ?>
-    </section>
-    <?php endif; ?>
+      <div class="nc-top-actions">
+        <div class="nc-top-menu">
+          <button class="nc-menu-trigger nc-icon-trigger" type="button" data-nc-menu-toggle aria-haspopup="true" aria-label="Notifications"><i class="far fa-bell"></i><?php if ($notificationTotal > 0): ?><span class="nc-dot"><?= (int) min(99, $notificationTotal) ?></span><?php endif; ?></button>
+          <div class="nc-dropdown">
+            <h3>Notifications<small>Items that need your attention</small></h3>
+            <?php foreach ($notifyItems as $item): ?>
+              <a href="<?= e(admin_chrome_url((string) $item['href'])) ?>"><span><?= e((string) $item['label']) ?><small><?= e((string) $item['hint']) ?></small></span><span class="nc-count<?= (int) $item['value'] > 0 ? ' alert' : '' ?>"><?= (int) $item['value'] ?></span></a>
+            <?php endforeach; ?>
+            <?php if (!$notifyItems): ?><span class="nc-empty">You are all caught up.</span><?php endif; ?>
+            <a class="nc-more" href="<?= e(admin_chrome_url('notifications.php')) ?>"><span>Notification log</span><i class="fas fa-arrow-right"></i></a>
+          </div>
+        </div>
+        <div class="nc-top-menu">
+          <button class="nc-menu-trigger nc-icon-trigger" type="button" data-nc-menu-toggle aria-haspopup="true" aria-label="Messages and queues"><i class="far fa-envelope"></i><?php if ($messageTotal > 0): ?><span class="nc-dot"><?= (int) min(99, $messageTotal) ?></span><?php endif; ?></button>
+          <div class="nc-dropdown">
+            <h3>Messages &amp; Queues<small>Live workspace workload</small></h3>
+            <?php foreach ($messageItems as $item): ?>
+              <a href="<?= e(admin_chrome_url((string) $item['href'])) ?>"><span><?= e((string) $item['label']) ?><small><?= e((string) $item['hint']) ?></small></span><span class="nc-count"><?= (int) $item['value'] ?></span></a>
+            <?php endforeach; ?>
+            <?php if (!$messageItems): ?><span class="nc-empty">No queued items.</span><?php endif; ?>
+          </div>
+        </div>
+        <div class="nc-top-menu">
+          <button class="nc-menu-trigger" type="button" data-nc-menu-toggle aria-haspopup="true"><i class="fas fa-bolt"></i> Quick Command <i class="fas fa-chevron-down"></i></button>
+          <div class="nc-dropdown">
+            <h3>Quick Command<small>Jump straight to a task</small></h3>
+            <?php foreach ($quickItems as $item): ?>
+              <a href="<?= e(admin_chrome_url((string) $item['href'])) ?>"><span><i class="fas <?= e((string) $item['icon']) ?>"></i> <?= e((string) $item['label']) ?></span><i class="fas fa-arrow-right"></i></a>
+            <?php endforeach; ?>
+          </div>
+        </div>
+        <div class="nc-top-menu">
+          <button class="nc-user" type="button" data-nc-menu-toggle aria-haspopup="true"><span class="nc-avatar"><?php if ($avatarUrl !== ''): ?><img src="<?= e($avatarUrl) ?>" alt=""><?php else: ?><?= e($initial) ?><?php endif; ?></span><?= e($userName) ?> <i class="fas fa-chevron-down"></i></button>
+          <div class="nc-dropdown">
+            <h3><?= e($userName) ?><small><?= e($roleLabel) ?></small></h3>
+            <a href="<?= e(admin_chrome_url('profile.php')) ?>"><span><i class="fas fa-user-gear"></i> My Profile</span></a>
+            <a href="<?= e($hubUrl) ?>"><span><i class="fas fa-gauge-high"></i> Workspace Hub</span></a>
+            <a href="<?= e($homeUrl) ?>"><span><i class="fas fa-house-chimney"></i> Public Home Page</span></a>
+            <?php if (function_exists('admin_feature_is_allowed') && admin_feature_is_allowed($pdo, 'settings')): ?><a href="<?= e(admin_chrome_url('settings.php')) ?>"><span><i class="fas fa-gear"></i> Admin Settings</span></a><?php endif; ?>
+            <?php if ($isSuperAdmin): ?><a href="<?= e(admin_chrome_url('../super-admin/index.php')) ?>"><span><i class="fas fa-shield-halved"></i> Super Admin</span></a><?php endif; ?>
+            <form method="post" action="<?= e(admin_logout_action_path()) ?>" style="margin:0"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="logout" value="1"><button type="submit"><span><i class="fas fa-right-from-bracket"></i> Logout</span></button></form>
+          </div>
+        </div>
+      </div>
+    </header>
+    <main class="admin-main <?= $topbarOnly ? 'nc-topbar-content' : 'nc-content' ?>">
+      <?php if (!empty($options['breadcrumbs']) && is_array($options['breadcrumbs'])): ?>
+        <?= admin_breadcrumbs($options['breadcrumbs']) ?>
+      <?php endif; ?>
+      <?php if (!$topbarOnly): ?>
+      <section class="nc-head">
+        <div><h1><?= e($title) ?></h1><?php if ($description !== ''): ?><p><?= e($description) ?></p><?php endif; ?></div>
+        <?php if (!empty($options['action_html'])): ?><div><?= $options['action_html'] ?></div><?php endif; ?>
+      </section>
+      <?php endif; ?>
+<?php else: ?>
+<div class="nc-bare">
+  <main class="admin-main">
+<?php endif; ?>
 <?php
 }
 
 
 function admin_page_end(): void
 {
-    $footerItems = admin_footer_nav_items(db());
+    $footerItems = function_exists('admin_footer_nav_items') ? admin_footer_nav_items(db()) : [];
+    $chrome = !empty($GLOBALS['admin_page_chrome']);
+    $topbarOnly = !empty($GLOBALS['admin_page_topbar_only']);
     ?>
-  </main>
-  <?php if (!empty($GLOBALS['admin_page_chrome'])): ?>
-  <footer class="admin-footer">
-    <div class="admin-footer-inner">
+<?php if ($chrome): ?>
+    </main>
+<?php if (!$topbarOnly): ?>
+    <footer class="nc-footer">
       <div>
         <strong>NATCODEV Admin Console</strong>
-        <div class="meta" style="margin-top:6px;color:#c9d8df;">Dashboards, registry work, HR, field operations, reporting, governance, and settings now have separate homes.</div>
+        <div class="meta">Unified workspace hub for registry, finance, field operations, learning and support.</div>
       </div>
-      <nav class="footer-links" aria-label="Admin quick links">
+      <nav class="footer-links" aria-label="Admin quick links" style="display:flex;gap:10px;flex-wrap:wrap">
         <?php foreach ($footerItems as $item): ?>
-          <a href="<?= e(admin_chrome_url((string) $item['href'])) ?>"><?= e($item['label']) ?></a>
+          <a href="<?= e(admin_chrome_url((string) $item['href'])) ?>"><?= e((string) $item['label']) ?></a>
         <?php endforeach; ?>
-        <form method="post" action="<?= e(admin_logout_action_path()) ?>" style="margin:0"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="logout" value="1"><button class="footer-logout" type="submit">Logout</button></form>
       </nav>
-    </div>
-  </footer>
-  <?php endif; ?>
+    </footer>
+<?php endif; ?>
+  </section>
 </div>
+<?php else: ?>
+  </main>
+</div>
+<?php endif; ?>
 <?php if (!empty($GLOBALS['admin_page_uses_location_picker'])): ?>
 <script src="<?= e(admin_public_url('lib/location-picker.js')) ?>"></script>
 <?php endif; ?>
-<script>
+<script nonce="<?= e(admin_csp_nonce()) ?>">
 (function () {
-  const nav = document.querySelector('.admin-nav');
-  const details = nav ? Array.from(nav.querySelectorAll('details')) : [];
-
+  const menus = Array.from(document.querySelectorAll('.nc-top-menu'));
   function closeMenus(except) {
-    details.forEach((item) => {
-      if (item !== except) item.removeAttribute('open');
+    menus.forEach((menu) => {
+      if (menu !== except) menu.classList.remove('nc-open');
     });
   }
+  document.querySelectorAll('[data-nc-menu-toggle]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const menu = button.closest('.nc-top-menu');
+      const willOpen = menu && !menu.classList.contains('nc-open');
+      closeMenus(menu);
+      if (menu && willOpen) menu.classList.add('nc-open');
+    });
+  });
+  document.addEventListener('click', () => closeMenus(null));
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeMenus(null); });
 
+  const nav = document.querySelector('.nc-nav');
+  const details = nav ? Array.from(nav.querySelectorAll('details')) : [];
   details.forEach((item) => {
     const summary = item.querySelector('summary');
     if (!summary) return;
     summary.addEventListener('click', () => {
       window.setTimeout(() => {
-        if (item.open) closeMenus(item);
+        if (item.open) details.forEach((other) => { if (other !== item) other.removeAttribute('open'); });
       }, 0);
     });
   });
 
-  document.addEventListener('click', (event) => {
-    if (!nav || nav.contains(event.target)) return;
-    closeMenus(null);
-  });
-
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') closeMenus(null);
-  });
-
-  window.addEventListener('scroll', () => closeMenus(null), { passive:true });
-  window.addEventListener('resize', () => closeMenus(null));
-  document.addEventListener('touchmove', () => closeMenus(null), { passive:true });
-
-  document.querySelectorAll('.admin-menu a').forEach((link) => {
-    link.addEventListener('click', () => closeMenus(null));
-  });
-
   document.querySelectorAll('form').forEach((form) => {
     form.addEventListener('submit', (event) => {
-      if (event.defaultPrevented) {
-        return;
-      }
-      if (form.dataset.submitting === '1') {
-        event.preventDefault();
-        return;
-      }
-
+      if (event.defaultPrevented) return;
+      if (form.dataset.submitting === '1') { event.preventDefault(); return; }
       form.dataset.submitting = '1';
       const submitter = event.submitter || form.querySelector('button[type="submit"], button:not([type]), input[type="submit"]');
       if (submitter && submitter.name) {
@@ -338,7 +491,6 @@ function admin_page_end(): void
         form.appendChild(hidden);
       }
       if (submitter && submitter.tagName === 'BUTTON') {
-        submitter.dataset.originalText = submitter.textContent.trim();
         submitter.classList.add('is-busy');
         submitter.disabled = true;
         const busyText = submitter.dataset.busyText || 'Processing...';
@@ -346,7 +498,6 @@ function admin_page_end(): void
         const toast = document.querySelector('.admin-working-toast');
         if (toast) toast.lastChild.textContent = busyText;
       }
-
       form.querySelectorAll('button[type="submit"], button:not([type]), input[type="submit"]').forEach((button) => {
         if (button !== submitter) button.disabled = true;
       });
@@ -366,7 +517,74 @@ function admin_page_end(): void
   });
 })();
 </script>
+<div class="nc-palette" id="nc-palette" hidden>
+  <div class="nc-palette-box" role="dialog" aria-modal="true" aria-label="Command palette">
+    <input type="text" id="nc-palette-input" placeholder="Jump to a module or record…  (Esc to close)" autocomplete="off">
+    <div class="nc-palette-results" id="nc-palette-results"></div>
+  </div>
+</div>
+<script nonce="<?= e(admin_csp_nonce()) ?>">
+(function () {
+  var palette = document.getElementById('nc-palette');
+  if (!palette) return;
+  var input = document.getElementById('nc-palette-input');
+  var results = document.getElementById('nc-palette-results');
+  var endpoint = <?= json_encode(admin_chrome_url('search.php'), JSON_UNESCAPED_SLASHES) ?>;
+
+  function openPalette() { palette.hidden = false; results.innerHTML = ''; input.focus(); }
+  function closePalette() { palette.hidden = true; }
+  function render(items) {
+    results.innerHTML = '';
+    if (!items.length) { results.textContent = 'No matches.'; return; }
+    items.forEach(function (it) {
+      var a = document.createElement('a');
+      a.href = it.href;
+      a.className = 'nc-palette-item';
+      var strong = document.createElement('strong');
+      strong.textContent = it.title;
+      var small = document.createElement('small');
+      small.textContent = it.kind || 'module';
+      a.appendChild(strong);
+      a.appendChild(small);
+      results.appendChild(a);
+    });
+  }
+
+  var timer = null;
+  input.addEventListener('input', function () {
+    window.clearTimeout(timer);
+    var q = input.value.trim();
+    if (q.length < 2) { results.innerHTML = ''; return; }
+    timer = window.setTimeout(function () {
+      fetch(endpoint + '?format=json&q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          var items = (data.modules || []).map(function (m) { return { title: m.title, href: m.href, kind: 'module' }; })
+            .concat((data.records || []).map(function (r) { return { title: r.title, href: r.href, kind: r.kind }; }));
+          render(items.slice(0, 12));
+        })
+        .catch(function () {});
+    }, 180);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); openPalette(); }
+    if (e.key === 'Escape' && !palette.hidden) { closePalette(); }
+  });
+  palette.addEventListener('click', function (e) { if (e.target === palette) closePalette(); });
+  document.querySelectorAll('[data-nc-palette-open]').forEach(function (b) { b.addEventListener('click', openPalette); });
+})();
+</script>
+<script src="<?= e(admin_public_url('assets/js/nc-csp.js')) ?>" nonce="<?= e(admin_csp_nonce()) ?>"></script>
 </body>
 </html>
 <?php
+    // Phase 9: flush the CSP hardening buffer (and any buffers a page opened).
+    if (isset($GLOBALS['nc_csp_ob_base'])) {
+        $base = (int) $GLOBALS['nc_csp_ob_base'];
+        while (ob_get_level() > $base) {
+            ob_end_flush();
+        }
+        unset($GLOBALS['nc_csp_ob_base']);
+    }
 }

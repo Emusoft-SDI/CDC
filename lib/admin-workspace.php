@@ -47,6 +47,15 @@ function admin_workspace_render(string $controller, string $workspaceKey): void
         return;
     }
 
+    // If the controller already renders the shared master shell (admin_page_start),
+    // do not wrap it again: injecting <base>, Bootstrap and the operator strip on a
+    // page that already owns the chrome caused duplicate headers and broke relative
+    // URLs (e.g. query-only pagination links) on the reports/settings/support shims.
+    if (str_contains($html, 'nc-hub') || str_contains($html, 'assets/css/admin-hub.css')) {
+        echo $html;
+        return;
+    }
+
     if ($workspaceKey === 'support') {
         $assets = '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">'
             . '<link rel="stylesheet" href="../../assets/css/admin-workspaces.css">'

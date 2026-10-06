@@ -387,8 +387,13 @@ admin_page_start('Reporting Intelligence', [
     'active' => 'reports.php',
     'description' => 'Smart, role-aware reporting across growers, field teams, providers, marketplace, finance, support, compliance, and operations.',
     'wide' => true,
+    'topbar_only' => true,
+    'breadcrumbs' => [
+        ['label' => 'Insights & Reports'],
+        ['label' => 'Reporting Intelligence'],
+    ],
     'css' => '
-      .report-shell{display:grid;grid-template-columns:300px 1fr;gap:18px;align-items:start}
+      .report-shell{display:grid;grid-template-columns:300px 1fr;gap:22px;align-items:start}
       .report-list{display:grid;gap:8px}
       .report-list a{display:block;padding:11px 12px;border:1px solid var(--line);border-radius:7px;background:#fff;color:#344054}
       .report-list a.active,.report-list a:hover{background:#eef7f1;color:var(--green-dark);text-decoration:none}
@@ -397,27 +402,57 @@ admin_page_start('Reporting Intelligence', [
       .signal.warning{border-left-color:var(--warn)}
       .signal.danger{border-left-color:var(--danger)}
       .kpi-small{font-size:.84rem;color:var(--muted);font-weight:750}
-      .ri-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:18px}
+      .ri-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:24px}
       .ri-top h2{margin:0;color:#06451f;font-size:1.45rem}.ri-top p{margin:5px 0 0;color:var(--muted)}
       .ri-assurance{display:flex;gap:10px;flex-wrap:wrap}.ri-assurance span{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:9px 11px;font-weight:850;font-size:.84rem;color:#12391f}
-      .ri-board{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px;margin-bottom:18px}
-      .ri-card{background:#fff;border:1px solid rgba(16,24,40,.08);border-radius:8px;box-shadow:var(--shadow);padding:16px;min-width:0}
-      .ri-card h2,.ri-card h3{margin:0;color:#06451f}.ri-card p{margin:5px 0 0;color:var(--muted);line-height:1.45}
+      .ri-board{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:18px;margin-bottom:26px}
+      .ri-card{background:#fff;border:1px solid rgba(16,24,40,.08);border-radius:12px;box-shadow:var(--shadow);padding:20px;min-width:0}
+      .ri-card h2,.ri-card h3{margin:0;color:#06451f}.ri-card p{margin:6px 0 0;color:var(--muted);line-height:1.5}
       .ri-span-3{grid-column:span 3}.ri-span-4{grid-column:span 4}.ri-span-5{grid-column:span 5}.ri-span-6{grid-column:span 6}.ri-span-7{grid-column:span 7}.ri-span-8{grid-column:span 8}.ri-span-12{grid-column:span 12}
-      .ri-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}.ri-num{font-size:1.55rem;font-weight:950;color:#06451f}.ri-mini-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-top:12px}.ri-mini{border:1px solid var(--line);border-radius:8px;background:#fbfdfb;padding:11px}.ri-mini strong{display:block;color:#06451f;font-size:1.2rem}.ri-mini span{display:block;color:var(--muted);font-size:.78rem;font-weight:850}
-      .ri-report-cats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:12px}.ri-cat{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;background:#fbfdfb;padding:10px;color:#12391f}.ri-cat i{width:34px;height:34px;border-radius:8px;background:#eaf8f0;color:#0f6b3c;display:grid;place-items:center}.ri-cat strong{display:block}.ri-cat span{font-size:.78rem;color:var(--muted)}
-      .ri-tabs{display:flex;gap:8px;border-bottom:1px solid var(--line);margin:12px 0}.ri-tabs span{padding:8px 0;font-size:.78rem;font-weight:900;color:#475467}.ri-tabs span.active{color:#06451f;border-bottom:2px solid #06451f}
-      .ri-list{display:grid;gap:8px}.ri-row{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #edf1ea;padding:8px 0}.ri-row:last-child{border-bottom:0}.ri-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;background:#eaf8f0;color:#0f6b3c;padding:4px 8px;font-size:.74rem;font-weight:950}.ri-badge.warn{background:#fff7df;color:#8a5a00}.ri-badge.bad{background:#fff3f3;color:#a32020}
-      .ri-chart{height:150px;border-left:1px solid var(--line);border-bottom:1px solid var(--line);display:grid;grid-template-columns:repeat(10,1fr);gap:8px;align-items:end;padding:10px 10px 0;background:linear-gradient(#fff,#fbfdfb);margin-top:12px}.ri-bar{height:var(--h);min-height:12px;background:linear-gradient(180deg,#1f8a55,#cfe8d8);border-radius:5px 5px 0 0}
+      .ri-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}.ri-num{font-size:1.55rem;font-weight:950;color:#06451f}.ri-mini-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:11px;margin-top:14px}.ri-mini{border:1px solid var(--line);border-radius:8px;background:#fbfdfb;padding:12px}.ri-mini strong{display:block;color:#06451f;font-size:1.2rem}.ri-mini span{display:block;color:var(--muted);font-size:.78rem;font-weight:850}
+      .ri-report-cats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;margin-top:14px}.ri-cat{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;background:#fbfdfb;padding:11px;color:#12391f}.ri-cat i{width:34px;height:34px;border-radius:8px;background:#eaf8f0;color:#0f6b3c;display:grid;place-items:center}.ri-cat strong{display:block}.ri-cat span{font-size:.78rem;color:var(--muted)}
+      .ri-tabs{display:flex;gap:8px;border-bottom:1px solid var(--line);margin:14px 0}.ri-tabs span{padding:8px 0;font-size:.78rem;font-weight:900;color:#475467}.ri-tabs span.active{color:#06451f;border-bottom:2px solid #06451f}
+      .ri-list{display:grid;gap:10px}.ri-row{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #edf1ea;padding:10px 0}.ri-row:last-child{border-bottom:0}.ri-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;background:#eaf8f0;color:#0f6b3c;padding:4px 8px;font-size:.74rem;font-weight:950}.ri-badge.warn{background:#fff7df;color:#8a5a00}.ri-badge.bad{background:#fff3f3;color:#a32020}
+      .ri-chart{height:150px;border-left:1px solid var(--line);border-bottom:1px solid var(--line);display:grid;grid-template-columns:repeat(10,1fr);gap:8px;align-items:end;padding:10px 10px 0;background:linear-gradient(#fff,#fbfdfb);margin-top:14px}.ri-bar{height:var(--h);min-height:12px;background:linear-gradient(180deg,#1f8a55,#cfe8d8);border-radius:5px 5px 0 0}
       .ri-donut{width:112px;height:112px;border-radius:50%;background:conic-gradient(#0f6b3c 0 58%,#2374c6 58% 78%,#f79009 78% 91%,#d92d20 91%);display:grid;place-items:center;margin:auto}.ri-donut b{display:grid;place-items:center;width:64px;height:64px;border-radius:50%;background:#fff;color:#06451f}
       .ri-map{height:210px;border:1px solid var(--line);border-radius:8px;background:linear-gradient(135deg,#eaf8f0,#f8fcfa);position:relative;overflow:hidden;color:#06451f;font-weight:850}.ri-map-shape{position:absolute;inset:16px 26px;background:rgba(15,107,60,.12);clip-path:polygon(10% 47%,24% 18%,45% 10%,69% 15%,88% 30%,94% 50%,82% 72%,57% 90%,33% 84%,17% 66%);border:1px solid rgba(15,107,60,.22)}.ri-map-point{position:absolute;left:var(--x);top:var(--y);width:var(--s);height:var(--s);transform:translate(-50%,-50%);border-radius:50%;background:#0f6b3c;border:3px solid #fff;box-shadow:0 8px 18px rgba(6,63,36,.2);display:grid;place-items:center;color:#fff;font-size:.68rem;line-height:1}.ri-map-point small{position:absolute;left:50%;top:calc(100% + 4px);transform:translateX(-50%);white-space:nowrap;background:#fff;color:#0b5131;border:1px solid #cfe8d8;border-radius:999px;padding:2px 6px;font-size:.64rem;font-weight:900;box-shadow:0 5px 12px rgba(6,63,36,.08)}.ri-map-empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:16px;color:#64748b}.ri-map-foot{position:absolute;left:12px;right:12px;bottom:9px;display:flex;justify-content:space-between;gap:10px;font-size:.72rem;color:#315342}.ri-map-foot b{color:#06451f}
-      .ri-flow{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}.ri-step{text-align:center;border:1px solid var(--line);border-radius:8px;background:#fbfdfb;padding:12px}.ri-step i{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;margin:0 auto 8px;background:#eaf8f0;color:#0f6b3c}
+      .ri-flow{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px}.ri-step{text-align:center;border:1px solid var(--line);border-radius:8px;background:#fbfdfb;padding:14px}.ri-step i{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;margin:0 auto 8px;background:#eaf8f0;color:#0f6b3c}
+      .ri-page-sep{height:1px;background:var(--line);border:0;margin:26px 0}
       @media(max-width:1200px){.ri-span-3,.ri-span-4,.ri-span-5,.ri-span-6,.ri-span-7,.ri-span-8{grid-column:span 12}.ri-mini-grid,.ri-report-cats{grid-template-columns:repeat(2,minmax(0,1fr))}.ri-flow{grid-template-columns:repeat(3,minmax(0,1fr))}}
       @media(max-width:680px){.ri-board,.ri-mini-grid,.ri-report-cats,.ri-flow{grid-template-columns:1fr}.ri-span-3,.ri-span-4,.ri-span-5,.ri-span-6,.ri-span-7,.ri-span-8,.ri-span-12{grid-column:auto}.ri-top{display:block}}
       @media(max-width:980px){.report-shell{grid-template-columns:1fr}}
+      .rep-brand{display:flex;align-items:center;gap:10px;padding-bottom:14px;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,.14);color:#fff}
+      .rep-brand img{width:44px;height:44px;border-radius:50%;background:#fff;object-fit:contain;padding:4px}
+      .rep-brand strong{display:block;line-height:1.1}
+      .rep-brand span{display:block;margin-top:3px;color:#dff5e8;font-size:.72rem;font-weight:750}
+      .rep-label{margin:14px 4px 7px;color:#aee4c4;font-size:.7rem;font-weight:950;text-transform:uppercase;letter-spacing:.03em}
+      .rep-rail nav{display:grid;gap:6px}
+      .rep-rail a strong{display:block}
+      .rep-rail a small{display:block;color:#a9ccb9;font-weight:600;margin-top:2px}
+      .rep-rail .muted{color:#a9ccb9}
     ',
 ]);
 ?>
+<div class="rep-shell">
+  <aside class="rep-rail" aria-label="Reports workspace navigation">
+    <div class="rep-brand"><img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV"><div><strong>NATCODEV</strong><span>Reporting Intelligence</span></div></div>
+    <div class="rep-label">Reportables By Role</div>
+    <p class="muted" style="margin:0 4px 8px">Your current role is <strong><?= e(ucwords(str_replace('_', ' ', $role))) ?></strong>.</p>
+    <nav>
+      <?php foreach ($catalog as $key => $item): ?>
+        <a class="<?= $selectedReport === $key ? 'active' : '' ?>" href="?<?= e(http_build_query(array_merge($_GET, ['report' => $key, 'format' => null]))) ?>">
+          <i class="fas fa-chart-simple"></i>
+          <span><strong><?= e($item[0]) ?></strong><small><?= e($item[1]) ?></small></span>
+        </a>
+      <?php endforeach; ?>
+    </nav>
+    <div class="rep-label">Exits</div>
+    <nav>
+      <a href="<?= e(admin_chrome_url('index.php')) ?>"><i class="fas fa-gauge-high"></i><span>Workspace Hub</span></a>
+    </nav>
+  </aside>
+
+  <div class="rep-main">
 <section class="ri-top">
   <div><h2>Reporting Intelligence & Drilldowns</h2><p>Actionable insights for every stakeholder. Drill down by State, LGA, Date, Program, or Module.</p></div>
   <div class="ri-assurance">
@@ -594,21 +629,6 @@ admin_page_start('Reporting Intelligence', [
   <a class="button secondary" href="?<?= e(http_build_query(array_merge($_GET, ['report' => $selectedReport, 'format' => 'csv']))) ?>">Export CSV</a>
 </form>
 
-<section class="report-shell">
-  <aside class="panel">
-    <h2>Reportables By Role</h2>
-    <p class="muted">Your current role is <strong><?= e(ucwords(str_replace('_', ' ', $role))) ?></strong>. These are the report packs enabled for this role.</p>
-    <div class="report-list">
-      <?php foreach ($catalog as $key => $item): ?>
-        <a class="<?= $selectedReport === $key ? 'active' : '' ?>" href="?<?= e(http_build_query(array_merge($_GET, ['report' => $key, 'format' => null]))) ?>">
-          <strong><?= e($item[0]) ?></strong><br>
-          <span class="muted"><?= e($item[1]) ?></span>
-        </a>
-      <?php endforeach; ?>
-    </div>
-  </aside>
-
-  <div>
     <section class="stats" style="margin-top:0;">
       <div class="stat"><div class="metric"><?= number_format($farmersTotal) ?></div><strong>Growers</strong><div class="kpi-small"><?= number_format($farmersNew) ?> new in period</div></div>
       <div class="stat"><div class="metric"><?= number_format($farmsTotal) ?></div><strong>Farms</strong><div class="kpi-small"><?= number_format($hectares, 1) ?> hectares</div></div>
@@ -632,7 +652,7 @@ admin_page_start('Reporting Intelligence', [
       <?php if (function_exists('render_module_table')) render_module_table(); ?>
     </section>
   </div>
-</section>
+</div>
 <script>
 (function () {
   const stateSelect = document.getElementById('report_state_id');

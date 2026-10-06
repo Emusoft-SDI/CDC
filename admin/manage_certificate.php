@@ -109,10 +109,7 @@ if ($action !== '') {
 }
 
 // Web view
-?><!doctype html>
-<html>
-<head><meta charset="utf-8"><title>Manage Certificate <?= htmlspecialchars($ref) ?></title></head>
-<body>
+?><?php require_once __DIR__ . '/../lib/admin-layout.php'; admin_page_start('Manage Provider Certificate', ['active' => '', 'wide' => true, 'head_html' => '', 'css' => '' . ' .nc-head{display:none}']); ?>
 <h1>Manage Provider Certificate</h1>
 <p><strong>Reference:</strong> <?= htmlspecialchars($ref) ?></p>
 <p><strong>Provider:</strong> <?= htmlspecialchars((string) ($certificate['company_name'] ?? $certificate['contact_person'] ?? '')) ?></p>
@@ -139,7 +136,4 @@ if ($action !== '') {
   <button type="submit">Apply</button>
   <a href="verify-certificate.php?ref=<?= urlencode($ref) ?>" target="_blank">View verification page</a>
 </form>
-</body>
-</html>
-
-<?php
+<?php admin_page_end(); ?><?php

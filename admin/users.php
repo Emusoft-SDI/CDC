@@ -567,6 +567,31 @@ $totalStmt = $pdo->prepare("
 $totalStmt->execute($params);
 $totalUsers = (int) $totalStmt->fetchColumn();
 
+$kpiScopeSql = $scopeState !== ''
+    ? "WHERE (sp.state = ? OR ns.state_name = ? OR a.location LIKE ? OR u.location LIKE ?)"
+    : '';
+$kpiStmt = $pdo->prepare("
+    SELECT
+        COUNT(DISTINCT u.id) AS total_users,
+        COUNT(DISTINCT CASE WHEN u.role = 'grower' THEN u.id END) AS growers,
+        COUNT(DISTINCT CASE WHEN u.role = 'field_agent' AND COALESCE(sp.staff_type, 'field_agent') = 'field_agent' THEN u.id END) AS field_agents,
+        COUNT(DISTINCT CASE WHEN (u.platform_role = 'agronomist' OR u.is_agronomist = 1 OR sp.staff_type = 'agronomist') THEN u.id END) AS agronomists,
+        COUNT(DISTINCT CASE WHEN (u.platform_role = 'agric_extensionist' OR u.is_extensionist = 1 OR sp.staff_type IN ('extensionist','agric_extensionist')) THEN u.id END) AS extensionists,
+        COUNT(DISTINCT CASE WHEN u.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN u.id END) AS new_30
+    FROM users u
+    LEFT JOIN applications a ON u.application_id = a.id
+    LEFT JOIN staff_profiles sp ON sp.user_id = u.id AND sp.deleted_at IS NULL
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
+    LEFT JOIN nigeria_states ns ON ns.id = gf.state_id OR ns.id = a.state_id
+    {$kpiScopeSql}
+");
+$kpiStmt->execute($scopeState !== '' ? [$scopeState, $scopeState, '%' . $scopeState . '%', '%' . $scopeState . '%'] : []);
+$kpis = array_merge([
+    'total_users' => 0, 'growers' => 0, 'field_agents' => 0,
+    'agronomists' => 0, 'extensionists' => 0, 'new_30' => 0,
+], array_map('intval', (array) ($kpiStmt->fetch() ?: [])));
+$openCreateForm = $error !== '' ? ' open' : '';
+
 $usersStmt = $pdo->prepare("
     SELECT u.*, a.app_ref, sp.staff_type, sp.license_number, sp.certification_status, sp.training_program
     FROM users u
@@ -584,50 +609,78 @@ $users = $usersStmt->fetchAll();
 
 admin_page_start('Users', [
     'active' => 'users.php',
-    'description' => 'Create and manage individual staff accounts. Spreadsheet onboarding now lives in Import & Engagement so bulk work is easier to find and audit.',
+    'description' => 'Create and manage staff accounts, grower accounts and role assignments. Spreadsheet onboarding lives in Import & Engagement.',
     'wide' => true,
-    'action_html' => '<a class="button" href="import-users.php">Import Users</a>',
+    'action_html' => '<a class="button secondary" href="import-users.php"><i class="fas fa-file-import"></i> Import Users</a>',
 ]);
 ?>
 <?php if ($message): ?><div class="notice ok"><?= e($message) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="notice error"><?= e($error) ?></div><?php endif; ?>
 <?php if ($scopeState !== ''): ?><div class="notice ok">State Coordinator scope: showing people attached to <?= e($scopeState) ?>.</div><?php endif; ?>
 
-<section class="layout">
-  <aside>
-    <form class="panel" method="post">
-      <h2>Create Staff User</h2>
+<section class="kpi-grid">
+  <?php
+  $userKpis = [
+      ['Total Accounts', (int) $kpis['total_users'], 'All matching accounts', 'fa-users', ''],
+      ['Growers', (int) $kpis['growers'], 'Application users', 'fa-seedling', 'blue'],
+      ['Field Agents', (int) $kpis['field_agents'], 'Field network', 'fa-user-shield', 'orange'],
+      ['Agronomists', (int) $kpis['agronomists'], 'Technical advisory', 'fa-flask', 'purple'],
+      ['Extensionists', (int) $kpis['extensionists'], 'Extension support', 'fa-hand-holding-droplet', ''],
+      ['New (30 days)', (int) $kpis['new_30'], 'Recently created', 'fa-user-plus', 'red'],
+  ];
+  foreach ($userKpis as [$kpiLabel, $kpiValue, $kpiSub, $kpiIcon, $kpiTone]): ?>
+    <article class="kpi-card<?= $kpiTone !== '' ? ' tone-' . e($kpiTone) : '' ?>">
+      <div>
+        <span class="kpi-label"><?= e($kpiLabel) ?></span>
+        <strong class="kpi-value"><?= number_format($kpiValue) ?></strong>
+        <span class="kpi-sub"><i class="fas fa-arrow-trend-up"></i> <?= e($kpiSub) ?></span>
+      </div>
+      <div class="kpi-icon <?= e($kpiTone) ?>"><i class="fas <?= e($kpiIcon) ?>"></i></div>
+    </article>
+  <?php endforeach; ?>
+</section>
+
+<details class="collapse-card"<?= $openCreateForm ?>>
+  <summary>
+    <span class="cc-icon"><i class="fas fa-user-plus"></i></span>
+    <span class="collapse-title">Create Staff User<small>Add a field agent, agronomist, extensionist or admin account</small></span>
+    <span class="caret"><i class="fas fa-chevron-down"></i></span>
+  </summary>
+  <div class="collapse-body">
+    <form method="post">
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
       <input type="hidden" name="action" value="create_user">
-      <label>Name</label>
-      <input type="text" name="name" required>
-      <label>Email</label>
-      <input type="email" name="email" required>
-      <label>Phone</label>
-      <input type="text" name="phone">
-      <label>Temporary Password</label>
-      <div class="password-field">
-        <input id="staff_temp_password" type="password" name="password" minlength="8" required>
-        <button class="password-toggle" type="button" data-target="staff_temp_password" aria-pressed="false">Show</button>
+      <div class="field-grid">
+        <label class="field"><span>Name</span><input type="text" name="name" required></label>
+        <label class="field"><span>Email</span><input type="email" name="email" required></label>
+        <label class="field"><span>Phone</span><input type="text" name="phone"></label>
+        <label class="field"><span>Temporary Password</span>
+          <span class="password-field" style="display:block">
+            <input id="staff_temp_password" type="password" name="password" minlength="8" required>
+            <button class="password-toggle" type="button" data-target="staff_temp_password" aria-pressed="false">Show</button>
+          </span>
+        </label>
+        <label class="field"><span>Staff Role</span>
+          <select name="role" required>
+            <option value="">Select role</option>
+            <option value="field_agent">Field Agent</option>
+            <option value="agronomist">Agronomist</option>
+            <option value="extensionist">Agric Extensionist</option>
+            <option value="admin">Admin</option>
+          </select>
+        </label>
+        <label class="field"><span>Agronomist License</span><input type="text" name="agronomist_license" placeholder="Required only for agronomists"></label>
       </div>
-      <label>Staff Role</label>
-      <select name="role" required>
-        <option value="">Select role</option>
-        <option value="field_agent">Field Agent</option>
-        <option value="agronomist">Agronomist</option>
-        <option value="extensionist">Agric Extensionist</option>
-        <option value="admin">Admin</option>
-      </select>
-      <label>Agronomist License</label>
-      <input type="text" name="agronomist_license" placeholder="Required only for agronomists">
-      <div class="actions"><button type="submit">Create User</button></div>
+      <div class="actions"><button type="submit"><i class="fas fa-user-plus"></i> Create User</button></div>
       <p class="meta">Growers should continue to come through the public application confirmation flow.</p>
     </form>
-  </aside>
+  </div>
+</details>
 
-  <section>
-    <form class="toolbar" method="get">
-      <label>Role
+<section class="panel">
+  <div class="user-toolbar">
+    <form class="toolbar" method="get" style="margin:0">
+      <label style="margin:0">Role
         <select name="role" onchange="this.form.submit()">
           <option value="">All roles</option>
           <option value="grower" <?= $roleFilter === 'grower' ? 'selected' : '' ?>>Growers</option>
@@ -638,44 +691,65 @@ admin_page_start('Users', [
       </label>
       <input type="hidden" name="page" value="1">
     </form>
-    <?= admin_pagination_controls($totalUsers, $page, $perPage) ?>
-    <table>
-      <thead><tr><th>Name</th><th>Email</th><th>Reference</th><th>Role</th><th>Action</th></tr></thead>
-      <tbody>
-        <?php foreach ($users as $u): ?>
-          <?php $displayRole = admin_user_display_role($u); ?>
-          <tr>
-            <td><?= e($u['name']) ?></td>
-            <td><?= e($u['email']) ?><?php if (!empty($u['phone'])): ?><br><small><?= e($u['phone']) ?></small><?php endif; ?></td>
-            <td><?= e($u['app_ref'] ?? '') ?></td>
-            <td>
-              <form method="post" class="toolbar">
-                <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                <input type="hidden" name="action" value="update_role">
-                <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
+    <span class="meta"><?= number_format($totalUsers) ?> account(s)<?= $roleFilter !== '' ? ' shown' : ' total' ?></span>
+  </div>
+  <?= admin_pagination_controls($totalUsers, $page, $perPage) ?>
+  <div class="record-list">
+    <?php foreach ($users as $u): ?>
+      <?php
+        $displayRole = admin_user_display_role($u);
+        $roleLabel = $roles[$displayRole] ?? ucwords(str_replace('_', ' ', (string) $displayRole));
+        $roleTone = ['grower' => '', 'field_agent' => 'orange', 'agronomist' => 'purple', 'extensionist' => 'blue', 'agric_extensionist' => 'blue', 'admin' => 'gray'][$displayRole] ?? 'gray';
+        $nameParts = preg_split('/\s+/', trim((string) $u['name'])) ?: [''];
+        $initials = strtoupper(substr((string) ($nameParts[0] ?? ''), 0, 1) . substr((string) ($nameParts[1] ?? ''), 0, 1));
+        $initials = $initials !== '' ? $initials : strtoupper(substr((string) $u['name'], 0, 1));
+      ?>
+      <article class="record-row">
+        <span class="record-avatar <?= e($roleTone) ?>"><?= e($initials) ?></span>
+        <div class="record-main">
+          <div class="record-name">
+            <?= e($u['name']) ?>
+            <span class="role-badge <?= e((string) $displayRole) ?>"><?= e((string) $roleLabel) ?></span>
+          </div>
+          <div class="record-contact">
+            <span><i class="far fa-envelope"></i><?= e($u['email']) ?></span>
+            <?php if (!empty($u['phone'])): ?><span><i class="fas fa-phone"></i><?= e($u['phone']) ?></span><?php endif; ?>
+          </div>
+        </div>
+        <div class="record-meta">
+          <?php if (!empty($u['app_ref'])): ?>
+            <span class="ref-pill"><i class="fas fa-hashtag"></i><?= e($u['app_ref']) ?></span>
+          <?php else: ?>
+            <span class="muted">No app reference</span>
+          <?php endif; ?>
+        </div>
+        <div class="record-actions">
+          <?php if (in_array($displayRole, ['field_agent', 'agronomist', 'extensionist'], true)): ?>
+            <a class="button secondary sm" href="assign-growers.php?agent=<?= (int) $u['id'] ?>"><i class="fas fa-link"></i> Assignments</a>
+          <?php endif; ?>
+          <details class="user-manage">
+            <summary class="button secondary sm"><i class="fas fa-user-gear"></i> Manage role</summary>
+            <form class="user-manage-form" method="post">
+              <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+              <input type="hidden" name="action" value="update_role">
+              <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
+              <label class="field"><span>Role</span>
                 <select name="role">
                   <?php foreach ($roles as $value => $label): ?>
                     <option value="<?= e($value) ?>" <?= $displayRole === $value ? 'selected' : '' ?>><?= e($label) ?></option>
                   <?php endforeach; ?>
                 </select>
-                <input type="text" name="agronomist_license" value="<?= e($u['license_number'] ?? $u['agronomist_license'] ?? '') ?>" placeholder="License / staff certification">
-                <button type="submit">Save</button>
-              </form>
-            </td>
-            <td>
-              <?php if (in_array($displayRole, ['field_agent', 'agronomist', 'extensionist'], true)): ?>
-                <a class="button secondary" href="assign-growers.php?agent=<?= (int) $u['id'] ?>">Assignments</a>
-              <?php else: ?>
-                <span class="muted"><?= $displayRole === 'grower' ? 'Application user' : 'System access' ?></span>
-              <?php endif; ?>
-            </td>
-          </tr>
-        <?php endforeach; ?>
-        <?php if (!$users): ?><tr><td colspan="5">No users found.</td></tr><?php endif; ?>
-      </tbody>
-    </table>
-    <?= admin_pagination_controls($totalUsers, $page, $perPage) ?>
-  </section>
+              </label>
+              <label class="field"><span>License / staff certification</span><input type="text" name="agronomist_license" value="<?= e($u['license_number'] ?? $u['agronomist_license'] ?? '') ?>"></label>
+              <button type="submit" class="sm"><i class="fas fa-floppy-disk"></i> Save role</button>
+            </form>
+          </details>
+        </div>
+      </article>
+    <?php endforeach; ?>
+    <?php if (!$users): ?><div class="record-empty">No users found for this filter.</div><?php endif; ?>
+  </div>
+  <?= admin_pagination_controls($totalUsers, $page, $perPage) ?>
 </section>
 <script>
 document.querySelectorAll('.password-toggle').forEach(function(button){

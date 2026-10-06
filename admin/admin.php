@@ -459,59 +459,70 @@ admin_page_start('Applications', [
     'active' => 'admin.php',
     'description' => 'Review incoming grower applications, confirm approved records, and export registry data.',
     'wide' => true,
-    'action_html' => '<a class="button" href="?export=1">Export CSV</a>',
+    'action_html' => '<a class="button secondary" href="?export=1"><i class="fas fa-file-csv"></i> Export CSV</a>',
 ]);
 ?>
     <?php if ($pageError !== ''): ?><div class="notice error"><?= e($pageError) ?></div><?php endif; ?>
-    <section class="stats">
-      <div class="stat"><span>Total</span><div class="metric"><?= (int) $counts['total'] ?></div></div>
-      <div class="stat"><span>Confirmed</span><div class="metric"><?= (int) $counts['confirmed'] ?></div></div>
-      <div class="stat"><span>Pending</span><div class="metric"><?= (int) $counts['pending'] ?></div></div>
-      <div class="stat"><span>Archived</span><div class="metric"><?= (int) $counts['archived'] ?></div></div>
-    </section>
 
-    <details class="panel">
-      <summary><strong>Create Application</strong></summary>
-      <form method="post" class="grid" style="margin-top:14px;">
+    <?= admin_kpi_grid([
+        ['Total', number_format((int) $counts['total']), 'All applications', 'fa-file-lines', ''],
+        ['Confirmed', number_format((int) $counts['confirmed']), 'Verified growers', 'fa-circle-check', 'blue'],
+        ['Pending', number_format((int) $counts['pending']), 'Awaiting confirmation', 'fa-clock', 'orange'],
+        ['Archived', number_format((int) $counts['archived']), 'No response', 'fa-box-archive', 'purple'],
+    ]) ?>
+
+    <details class="collapse-card"<?= $pageError !== '' ? ' open' : '' ?>>
+      <summary>
+        <span class="cc-icon"><i class="fas fa-user-plus"></i></span>
+        <span class="collapse-title">Create Application<small>Register a grower application from the admin desk</small></span>
+        <span class="caret"><i class="fas fa-chevron-down"></i></span>
+      </summary>
+      <div class="collapse-body">
+        <form method="post">
+          <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+          <input type="hidden" name="action" value="create_application">
+          <input type="hidden" name="search" value="<?= e($search) ?>">
+          <input type="hidden" name="status" value="<?= e($status) ?>">
+          <input type="hidden" name="page" value="<?= (int) $page ?>">
+          <input type="hidden" name="per_page" value="<?= (int) $perPage ?>">
+          <div class="field-grid">
+            <label class="field"><span>Name</span><input name="name" required></label>
+            <label class="field"><span>Email</span><input type="email" name="email" required></label>
+            <label class="field"><span>Phone</span><input name="phone" required></label>
+            <label class="field"><span>WhatsApp</span><input name="whatsapp"></label>
+            <label class="field"><span>Location</span><input name="location" required></label>
+            <label class="field"><span>Farm Size (ha)</span><input name="farm_size" inputmode="decimal" required></label>
+            <label class="field"><span>Commitments</span><textarea name="commitments">Admin registration</textarea></label>
+          </div>
+          <div class="actions"><button type="submit"><i class="fas fa-plus"></i> Create Application</button></div>
+        </form>
+      </div>
+    </details>
+
+    <section class="panel">
+      <div class="user-toolbar">
+        <form class="toolbar" method="get" style="margin:0">
+          <input type="search" name="search" placeholder="Search ref, name, email, phone" value="<?= e($search) ?>">
+          <input type="hidden" name="page" value="1">
+          <select name="status">
+            <option value="all" <?= $status === 'all' ? 'selected' : '' ?>>All</option>
+            <option value="confirmed" <?= $status === 'confirmed' ? 'selected' : '' ?>>Confirmed</option>
+            <option value="pending" <?= $status === 'pending' ? 'selected' : '' ?>>Pending</option>
+            <option value="archived" <?= $status === 'archived' ? 'selected' : '' ?>>Archived</option>
+          </select>
+          <button type="submit"><i class="fas fa-filter"></i> Filter</button>
+        </form>
+        <span class="meta"><?= number_format($totalApplications) ?> application(s)</span>
+      </div>
+      <?= admin_pagination_controls($totalApplications, $page, $perPage) ?>
+
+      <form class="toolbar" method="post" id="bulkApplicationsForm" style="margin-top:0">
         <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-        <input type="hidden" name="action" value="create_application">
+        <input type="hidden" name="action" value="bulk_action">
         <input type="hidden" name="search" value="<?= e($search) ?>">
         <input type="hidden" name="status" value="<?= e($status) ?>">
         <input type="hidden" name="page" value="<?= (int) $page ?>">
         <input type="hidden" name="per_page" value="<?= (int) $perPage ?>">
-        <label>Name<input name="name" required></label>
-        <label>Email<input type="email" name="email" required></label>
-        <label>Phone<input name="phone" required></label>
-        <label>WhatsApp<input name="whatsapp"></label>
-        <label>Location<input name="location" required></label>
-        <label>Farm Size (ha)<input name="farm_size" inputmode="decimal" required></label>
-        <label>Commitments<textarea name="commitments">Admin registration</textarea></label>
-        <div><button type="submit">Create Application</button></div>
-      </form>
-    </details>
-
-    <form class="toolbar panel" method="get">
-      <input type="search" name="search" placeholder="Search ref, name, email, phone" value="<?= e($search) ?>">
-      <input type="hidden" name="page" value="1">
-      <select name="status">
-        <option value="all" <?= $status === 'all' ? 'selected' : '' ?>>All</option>
-        <option value="confirmed" <?= $status === 'confirmed' ? 'selected' : '' ?>>Confirmed</option>
-        <option value="pending" <?= $status === 'pending' ? 'selected' : '' ?>>Pending</option>
-        <option value="archived" <?= $status === 'archived' ? 'selected' : '' ?>>Archived</option>
-      </select>
-      <button type="submit">Filter</button>
-      <a class="button" href="?export=1">Export CSV</a>
-    </form>
-
-    <?= admin_pagination_controls($totalApplications, $page, $perPage) ?>
-    <form class="panel" method="post" id="bulkApplicationsForm">
-      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-      <input type="hidden" name="action" value="bulk_action">
-      <input type="hidden" name="search" value="<?= e($search) ?>">
-      <input type="hidden" name="status" value="<?= e($status) ?>">
-      <input type="hidden" name="page" value="<?= (int) $page ?>">
-      <input type="hidden" name="per_page" value="<?= (int) $perPage ?>">
-      <div class="toolbar">
         <select name="bulk" required>
           <option value="">Bulk action</option>
           <option value="resend">Resend selected confirmations</option>
@@ -519,75 +530,78 @@ admin_page_start('Applications', [
           <option value="archive">Archive selected pending</option>
           <?php if ($isSuperAdmin): ?><option value="delete">Delete selected pending</option><?php else: ?><option value="request_delete">Request delete selected</option><?php endif; ?>
         </select>
-        <button type="submit" onclick="if (this.form.bulk.value === 'confirm') return confirm('Admin confirm selected applications? Use only after verification.'); if (this.form.bulk.value === 'delete') return confirm('Super Admin delete selected pending applications permanently?'); return true;">Apply to Selected</button>
-      </div>
-    </form>
-    <?php if ($isSuperAdmin && $deleteRequests): ?>
-      <section class="panel">
-        <h2>Delete Requests</h2>
-        <table>
-          <thead><tr><th>Application</th><th>Requested By</th><th>Reason</th><th>Action</th></tr></thead>
-          <tbody>
+        <button type="submit" onclick="if (this.form.bulk.value === 'confirm') return confirm('Admin confirm selected applications? Use only after verification.'); if (this.form.bulk.value === 'delete') return confirm('Super Admin delete selected pending applications permanently?'); return true;"><i class="fas fa-check-double"></i> Apply to Selected</button>
+        <label style="display:inline-flex;align-items:center;gap:8px;font-weight:800"><input type="checkbox" onclick="document.querySelectorAll('[name=&quot;selected_ids[]&quot;]').forEach(cb => cb.checked = this.checked)"> Select all</label>
+      </form>
+
+      <?php if ($isSuperAdmin && $deleteRequests): ?>
+        <section class="panel" style="margin-top:16px">
+          <div class="user-toolbar">
+            <h2 style="margin:0">Delete Requests</h2>
+            <span class="meta"><?= number_format(count($deleteRequests)) ?> pending</span>
+          </div>
+          <div class="record-list">
             <?php foreach ($deleteRequests as $request): ?>
-              <tr>
-                <td><strong><?= e($request['app_ref'] ?? 'Missing application') ?></strong><br><span class="muted"><?= e($request['name'] ?? '') ?> <?= e($request['email'] ?? '') ?></span></td>
-                <td><?= e($request['requested_by_name'] ?? 'Admin') ?><br><span class="muted"><?= e(date('Y-m-d H:i', strtotime((string) $request['created_at']))) ?></span></td>
-                <td><?= nl2br(e((string) $request['reason'])) ?></td>
-                <td>
-                  <form method="post" class="toolbar">
+              <article class="record-row stack">
+                <span class="record-avatar orange"><i class="fas fa-trash-can"></i></span>
+                <div class="record-main">
+                  <div class="record-title"><?= e($request['app_ref'] ?? 'Missing application') ?></div>
+                  <div class="record-contact">
+                    <span><i class="fas fa-user"></i><?= e($request['name'] ?? '') ?> <?= e($request['email'] ?? '') ?></span>
+                    <span><i class="fas fa-user-shield"></i>Requested by <?= e($request['requested_by_name'] ?? 'Admin') ?></span>
+                    <span><i class="far fa-clock"></i><?= e(date('Y-m-d H:i', strtotime((string) $request['created_at']))) ?></span>
+                  </div>
+                  <div class="record-excerpt"><?= nl2br(e((string) $request['reason'])) ?></div>
+                  <form method="post" class="toolbar" style="margin-top:10px">
                     <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
                     <input type="hidden" name="action" value="review_delete_request">
                     <input type="hidden" name="request_id" value="<?= (int) $request['id'] ?>">
                     <button class="danger" name="decision" value="approve" onclick="return confirm('Approve delete request and permanently delete this application?')">Approve Delete</button>
                     <button class="secondary" name="decision" value="reject">Reject</button>
                   </form>
-                </td>
-              </tr>
+                </div>
+              </article>
             <?php endforeach; ?>
-          </tbody>
-        </table>
-      </section>
-    <?php endif; ?>
-    <table>
-      <thead>
-        <tr>
-          <th><input type="checkbox" onclick="document.querySelectorAll('[name=&quot;selected_ids[]&quot;]').forEach(cb => cb.checked = this.checked)"></th>
-          <th>Reference</th>
-          <th>Grower</th>
-          <th>Location</th>
-          <th>Farm</th>
-          <th>Status</th>
-          <th>Applied</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
+          </div>
+        </section>
+      <?php endif; ?>
+
+      <div class="record-list" style="margin-top:16px">
         <?php foreach ($applications as $row): ?>
-          <tr>
-            <td><input type="checkbox" name="selected_ids[]" value="<?= (int) $row['id'] ?>" form="bulkApplicationsForm" <?= (int) $row['confirmed'] === 1 ? 'disabled' : '' ?>></td>
-            <td><?= e($row['app_ref']) ?></td>
-            <td>
-              <strong><?= e($row['name']) ?></strong><br>
-              <span class="muted"><?= e($row['email']) ?><br><?= e($row['phone']) ?></span>
-            </td>
-            <td><?= e($row['location']) ?></td>
-            <td><?= e((string) $row['farm_size']) ?> ha</td>
-            <td>
-              <?php
-                $isArchived = (string) ($row['review_status'] ?? 'active') === 'archived_no_response';
-                $statusClass = (int) $row['confirmed'] === 1 ? 'verified' : ($isArchived ? 'muted-badge' : 'pending');
-                $statusLabel = (int) $row['confirmed'] === 1 ? 'Confirmed' : ($isArchived ? 'Archived' : 'Pending');
-              ?>
-              <span class="badge <?= e($statusClass) ?>"><?= e($statusLabel) ?></span>
-            </td>
-            <td><?= e(date('Y-m-d H:i', strtotime((string) $row['created_at']))) ?></td>
-            <td>
-              <details class="row-review">
-                <summary>View / Edit</summary>
-                <div class="row-actions">
-                  <p><strong>Commitments</strong><br><?= nl2br(e((string) $row['commitments'])) ?></p>
-                  <p><strong>Submission</strong><br><?= e((string) ($row['submission_source'] ?? 'Website Form')) ?> / <?= e((string) ($row['ip_address'] ?? 'No IP')) ?></p>
-                  <form method="post" class="inline-edit">
+          <?php
+            $isArchived = (string) ($row['review_status'] ?? 'active') === 'archived_no_response';
+            $isConfirmed = (int) $row['confirmed'] === 1;
+            $rowTone = $isConfirmed ? 'ok' : ($isArchived ? 'muted' : 'warn');
+            $rowLabel = $isConfirmed ? 'Confirmed' : ($isArchived ? 'Archived' : 'Pending');
+          ?>
+          <article class="record-row stack">
+            <span class="record-avatar <?= $isConfirmed ? '' : ($isArchived ? 'gray' : 'orange') ?>">
+              <input type="checkbox" class="record-check" name="selected_ids[]" value="<?= (int) $row['id'] ?>" form="bulkApplicationsForm" <?= $isConfirmed ? 'disabled' : '' ?>>
+            </span>
+            <div class="record-main">
+              <div class="record-title">
+                <?= e($row['name']) ?>
+                <span class="tag <?= e($rowTone) ?>"><?= e($rowLabel) ?></span>
+                <span class="ref-pill"><i class="fas fa-hashtag"></i><?= e($row['app_ref']) ?></span>
+              </div>
+              <div class="record-contact">
+                <span><i class="far fa-envelope"></i><?= e($row['email']) ?></span>
+                <span><i class="fas fa-phone"></i><?= e($row['phone']) ?></span>
+                <span><i class="fas fa-location-dot"></i><?= e($row['location']) ?></span>
+                <span><i class="fas fa-seedling"></i><?= e((string) $row['farm_size']) ?> ha</span>
+                <span><i class="far fa-calendar"></i><?= e(date('Y-m-d H:i', strtotime((string) $row['created_at']))) ?></span>
+              </div>
+
+              <details class="collapse-card" style="margin:12px 0 0">
+                <summary>
+                  <span class="cc-icon"><i class="fas fa-pen-to-square"></i></span>
+                  <span class="collapse-title">View / Edit Application<small>Contacts, farm size, review status and commitments</small></span>
+                  <span class="caret"><i class="fas fa-chevron-down"></i></span>
+                </summary>
+                <div class="collapse-body">
+                  <p class="muted"><strong>Commitments:</strong> <?= nl2br(e((string) $row['commitments'])) ?></p>
+                  <p class="muted"><strong>Submission:</strong> <?= e((string) ($row['submission_source'] ?? 'Website Form')) ?> / <?= e((string) ($row['ip_address'] ?? 'No IP')) ?></p>
+                  <form method="post">
                     <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
                     <input type="hidden" name="action" value="update_application">
                     <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
@@ -595,85 +609,87 @@ admin_page_start('Applications', [
                     <input type="hidden" name="status" value="<?= e($status) ?>">
                     <input type="hidden" name="page" value="<?= (int) $page ?>">
                     <input type="hidden" name="per_page" value="<?= (int) $perPage ?>">
-                    <label>Name<input name="name" value="<?= e($row['name']) ?>" required></label>
-                    <label>Email<input type="email" name="email" value="<?= e($row['email']) ?>" required></label>
-                    <label>Phone<input name="phone" value="<?= e($row['phone']) ?>" required></label>
-                    <label>WhatsApp<input name="whatsapp" value="<?= e($row['whatsapp'] ?? '') ?>"></label>
-                    <label>Location<input name="location" value="<?= e($row['location']) ?>" required></label>
-                    <label>Farm Size<input name="farm_size" inputmode="decimal" value="<?= e((string) $row['farm_size']) ?>" required></label>
-                    <label>Review Status
-                      <select name="review_status">
-                        <option value="active" <?= (string) ($row['review_status'] ?? 'active') !== 'archived_no_response' ? 'selected' : '' ?>>Active</option>
-                        <option value="archived_no_response" <?= (string) ($row['review_status'] ?? '') === 'archived_no_response' ? 'selected' : '' ?>>Archived</option>
-                      </select>
-                    </label>
-                    <label>Commitments<textarea name="commitments"><?= e($row['commitments']) ?></textarea></label>
-                    <button type="submit">Save Changes</button>
+                    <div class="field-grid">
+                      <label class="field"><span>Name</span><input name="name" value="<?= e($row['name']) ?>" required></label>
+                      <label class="field"><span>Email</span><input type="email" name="email" value="<?= e($row['email']) ?>" required></label>
+                      <label class="field"><span>Phone</span><input name="phone" value="<?= e($row['phone']) ?>" required></label>
+                      <label class="field"><span>WhatsApp</span><input name="whatsapp" value="<?= e($row['whatsapp'] ?? '') ?>"></label>
+                      <label class="field"><span>Location</span><input name="location" value="<?= e($row['location']) ?>" required></label>
+                      <label class="field"><span>Farm Size (ha)</span><input name="farm_size" inputmode="decimal" value="<?= e((string) $row['farm_size']) ?>" required></label>
+                      <label class="field"><span>Review Status</span>
+                        <select name="review_status">
+                          <option value="active" <?= (string) ($row['review_status'] ?? 'active') !== 'archived_no_response' ? 'selected' : '' ?>>Active</option>
+                          <option value="archived_no_response" <?= (string) ($row['review_status'] ?? '') === 'archived_no_response' ? 'selected' : '' ?>>Archived</option>
+                        </select>
+                      </label>
+                      <label class="field"><span>Commitments</span><textarea name="commitments"><?= e($row['commitments']) ?></textarea></label>
+                    </div>
+                    <div class="actions"><button type="submit"><i class="fas fa-floppy-disk"></i> Save Changes</button></div>
                   </form>
                 </div>
               </details>
-              <?php if ((int) $row['confirmed'] !== 1): ?>
-                <form method="post">
-                  <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                  <input type="hidden" name="action" value="resend_confirmation">
-                  <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
-                  <input type="hidden" name="search" value="<?= e($search) ?>">
-                  <input type="hidden" name="status" value="<?= e($status) ?>">
-                  <input type="hidden" name="page" value="<?= (int) $page ?>">
-                  <input type="hidden" name="per_page" value="<?= (int) $perPage ?>">
-                  <button type="submit">Resend Confirmation</button>
-                </form>
-                <form method="post" onsubmit="return confirm('Admin override should be used only after direct verification. Confirm this application now?')" style="margin-top:8px;">
-                  <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                  <input type="hidden" name="action" value="confirm">
-                  <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
-                  <input type="hidden" name="search" value="<?= e($search) ?>">
-                  <input type="hidden" name="status" value="<?= e($status) ?>">
-                  <input type="hidden" name="page" value="<?= (int) $page ?>">
-                  <input type="hidden" name="per_page" value="<?= (int) $perPage ?>">
-                  <button class="secondary" type="submit">Admin Confirm</button>
-                </form>
-              <?php else: ?>
-                <span class="muted">No action</span>
-              <?php endif; ?>
-              <?php if ($isSuperAdmin): ?>
-                <details class="row-review" style="margin-top:8px;">
-                  <summary class="danger-text">Delete</summary>
-                  <form method="post" class="mini-form" onsubmit="return confirm('Permanently delete this application record? This cannot be undone.');">
+
+              <div class="actions" style="margin-top:10px">
+                <?php if (!$isConfirmed): ?>
+                  <form method="post" style="display:inline;margin:0">
                     <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                    <input type="hidden" name="action" value="delete_application">
+                    <input type="hidden" name="action" value="resend_confirmation">
                     <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
                     <input type="hidden" name="search" value="<?= e($search) ?>">
                     <input type="hidden" name="status" value="<?= e($status) ?>">
                     <input type="hidden" name="page" value="<?= (int) $page ?>">
                     <input type="hidden" name="per_page" value="<?= (int) $perPage ?>">
-                    <label>Type DELETE<input name="confirm_delete" required></label>
-                    <button class="danger" type="submit">Delete Permanently</button>
+                    <button type="submit" class="secondary sm"><i class="fas fa-envelope"></i> Resend Confirmation</button>
                   </form>
-                </details>
-              <?php else: ?>
-                <details class="row-review" style="margin-top:8px;">
-                  <summary>Request Delete</summary>
-                  <form method="post" class="mini-form">
+                  <form method="post" style="display:inline;margin:0" onsubmit="return confirm('Admin override should be used only after direct verification. Confirm this application now?')">
                     <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                    <input type="hidden" name="action" value="request_delete_application">
+                    <input type="hidden" name="action" value="confirm">
                     <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
                     <input type="hidden" name="search" value="<?= e($search) ?>">
                     <input type="hidden" name="status" value="<?= e($status) ?>">
                     <input type="hidden" name="page" value="<?= (int) $page ?>">
                     <input type="hidden" name="per_page" value="<?= (int) $perPage ?>">
-                    <label>Reason<textarea name="delete_reason" required></textarea></label>
-                    <button class="secondary" type="submit">Send Delete Request</button>
+                    <button class="secondary sm" type="submit"><i class="fas fa-circle-check"></i> Admin Confirm</button>
                   </form>
-                </details>
-              <?php endif; ?>
-            </td>
-          </tr>
+                <?php endif; ?>
+                <?php if ($isSuperAdmin): ?>
+                  <details class="user-manage">
+                    <summary class="button secondary sm"><i class="fas fa-trash-can"></i> Delete</summary>
+                    <form class="user-manage-form" method="post" onsubmit="return confirm('Permanently delete this application record? This cannot be undone.');">
+                      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+                      <input type="hidden" name="action" value="delete_application">
+                      <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
+                      <input type="hidden" name="search" value="<?= e($search) ?>">
+                      <input type="hidden" name="status" value="<?= e($status) ?>">
+                      <input type="hidden" name="page" value="<?= (int) $page ?>">
+                      <input type="hidden" name="per_page" value="<?= (int) $perPage ?>">
+                      <label class="field"><span>Type DELETE to confirm</span><input name="confirm_delete" required></label>
+                      <button class="danger sm" type="submit"><i class="fas fa-trash-can"></i> Delete Permanently</button>
+                    </form>
+                  </details>
+                <?php else: ?>
+                  <details class="user-manage">
+                    <summary class="button secondary sm"><i class="fas fa-trash-can"></i> Request Delete</summary>
+                    <form class="user-manage-form" method="post">
+                      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+                      <input type="hidden" name="action" value="request_delete_application">
+                      <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
+                      <input type="hidden" name="search" value="<?= e($search) ?>">
+                      <input type="hidden" name="status" value="<?= e($status) ?>">
+                      <input type="hidden" name="page" value="<?= (int) $page ?>">
+                      <input type="hidden" name="per_page" value="<?= (int) $perPage ?>">
+                      <label class="field"><span>Reason</span><textarea name="delete_reason" required></textarea></label>
+                      <button class="secondary sm" type="submit"><i class="fas fa-paper-plane"></i> Send Delete Request</button>
+                    </form>
+                  </details>
+                <?php endif; ?>
+              </div>
+            </div>
+          </article>
         <?php endforeach; ?>
-        <?php if (!$applications): ?>
-          <tr><td colspan="8">No applications found.</td></tr>
-        <?php endif; ?>
-      </tbody>
-    </table>
-    <?= admin_pagination_controls($totalApplications, $page, $perPage) ?>
+        <?php if (!$applications): ?><div class="record-empty">No applications found.</div><?php endif; ?>
+      </div>
+
+      <?= admin_pagination_controls($totalApplications, $page, $perPage) ?>
+    </section>
 <?php admin_page_end(); ?>

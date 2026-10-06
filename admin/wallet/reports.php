@@ -148,35 +148,38 @@ $totalOutflow = array_sum(array_map(static fn(array $r): float => (float) $r['ou
 $totalTransactions = array_sum(array_map(static fn(array $r): int => (int) $r['transactions'], $reportDaily));
 $maxFlow = max(1.0, ...array_map(static fn(array $r): float => max((float) $r['inflow'], (float) $r['outflow']), $reportDaily ?: [['inflow' => 1, 'outflow' => 1]]));
 ?>
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>NATCODEV Wallet Reports</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
-  <link rel="stylesheet" href="../../assets/css/admin-workspaces.css">
-  <style>
-    body{background:#f4f7f5}.fin-shell{display:grid;grid-template-columns:275px 1fr;min-height:100vh}.fin-side{background:#092f22;color:#fff;padding:24px 18px}.fin-side a{color:#d8eee2;text-decoration:none;padding:11px 12px;border-radius:8px}.fin-side a.active,.fin-side a:hover{background:#17603f;color:#fff}.fin-main{padding:28px}.money{font-variant-numeric:tabular-nums}.fin-chart{display:flex;align-items:end;gap:8px;height:220px;padding:14px 8px 0;border-bottom:1px solid #d8dee6}.fin-bar{flex:1;min-width:16px;border-radius:8px 8px 0 0;background:linear-gradient(180deg,#198754,#9bd6ae);position:relative}.fin-bar.out{background:linear-gradient(180deg,#f59e0b,#fde68a)}.fin-bar span{position:absolute;left:50%;bottom:100%;transform:translateX(-50%);font-size:.68rem;color:#475467;white-space:nowrap}.fin-report-grid{display:grid;grid-template-columns:1.25fr .85fr;gap:16px}@media(max-width:1100px){.fin-report-grid{grid-template-columns:1fr}}@media(max-width:900px){.fin-shell{grid-template-columns:1fr}.fin-main{padding:16px}}
-  </style>
-</head>
-<body>
+<?php admin_page_start('Wallet Reports & Intelligence', [
+    'topbar_only' => true,
+    'active' => 'wallet/',
+    'breadcrumbs' => array (
+  0 => 
+  array (
+    'label' => 'Wallet & Payments',
+  ),
+  1 => 
+  array (
+    'label' => 'Wallet Reports',
+  ),
+),
+    'head_pre' => '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"><link rel="stylesheet" href="../../assets/css/admin-workspaces.css"><script defer src="../../assets/js/nc-collapse.js"></script>',
+    'css' => '.fin-shell{display:grid;grid-template-columns:275px 1fr;min-height:100vh}.fin-side{background:#092f22;color:#fff;padding:24px 18px}.fin-side a{color:#d8eee2;text-decoration:none;padding:11px 12px;border-radius:8px}.fin-side a.active,.fin-side a:hover{background:#17603f;color:#fff}.fin-main{padding:28px}.money{font-variant-numeric:tabular-nums}.fin-chart{display:flex;align-items:end;gap:8px;height:220px;padding:14px 8px 0;border-bottom:1px solid #d8dee6}.fin-bar{flex:1;min-width:16px;border-radius:8px 8px 0 0;background:linear-gradient(180deg,#198754,#9bd6ae);position:relative}.fin-bar.out{background:linear-gradient(180deg,#f59e0b,#fde68a)}.fin-bar span{position:absolute;left:50%;bottom:100%;transform:translateX(-50%);font-size:.68rem;color:#475467;white-space:nowrap}.fin-report-grid{display:grid;grid-template-columns:1.25fr .85fr;gap:16px}@media(max-width:1100px){.fin-report-grid{grid-template-columns:1fr}}@media(max-width:900px){.fin-shell{grid-template-columns:1fr}.fin-main{padding:16px}}',
+]); ?>
 <div class="fin-shell">
   <aside class="fin-side">
     <div style="margin-bottom: 1rem;"><img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV" style="max-width: 150px; max-height: 45px; margin-bottom: 10px; display: block;"><h4>NATCODEV</h4></div>
     <p class="small text-white-50">Wallet & Finance Control Room</p>
     <nav class="d-grid gap-1 mt-4">
-      <a href="index.php">Overview</a>
-      <a href="index.php?page=transactions">Transactions</a>
-      <a href="index.php?page=wallets">Wallet Users</a>
-      <a href="index.php?page=withdrawals">Withdrawals</a>
-      <a href="index.php?page=reconciliation">Reconciliation</a>
-      <a class="active" href="reports.php">Reports & Intelligence</a>
-      <a href="index.php?page=rules">Withdrawal Rules</a>
-      <a href="../index.php">Workspace Hub</a>
+      <a href="index.php"><i class="fas fa-table-columns"></i><span>Overview</span></a>
+      <a href="index.php?page=transactions"><i class="fas fa-right-left"></i><span>Transactions</span></a>
+      <a href="index.php?page=wallets"><i class="fas fa-wallet"></i><span>Wallet Users</span></a>
+      <a href="index.php?page=withdrawals"><i class="fas fa-money-bill-transfer"></i><span>Withdrawals</span></a>
+      <a href="index.php?page=reconciliation"><i class="fas fa-scale-balanced"></i><span>Reconciliation</span></a>
+      <a class="active" href="reports.php"><i class="fas fa-chart-line"></i><span>Reports &amp; Intelligence</span></a>
+      <a href="index.php?page=rules"><i class="fas fa-sliders"></i><span>Withdrawal Rules</span></a>
+      <a href="../index.php"><i class="fas fa-gauge-high"></i><span>Workspace Hub</span></a>
     </nav>
   </aside>
-  <main class="fin-main">
+  <div class="fin-main">
     <?= admin_workspace_operator_strip($pdo, ['asset_prefix' => '../../', 'profile_href' => '../profile.php', 'password_href' => '../profile.php#password', 'logout_action' => '../admin.php', 'title' => 'Wallet reports workspace', 'placeholder' => 'Search wallet reports...']) ?>
     <div class="d-flex justify-content-between gap-3 flex-wrap mb-4">
       <div>
@@ -228,7 +231,5 @@ $maxFlow = max(1.0, ...array_map(static fn(array $r): float => max((float) $r['i
       <div class="col-xl-6"><div class="card h-100"><div class="card-header bg-white fw-bold">Top Wallet Exposure</div><div class="table-responsive"><table class="table mb-0"><tr><th>User</th><th>Balance</th><th>Hold</th><th>Status</th></tr><?php foreach ($topWallets as $row): ?><tr><td><strong><?= wr_e($row['name']) ?></strong><br><small><?= wr_e($row['email']) ?></small></td><td><?= wr_e(wallet_reporting_money((float) $row['balance'])) ?></td><td><?= wr_e(wallet_reporting_money((float) $row['hold_balance'])) ?></td><td><?= wr_e($row['status']) ?></td></tr><?php endforeach; ?></table></div></div></div>
       <div class="col-xl-6"><div class="card h-100"><div class="card-header bg-white fw-bold">Recent Export Jobs</div><div class="table-responsive"><table class="table mb-0"><tr><th>Reference</th><th>Range</th><th>Status</th><th></th></tr><?php foreach ($exports as $job): ?><tr><td><?= wr_e($job['job_ref']) ?></td><td><?= wr_e($job['from_date'] . ' to ' . $job['to_date']) ?></td><td><?= wr_e($job['status']) ?></td><td><a class="btn btn-sm btn-outline-success" href="?download=<?= (int) $job['id'] ?>">Download</a></td></tr><?php endforeach; ?></table></div></div></div>
     </div>
-  </main>
-</div>
-</body>
-</html>
+  </div></div>
+<?php admin_page_end(); ?>

@@ -267,6 +267,14 @@ admin_page_start('SMS & WhatsApp Gateways', [
 <?php if ($message): ?><div class="notice ok"><?= e($message) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="notice error"><?= e($error) ?></div><?php endif; ?>
 
+<?= admin_kpi_grid([
+    ['Gateways', number_format(count($gateways)), 'Telecom providers', 'fa-tower-broadcast', ''],
+    ['Active', number_format(count(array_filter($gateways, static fn($g): bool => strtolower((string) $g['status']) === 'active'))), 'Enabled routes', 'fa-circle-check', 'blue'],
+    ['Primaries', number_format(count(array_filter($gateways, static fn($g): bool => !empty($g['is_primary_sms']) || !empty($g['is_primary_whatsapp'])))), 'Primary SMS / WhatsApp', 'fa-star', 'purple'],
+    ['Recent Logs', number_format(count($smsLogs)), 'Last 50 dispatches', 'fa-list-check', 'orange'],
+    ['Delivered', number_format(count(array_filter($smsLogs, static fn($l): bool => in_array(strtolower((string) $l['status']), ['delivered', 'sent'], true)))), 'Successful sends', 'fa-paper-plane', ''],
+]) ?>
+
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
   <!-- Global Routing & Sender ID -->
   <section class="panel">
@@ -360,117 +368,94 @@ admin_page_start('SMS & WhatsApp Gateways', [
 
 <!-- Configured Gateways Overview -->
 <section class="panel" style="margin-bottom:24px;">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-    <h2 style="margin:0;"><i class="fas fa-tower-broadcast"></i> Configured Telecommunication Gateways</h2>
+  <div class="user-toolbar">
+    <h2 style="margin:0"><i class="fas fa-tower-broadcast"></i> Configured Telecommunication Gateways</h2>
+    <span class="meta"><?= number_format(count($gateways)) ?> gateway(s)</span>
   </div>
-
-  <table class="data-table" style="width:100%;">
-    <thead>
-      <tr>
-        <th>Gateway & Driver</th>
-        <th>Channels</th>
-        <th>Sender ID</th>
-        <th>Last Balance Check</th>
-        <th>Mode</th>
-        <th>Status</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      <?php foreach ($gateways as $gw): ?>
-        <tr>
-          <td>
-            <strong><?= e($gw['name']) ?></strong>
-            <?php if (!empty($gw['is_primary_sms'])): ?><span class="tag green" style="font-size:0.75rem;margin-left:4px;">Primary SMS</span><?php endif; ?>
-            <?php if (!empty($gw['is_primary_whatsapp'])): ?><span class="tag blue" style="font-size:0.75rem;margin-left:4px;">Primary WhatsApp</span><?php endif; ?>
-            <br><small class="muted">Key: <?= e($gw['gateway_key']) ?> | Driver: <?= e($gw['provider_driver']) ?></small>
-          </td>
-          <td><span class="tag"><?= strtoupper(e($gw['channel_type'])) ?></span></td>
-          <td><code><?= e($gw['sender_id'] ?: 'NATCODEV') ?></code></td>
-          <td>
-            <?= e($gw['last_balance_check'] ?: 'Not checked yet') ?>
-            <?php if (!empty($gw['last_balance_at'])): ?>
-              <br><small class="muted"><?= e(date('M d, H:i', strtotime($gw['last_balance_at']))) ?></small>
-            <?php endif; ?>
-          </td>
-          <td><span class="tag <?= $gw['environment'] === 'live' ? 'green' : 'amber' ?>"><?= strtoupper(e($gw['environment'])) ?></span></td>
-          <td><span class="tag <?= $gw['status'] === 'active' ? 'green' : 'red' ?>"><?= strtoupper(e($gw['status'])) ?></span></td>
-          <td>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;">
-              <!-- Refresh Balance Form -->
-              <form method="post" style="display:inline;">
+  <div class="record-list">
+    <?php foreach ($gateways as $gw): ?>
+      <?php $gwActive = strtolower((string) $gw['status']) === 'active'; $gwLive = strtolower((string) $gw['environment']) === 'live'; ?>
+      <article class="record-row stack">
+        <span class="record-avatar <?= $gwActive ? 'file' : 'log' ?>"><i class="fas fa-tower-broadcast"></i></span>
+        <div class="record-main">
+          <div class="record-title">
+            <?= e($gw['name']) ?>
+            <?php if (!empty($gw['is_primary_sms'])): ?><span class="tag ok"><i class="fas fa-star"></i> Primary SMS</span><?php endif; ?>
+            <?php if (!empty($gw['is_primary_whatsapp'])): ?><span class="tag info"><i class="fas fa-star"></i> Primary WhatsApp</span><?php endif; ?>
+            <span class="tag <?= $gwActive ? 'ok' : 'bad' ?>"><?= e(strtoupper((string) $gw['status'])) ?></span>
+            <span class="tag <?= $gwLive ? 'ok' : 'warn' ?>"><?= e(strtoupper((string) $gw['environment'])) ?></span>
+          </div>
+          <div class="record-contact">
+            <span><i class="fas fa-key"></i><?= e($gw['gateway_key']) ?></span>
+            <span><i class="fas fa-plug"></i><?= e($gw['provider_driver']) ?></span>
+            <span><i class="fas fa-comments"></i><?= e(strtoupper((string) $gw['channel_type'])) ?></span>
+            <span><i class="fas fa-signature"></i>Sender: <?= e($gw['sender_id'] ?: 'NATCODEV') ?></span>
+            <span><i class="fas fa-wallet"></i><?= e($gw['last_balance_check'] ?: 'Not checked yet') ?><?= !empty($gw['last_balance_at']) ? ' · ' . e(date('M d, H:i', strtotime((string) $gw['last_balance_at']))) : '' ?></span>
+          </div>
+          <div class="actions" style="margin-top:10px">
+            <form method="post" style="display:inline;margin:0">
+              <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+              <input type="hidden" name="action" value="check_balance">
+              <input type="hidden" name="gateway_id" value="<?= (int) $gw['id'] ?>">
+              <button type="submit" class="button secondary sm"><i class="fas fa-rotate"></i> Balance</button>
+            </form>
+            <?php if (in_array($gw['channel_type'], ['sms', 'both'], true) && empty($gw['is_primary_sms'])): ?>
+              <form method="post" style="display:inline;margin:0">
                 <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                <input type="hidden" name="action" value="check_balance">
+                <input type="hidden" name="action" value="set_default_sms">
                 <input type="hidden" name="gateway_id" value="<?= (int) $gw['id'] ?>">
-                <button type="submit" class="button secondary" style="padding:4px 8px;font-size:0.8rem;" title="Check Live Balance"><i class="fas fa-rotate"></i> Balance</button>
+                <button type="submit" class="button secondary sm"><i class="fas fa-check"></i> Set SMS Primary</button>
               </form>
-
-              <!-- Set SMS Primary -->
-              <?php if (in_array($gw['channel_type'], ['sms', 'both'], true) && empty($gw['is_primary_sms'])): ?>
-                <form method="post" style="display:inline;">
-                  <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                  <input type="hidden" name="action" value="set_default_sms">
-                  <input type="hidden" name="gateway_id" value="<?= (int) $gw['id'] ?>">
-                  <button type="submit" class="button secondary" style="padding:4px 8px;font-size:0.8rem;" title="Make Primary SMS"><i class="fas fa-check"></i> Set SMS</button>
-                </form>
-              <?php endif; ?>
-
-              <!-- Set WhatsApp Primary -->
-              <?php if (in_array($gw['channel_type'], ['whatsapp', 'both'], true) && empty($gw['is_primary_whatsapp'])): ?>
-                <form method="post" style="display:inline;">
-                  <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                  <input type="hidden" name="action" value="set_default_whatsapp">
-                  <input type="hidden" name="gateway_id" value="<?= (int) $gw['id'] ?>">
-                  <button type="submit" class="button secondary" style="padding:4px 8px;font-size:0.8rem;" title="Make Primary WhatsApp"><i class="fas fa-comment-dots"></i> Set WA</button>
-                </form>
-              <?php endif; ?>
-            </div>
-          </td>
-        </tr>
-      <?php endforeach; ?>
-    </tbody>
-  </table>
+            <?php endif; ?>
+            <?php if (in_array($gw['channel_type'], ['whatsapp', 'both'], true) && empty($gw['is_primary_whatsapp'])): ?>
+              <form method="post" style="display:inline;margin:0">
+                <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+                <input type="hidden" name="action" value="set_default_whatsapp">
+                <input type="hidden" name="gateway_id" value="<?= (int) $gw['id'] ?>">
+                <button type="submit" class="button secondary sm"><i class="fas fa-comment-dots"></i> Set WhatsApp Primary</button>
+              </form>
+            <?php endif; ?>
+          </div>
+        </div>
+      </article>
+    <?php endforeach; ?>
+    <?php if (!$gateways): ?><div class="record-empty">No gateways configured yet.</div><?php endif; ?>
+  </div>
 </section>
 
 <!-- Recent Delivery Logs -->
 <section class="panel">
-  <h2><i class="fas fa-list-check"></i> Recent Gateway Delivery Logs</h2>
-  <div style="overflow-x:auto;">
-    <table class="data-table" style="width:100%;">
-      <thead>
-        <tr>
-          <th>Date/Time</th>
-          <th>Recipient</th>
-          <th>Channel</th>
-          <th>Gateway</th>
-          <th>Sender</th>
-          <th>Message</th>
-          <th>Status</th>
-          <th>Reference</th>
-        </tr>
-      </thead>
-      <tbody>
-        <?php foreach ($smsLogs as $log): ?>
-          <tr>
-            <td><small><?= e(date('M d, Y H:i:s', strtotime($log['created_at']))) ?></small></td>
-            <td><strong><?= e($log['recipient']) ?></strong></td>
-            <td><span class="tag <?= $log['channel'] === 'whatsapp' ? 'blue' : 'green' ?>"><?= strtoupper(e($log['channel'])) ?></span></td>
-            <td><?= e($log['gateway_key'] ?: '-') ?></td>
-            <td><code><?= e($log['sender_id'] ?: 'NATCODEV') ?></code></td>
-            <td><small><?= e(mb_strimwidth((string)$log['message'], 0, 60, '...')) ?></small></td>
-            <td>
-              <span class="tag <?= in_array($log['status'], ['delivered', 'sent'], true) ? 'green' : ($log['status'] === 'simulated' ? 'blue' : 'red') ?>">
-                <?= strtoupper(e($log['status'])) ?>
-              </span>
-            </td>
-            <td><code><?= e($log['provider_reference'] ?: '-') ?></code></td>
-          </tr>
-        <?php endforeach; ?>
-        <?php if (empty($smsLogs)): ?>
-          <tr><td colspan="8" style="text-align:center;" class="muted">No SMS or WhatsApp logs recorded yet.</td></tr>
-        <?php endif; ?>
-      </tbody>
-    </table>
+  <div class="user-toolbar">
+    <h2 style="margin:0"><i class="fas fa-list-check"></i> Recent Gateway Delivery Logs</h2>
+    <span class="meta"><?= number_format(count($smsLogs)) ?> recent dispatch(es)</span>
+  </div>
+  <div class="record-list">
+    <?php foreach ($smsLogs as $log): ?>
+      <?php
+        $smsStatus = strtolower((string) $log['status']);
+        $smsTone = in_array($smsStatus, ['delivered', 'sent'], true) ? 'ok' : ($smsStatus === 'simulated' ? 'info' : 'bad');
+      ?>
+      <article class="record-row">
+        <span class="record-avatar <?= strtolower((string) $log['channel']) === 'whatsapp' ? 'mail' : 'log' ?>"><i class="fas fa-comment-dots"></i></span>
+        <div class="record-main">
+          <div class="record-title">
+            <?= e($log['recipient']) ?>
+            <span class="tag <?= strtolower((string) $log['channel']) === 'whatsapp' ? 'info' : 'ok' ?>"><?= e(strtoupper((string) $log['channel'])) ?></span>
+            <span class="tag <?= e($smsTone) ?>"><?= e(strtoupper((string) $log['status'])) ?></span>
+          </div>
+          <div class="record-contact">
+            <span><i class="fas fa-tower-broadcast"></i><?= e($log['gateway_key'] ?: '-') ?></span>
+            <span><i class="fas fa-signature"></i><?= e($log['sender_id'] ?: 'NATCODEV') ?></span>
+            <?php if (!empty($log['provider_reference'])): ?><span><i class="fas fa-barcode"></i><?= e((string) $log['provider_reference']) ?></span><?php endif; ?>
+          </div>
+          <?php if (!empty($log['message'])): ?><div class="record-excerpt"><?= e(mb_strimwidth((string) $log['message'], 0, 150, '...')) ?></div><?php endif; ?>
+        </div>
+        <div class="record-actions">
+          <span class="ref-pill"><i class="far fa-clock"></i><?= e(date('M d, H:i', strtotime((string) $log['created_at']))) ?></span>
+        </div>
+      </article>
+    <?php endforeach; ?>
+    <?php if (empty($smsLogs)): ?><div class="record-empty">No SMS or WhatsApp logs recorded yet.</div><?php endif; ?>
   </div>
 </section>
 

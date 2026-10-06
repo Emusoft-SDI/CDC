@@ -48,27 +48,31 @@ $commands = [
     ['Support', 'Ticket queues, escalations and knowledge operations.', '../support/', 'support'],
 ];
 ?>
-<!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Operations Workspace - NATCODEV</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
-<link rel="stylesheet" href="../../assets/css/admin-workspaces.css">
-<style>
-body{background:#f4f7f5}.ops-shell{display:grid;grid-template-columns:270px 1fr;min-height:100vh}.ops-side{background:#0b3b28;color:#fff;padding:24px 18px}.ops-side a{color:#d8eee2;text-decoration:none;padding:11px 12px;border-radius:8px}.ops-side a.active,.ops-side a:hover{background:#17603f;color:#fff}.ops-main{padding:28px}.metric{border:0;border-left:4px solid var(--bs-success)}.command-card{transition:.15s}.command-card:hover{transform:translateY(-2px)}@media(max-width:900px){.ops-shell{grid-template-columns:1fr}.ops-side{position:static}.ops-main{padding:18px}}
-</style></head><body>
+<?php admin_page_start('Operations Workspace', ['active' => 'operations/', 'wide' => true,
+    'topbar_only' => true,
+    'breadcrumbs' => [['label' => 'Dashboards'], ['label' => 'Role Dashboard']], 'head_html' => '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"><link rel="stylesheet" href="../../assets/css/admin-workspaces.css">', 'css' => '.ops-shell{display:grid;grid-template-columns:270px 1fr;min-height:100vh}.ops-side{background:#0b3b28;color:#fff;padding:24px 18px}.ops-side a{color:#d8eee2;text-decoration:none;padding:11px 12px;border-radius:8px}.ops-side a.active,.ops-side a:hover{background:#17603f;color:#fff}.ops-main{padding:28px}.metric{border:0;border-left:4px solid var(--bs-success)}.command-card{transition:.15s}.command-card:hover{transform:translateY(-2px)}@media(max-width:900px){.ops-shell{grid-template-columns:1fr}.ops-side{position:static}.ops-main{padding:18px}}.ops-brand{display:flex;align-items:center;gap:10px;padding-bottom:14px;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,.14);color:#fff}.ops-brand img{width:44px;height:44px;border-radius:50%;background:#fff;object-fit:contain;padding:4px}.ops-brand strong{display:block;line-height:1.1}.ops-brand span{display:block;margin-top:3px;color:#dff5e8;font-size:.72rem;font-weight:750}.ops-label{margin:14px 4px 7px;color:#aee4c4;font-size:.7rem;font-weight:950;text-transform:uppercase;letter-spacing:.03em}.ops-side nav{display:grid;gap:5px}']);
+?>
 <div class="ops-shell">
-<aside class="ops-side">
-  <h4 class="mb-1">NATCODEV</h4><p class="small text-white-50 mb-4">Operations Workspace</p>
-  <nav class="d-grid gap-1">
-    <?php foreach (['overview'=>'Overview','queues'=>'Work Queues','network'=>'Operations Network','platform'=>'Platform Commands'] as $key=>$label): ?><a class="<?= $page===$key?'active':'' ?>" href="?page=<?= $key ?>"><?= e($label) ?></a><?php endforeach; ?>
-    <hr class="border-light opacity-25"><a href="../index.php">Workspace Hub</a><a href="../admin.php?logout=1">Logout</a>
-  </nav>
-</aside>
-<main class="ops-main">
+  <aside class="ops-side" aria-label="Operations workspace navigation">
+    <div class="ops-brand"><img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV"><div><strong>NATCODEV</strong><span>Operations Workspace</span></div></div>
+    <div class="ops-label">Dashboards</div>
+    <nav aria-label="Operations dashboards">
+      <?php $opsIcons = ['overview' => 'fa-table-columns', 'queues' => 'fa-list-check', 'network' => 'fa-diagram-project', 'platform' => 'fa-terminal']; ?>
+      <?php foreach (['overview' => 'Overview', 'queues' => 'Work Queues', 'network' => 'Operations Network', 'platform' => 'Platform Commands'] as $key => $label): ?><a class="<?= $page === $key ? 'active' : '' ?>" href="?page=<?= $key ?>"><i class="fas <?= e($opsIcons[$key] ?? 'fa-circle') ?>"></i><span><?= e($label) ?></span></a><?php endforeach; ?>
+    </nav>
+    <div class="ops-label">Exits</div>
+    <nav aria-label="Operations exits">
+      <a href="../index.php"><i class="fas fa-gauge-high"></i><span>Workspace Hub</span></a>
+      <a href="../search.php"><i class="fas fa-magnifying-glass"></i><span>Search Platform</span></a>
+      <a href="../admin.php?logout=1"><i class="fas fa-right-from-bracket"></i><span>Logout</span></a>
+    </nav>
+  </aside>
+  <div class="ops-main">
   <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4"><div><span class="text-success fw-bold text-uppercase small">Live operational data</span><h1 class="h3 mb-1"><?= e(ucwords(str_replace('_',' ',$page))) ?></h1><p class="text-secondary mb-0">One command center for authenticated NATCODEV administration.</p></div><a class="btn btn-success" href="../search.php">Search Platform</a></div>
   <div class="row g-3 mb-4"><?php foreach($metrics as [$label,$value,$href,$tone]): ?><div class="col-sm-6 col-xl-3"><a class="card metric h-100 text-decoration-none" href="<?= e($href) ?>"><div class="card-body"><div class="text-secondary small"><?= e($label) ?></div><div class="display-6 fw-bold text-dark"><?= number_format($value) ?></div><small class="text-success">Open queue</small></div></a></div><?php endforeach; ?></div>
   <?php if($page==='overview' || $page==='queues'): ?><section class="card mb-4"><div class="card-header bg-white"><h2 class="h5 mb-0">Action Queues</h2></div><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Queue</th><th>Pending</th><th>Operational scope</th><th></th></tr></thead><tbody><?php foreach($queues as [$label,$count,$href,$detail]): ?><tr><td class="fw-semibold"><?= e($label) ?></td><td><span class="badge text-bg-<?= $count?'warning':'success' ?>"><?= number_format($count) ?></span></td><td class="text-secondary"><?= e($detail) ?></td><td><a class="btn btn-sm btn-outline-success" href="<?= e($href) ?>">Manage</a></td></tr><?php endforeach; ?></tbody></table></div></section><?php endif; ?>
   <?php if($page==='overview'): ?><section class="card mb-4"><div class="card-header bg-white"><h2 class="h5 mb-0">Recent Applications</h2></div><div class="table-responsive"><table class="table mb-0"><thead><tr><th>Reference</th><th>Grower</th><th>Status</th><th>Received</th></tr></thead><tbody><?php foreach($recent as $row): ?><tr><td><?= e($row['reference']) ?></td><td><?= e($row['title']) ?></td><td><?= e(ucfirst($row['status'])) ?></td><td><?= e((string)$row['occurred_at']) ?></td></tr><?php endforeach; ?></tbody></table></div></section><?php endif; ?>
   <?php if($page!=='queues'): ?><div class="row g-3"><?php foreach($commands as [$title,$detail,$href,$feature]): if(!admin_feature_is_allowed($pdo,$feature))continue; ?><div class="col-md-6 col-xl-4"><a class="card command-card h-100 text-decoration-none" href="<?= e($href) ?>"><div class="card-body"><h3 class="h5 text-dark"><?= e($title) ?></h3><p class="text-secondary"><?= e($detail) ?></p><span class="text-success fw-semibold">Open CRUD workspace</span></div></a></div><?php endforeach; ?></div><?php endif; ?>
-</main></div><script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script></body></html>
+  </div>
+</div>
+<?php admin_page_end(); ?>

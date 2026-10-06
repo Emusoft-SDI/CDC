@@ -403,17 +403,16 @@ $workspaceCatalog = [
         'tone' => 'gray',
         'status' => 'Operational',
         'sections' => [
-            ['Settings Home', 'settings.php?page=overview'],
-            ['Module Control', 'settings.php?page=modules'],
-            ['RBAC Matrix', 'settings.php?page=rbac'],
-            ['User Roles', 'settings.php?page=user-roles'],
-            ['Stakeholder Interests', 'settings.php?page=stakeholder-interests'],
-            ['Integrations', 'settings.php?page=integrations'],
-            ['Feature Flags', 'settings.php?page=feature-flags'],
-            ['Security', 'settings.php?page=security'],
-            ['Backups', 'backups.php'],
-            ['Maintenance', 'settings.php?page=maintenance'],
-            ['Audit Log', 'settings.php?page=audit-log'],
+            ['Operational Settings', 'settings.php'],
+            ['Message Templates', 'templates.php'],
+            ['Users & Roles', 'users.php'],
+            ['Job Queue', 'jobs.php'],
+            ['System Health', 'health.php'],
+            ['Module Setup', '../super-admin/index.php?view=modules'],
+            ['RBAC Matrix', '../super-admin/index.php?view=access'],
+            ['Integrations', '../super-admin/index.php?view=integrations'],
+            ['Audit Log', '../super-admin/index.php?view=audit'],
+            ['Backup & Recovery', 'backups.php'],
         ],
     ],
 ];
@@ -430,6 +429,11 @@ $kpis = [
     ['Training Completion', $trainingCompletion . '%', '9.5%', 'fa-graduation-cap', 'purple'],
     ['Open Tickets', number_format($openTickets), $openTickets > 0 ? 'Needs action' : 'Clear', 'fa-headset', 'red'],
 ];
+// Phase 9: harden the hub output for a nonce-based CSP (same pipeline as admin_page_start).
+require_once __DIR__ . '/../lib/admin-csp.php';
+admin_csp_send_header();
+$GLOBALS['nc_csp_ob_base'] = ob_get_level();
+ob_start('admin_csp_harden');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -481,6 +485,7 @@ $kpis = [
 
   <section class="main">
     <header class="top">
+      <a class="menu-trigger" href="../index.php" title="Back to the NATCODEV home page"><i class="fas fa-house-chimney"></i> Home</a>
       <form class="search" action="search.php" method="get"><i class="fas fa-search"></i><input name="q" placeholder="Search growers, applications, documents, courses..."><span class="kbd">CTRL + K</span></form>
       <div class="top-actions">
         <div class="top-menu">
@@ -509,7 +514,7 @@ $kpis = [
           <button class="menu-trigger" type="button" data-menu-toggle><span class="avatar"><?php if ($avatarUrl): ?><img src="<?= e($avatarUrl) ?>" alt=""><?php else: ?><?= e(strtoupper(substr($name, 0, 1))) ?><?php endif; ?></span><?= e($name) ?> <i class="fas fa-chevron-down"></i></button>
           <div class="dropdown">
             <h3><?= e($name) ?><small><?= e($roleLabel) ?></small></h3>
-            <?php foreach ($profileLinks as $item): ?><a href="<?= e($item['href']) ?>"><span><i class="fas <?= e($item['icon']) ?>"></i> <?= e($item['label']) ?></span></a><?php endforeach; ?><form method="post" action="admin.php"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="logout" value="1"><button type="submit"><span><i class="fas fa-right-from-bracket"></i> Logout</span></button></form>
+            <?php foreach ($profileLinks as $item): ?><a href="<?= e($item['href']) ?>"><span><i class="fas <?= e($item['icon']) ?>"></i> <?= e($item['label']) ?></span></a><?php endforeach; ?><a href="../index.php"><span><i class="fas fa-house-chimney"></i> Public Home Page</span></a><form method="post" action="admin.php"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="logout" value="1"><button type="submit"><span><i class="fas fa-right-from-bracket"></i> Logout</span></button></form>
           </div>
         </div>
       </div>
@@ -609,5 +614,14 @@ document.addEventListener('click', () => {
   render();
 })();
 </script>
+<script src="<?= e(admin_public_url('assets/js/nc-csp.js')) ?>" nonce="<?= e(admin_csp_nonce()) ?>"></script>
 </body>
 </html>
+<?php
+if (isset($GLOBALS['nc_csp_ob_base'])) {
+    $base = (int) $GLOBALS['nc_csp_ob_base'];
+    while (ob_get_level() > $base) {
+        ob_end_flush();
+    }
+    unset($GLOBALS['nc_csp_ob_base']);
+}

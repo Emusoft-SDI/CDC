@@ -108,48 +108,128 @@ admin_page_start('Resource Allocation', [
   <p class="muted">Record inventory, allocate inputs to farmers, and monitor distribution effectiveness.</p>
 </section>
 
-<section class="layout">
-  <aside class="panel">
-    <h2>Inventory</h2>
+<?php
+$invCount = count($inventory);
+$allocCount = count($allocations);
+$lowStock = count(array_filter($inventory, static fn($r): bool => (float) ($r['reorder_level'] ?? 0) > 0 && (float) ($r['quantity_available'] ?? 0) <= (float) $r['reorder_level']));
+$distributed = count(array_filter($allocations, static fn($r): bool => (string) ($r['distribution_status'] ?? '') === 'distributed'));
+$planned = count(array_filter($allocations, static fn($r): bool => (string) ($r['distribution_status'] ?? '') === 'planned'));
+?>
+<?= admin_kpi_grid([
+    ['Inventory Items', number_format($invCount), 'Tracked resources', 'fa-boxes-stacked', ''],
+    ['Allocations', number_format($allocCount), 'Distribution records', 'fa-truck-fast', 'blue'],
+    ['Distributed', number_format($distributed), 'Completed allocations', 'fa-circle-check', 'purple'],
+    ['Planned', number_format($planned), 'Awaiting dispatch', 'fa-clipboard-list', 'orange'],
+    ['Low Stock', number_format($lowStock), 'At or below reorder level', 'fa-triangle-exclamation', 'red'],
+]) ?>
+
+<details class="collapse-card"<?= $error !== '' ? ' open' : '' ?>>
+  <summary>
+    <span class="cc-icon"><i class="fas fa-boxes-stacked"></i></span>
+    <span class="collapse-title">Record Inventory<small>Add or update state resource stock</small></span>
+    <span class="caret"><i class="fas fa-chevron-down"></i></span>
+  </summary>
+  <div class="collapse-body">
     <form method="post">
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
       <input type="hidden" name="action" value="save_inventory">
-      <?php if ($scopeState === ''): ?><label>State<input name="state_name" required></label><?php endif; ?>
-      <label>Resource Name<input name="resource_name" required></label>
-      <label>Category<input name="resource_category" value="input"></label>
-      <label>Quantity<input name="quantity_available" inputmode="decimal"></label>
-      <label>Unit<input name="unit" placeholder="bags, seedlings, litres"></label>
-      <label>Reorder Level<input name="reorder_level" inputmode="decimal"></label>
-      <label>Notes<textarea name="notes"></textarea></label>
-      <button type="submit">Save Inventory</button>
+      <div class="field-grid">
+        <?php if ($scopeState === ''): ?><label class="field"><span>State</span><input name="state_name" required></label><?php endif; ?>
+        <label class="field"><span>Resource Name</span><input name="resource_name" required></label>
+        <label class="field"><span>Category</span><input name="resource_category" value="input"></label>
+        <label class="field"><span>Quantity</span><input name="quantity_available" inputmode="decimal"></label>
+        <label class="field"><span>Unit</span><input name="unit" placeholder="bags, seedlings, litres"></label>
+        <label class="field"><span>Reorder Level</span><input name="reorder_level" inputmode="decimal"></label>
+        <label class="field"><span>Notes</span><textarea name="notes"></textarea></label>
+      </div>
+      <div class="actions"><button type="submit"><i class="fas fa-floppy-disk"></i> Save Inventory</button></div>
     </form>
-    <h2>Allocate</h2>
+  </div>
+</details>
+
+<details class="collapse-card"<?= $error !== '' ? ' open' : '' ?>>
+  <summary>
+    <span class="cc-icon"><i class="fas fa-truck-fast"></i></span>
+    <span class="collapse-title">Allocate Resource<small>Distribute inputs to a farmer or general pool</small></span>
+    <span class="caret"><i class="fas fa-chevron-down"></i></span>
+  </summary>
+  <div class="collapse-body">
     <form method="post">
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
       <input type="hidden" name="action" value="allocate">
-      <?php if ($scopeState === ''): ?><label>State<input name="state_name" required></label><?php endif; ?>
-      <label>Farmer<select name="farmer_id"><option value="">General allocation</option><?php foreach ($farmers as $farmer): ?><option value="<?= (int) $farmer['id'] ?>"><?= e($farmer['name']) ?></option><?php endforeach; ?></select></label>
-      <label>Resource Name<input name="resource_name" required></label>
-      <label>Category<input name="resource_category" value="input"></label>
-      <label>Quantity<input name="quantity_allocated" inputmode="decimal"></label>
-      <label>Unit<input name="unit"></label>
-      <label>Status<select name="distribution_status"><option value="planned">Planned</option><option value="distributed">Distributed</option><option value="delayed">Delayed</option><option value="cancelled">Cancelled</option></select></label>
-      <label>Effectiveness Note<textarea name="effectiveness_note"></textarea></label>
-      <button type="submit">Record Allocation</button>
+      <div class="field-grid">
+        <?php if ($scopeState === ''): ?><label class="field"><span>State</span><input name="state_name" required></label><?php endif; ?>
+        <label class="field"><span>Farmer</span><select name="farmer_id"><option value="">General allocation</option><?php foreach ($farmers as $farmer): ?><option value="<?= (int) $farmer['id'] ?>"><?= e($farmer['name']) ?></option><?php endforeach; ?></select></label>
+        <label class="field"><span>Resource Name</span><input name="resource_name" required></label>
+        <label class="field"><span>Category</span><input name="resource_category" value="input"></label>
+        <label class="field"><span>Quantity</span><input name="quantity_allocated" inputmode="decimal"></label>
+        <label class="field"><span>Unit</span><input name="unit"></label>
+        <label class="field"><span>Status</span><select name="distribution_status"><option value="planned">Planned</option><option value="distributed">Distributed</option><option value="delayed">Delayed</option><option value="cancelled">Cancelled</option></select></label>
+        <label class="field"><span>Effectiveness Note</span><textarea name="effectiveness_note"></textarea></label>
+      </div>
+      <div class="actions"><button type="submit"><i class="fas fa-truck-fast"></i> Record Allocation</button></div>
     </form>
-  </aside>
+  </div>
+</details>
 
-  <section class="panel">
-    <h2>Inventory Register</h2>
-    <table><thead><tr><th>State</th><th>Resource</th><th>Qty</th><th>Reorder</th></tr></thead><tbody>
-      <?php foreach ($inventory as $row): ?><tr><td><?= e($row['state_name']) ?></td><td><?= e($row['resource_name']) ?><br><span class="muted"><?= e($row['resource_category']) ?></span></td><td><?= e((string) $row['quantity_available']) ?> <?= e((string) $row['unit']) ?></td><td><?= e((string) $row['reorder_level']) ?></td></tr><?php endforeach; ?>
-      <?php if (!$inventory): ?><tr><td colspan="4">No inventory recorded.</td></tr><?php endif; ?>
-    </tbody></table>
-    <h2>Allocations</h2>
-    <table><thead><tr><th>State</th><th>Farmer</th><th>Resource</th><th>Status</th><th>Effectiveness</th></tr></thead><tbody>
-      <?php foreach ($allocations as $row): ?><tr><td><?= e($row['state_name']) ?></td><td><?= e($row['farmer_name'] ?? 'General') ?></td><td><?= e($row['resource_name']) ?><br><span class="muted"><?= e((string) $row['quantity_allocated']) ?> <?= e((string) $row['unit']) ?></span></td><td><?= e(ucwords((string) $row['distribution_status'])) ?></td><td><?= e((string) $row['effectiveness_note']) ?></td></tr><?php endforeach; ?>
-      <?php if (!$allocations): ?><tr><td colspan="5">No allocations recorded.</td></tr><?php endif; ?>
-    </tbody></table>
-  </section>
+<section class="panel">
+  <div class="user-toolbar">
+    <h2 style="margin:0">Inventory Register</h2>
+    <span class="meta"><?= number_format($invCount) ?> item(s)</span>
+  </div>
+  <div class="record-list">
+    <?php foreach ($inventory as $row): ?>
+      <?php
+        $qty = (float) ($row['quantity_available'] ?? 0);
+        $reorder = (float) ($row['reorder_level'] ?? 0);
+        $low = $reorder > 0 && $qty <= $reorder;
+      ?>
+      <article class="record-row compact">
+        <span class="record-avatar <?= $low ? 'orange' : 'file' ?>"><i class="fas fa-boxes-stacked"></i></span>
+        <div class="record-main">
+          <div class="record-title">
+            <?= e($row['resource_name']) ?>
+            <span class="tag info"><?= e($row['resource_category']) ?></span>
+            <?php if ($low): ?><span class="tag bad">Reorder</span><?php endif; ?>
+          </div>
+          <div class="record-contact">
+            <span><i class="fas fa-location-dot"></i><?= e($row['state_name']) ?></span>
+            <span><i class="fas fa-cubes"></i><?= e((string) $row['quantity_available']) ?> <?= e((string) $row['unit']) ?></span>
+          </div>
+        </div>
+        <div class="record-actions">
+          <span class="ref-pill">Reorder at <?= e((string) $row['reorder_level']) ?></span>
+        </div>
+      </article>
+    <?php endforeach; ?>
+    <?php if (!$inventory): ?><div class="record-empty">No inventory recorded.</div><?php endif; ?>
+  </div>
+
+  <div class="user-toolbar" style="margin-top:20px">
+    <h2 style="margin:0">Allocations</h2>
+    <span class="meta"><?= number_format($allocCount) ?> record(s)</span>
+  </div>
+  <div class="record-list">
+    <?php foreach ($allocations as $row): ?>
+      <?php $status = (string) $row['distribution_status']; $statusTone = ['distributed' => 'ok', 'planned' => 'info', 'delayed' => 'warn', 'cancelled' => 'bad'][$status] ?? 'muted'; ?>
+      <article class="record-row compact">
+        <span class="record-avatar doc"><i class="fas fa-truck-fast"></i></span>
+        <div class="record-main">
+          <div class="record-title">
+            <?= e($row['resource_name']) ?>
+            <span class="tag <?= e($statusTone) ?>"><?= e(ucwords($status)) ?></span>
+          </div>
+          <div class="record-contact">
+            <span><i class="fas fa-user"></i><?= e($row['farmer_name'] ?? 'General') ?></span>
+            <span><i class="fas fa-location-dot"></i><?= e($row['state_name']) ?></span>
+            <span><i class="fas fa-cubes"></i><?= e((string) $row['quantity_allocated']) ?> <?= e((string) $row['unit']) ?></span>
+          </div>
+          <?php if (!empty($row['effectiveness_note'])): ?><div class="record-excerpt"><?= e(mb_strimwidth((string) $row['effectiveness_note'], 0, 150, '...')) ?></div><?php endif; ?>
+        </div>
+        <div class="record-actions"></div>
+      </article>
+    <?php endforeach; ?>
+    <?php if (!$allocations): ?><div class="record-empty">No allocations recorded.</div><?php endif; ?>
+  </div>
 </section>
 <?php admin_page_end(); ?>

@@ -45,7 +45,10 @@ if (!$payout) {
     exit('Payout not found.');
 }
 ?>
-<?php admin_page_start('Payout Details: ' . e($payout['order_ref'] ?? 'N/A'), ['active' => 'marketplace_payouts.php']); ?>
+<?php admin_page_start('Payout Details: ' . e($payout['order_ref'] ?? 'N/A'), [
+    'active' => 'marketplace_payouts.php',
+    'breadcrumbs' => [['label' => 'Marketplace & Providers'], ['label' => 'Payouts'], ['label' => 'Payout Details']],
+]); ?>
 
 <div class="card">
     <div style="margin-bottom:20px">

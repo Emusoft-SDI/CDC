@@ -33,6 +33,7 @@ function academy_ensure_schema(PDO $pdo): void
             id INT AUTO_INCREMENT PRIMARY KEY,
             title VARCHAR(180) NOT NULL,
             description TEXT NULL,
+            thumbnail VARCHAR(255) NULL,
             audience_roles VARCHAR(500) NULL,
             status VARCHAR(30) NOT NULL DEFAULT 'active',
             sort_order INT NOT NULL DEFAULT 0,
@@ -43,6 +44,7 @@ function academy_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     app_ensure_primary_auto_increment($pdo, 'academy_programs');
+    app_add_column_if_missing($pdo, 'academy_programs', 'thumbnail', 'VARCHAR(255) NULL');
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS webinars (

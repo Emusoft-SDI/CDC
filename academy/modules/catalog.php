@@ -17,9 +17,17 @@
       <div style="margin:18px 0 10px;display:flex;align-items:center;justify-content:space-between;gap:12px"><h3 style="margin:0;color:var(--green-700);font-size:16px"><?= e($groupLabel) ?></h3><span class="badge-pill bp-green"><?= count($groupCourses) ?> shown</span></div>
       <div class="grid g4">
       <?php foreach ($groupCourses as $i => $c): ?>
+          <?php $courseThumb = academy_program_thumbnail_src($c); ?>
           <article class="course-card">
             <a href="dashboard.php?screen=course&course_id=<?= (int) $c['id'] ?>">
-              <div class="course-thumb cat-<?= ($i % 4) + 1 ?>"><i class="fas fa-graduation-cap"></i><span class="new-tag"><?= (int) $c['is_free'] === 1 ? 'FREE' : 'PAID' ?></span></div>
+              <div class="course-thumb cat-<?= ($i % 4) + 1 ?>">
+                <?php if ($courseThumb !== ''): ?>
+                  <img src="<?= e($courseThumb) ?>" alt="<?= e((string) ($c['program_title'] ?? $c['title'])) ?> thumbnail" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
+                <?php else: ?>
+                  <i class="fas fa-graduation-cap"></i>
+                <?php endif; ?>
+                <span class="new-tag"><?= (int) $c['is_free'] === 1 ? 'FREE' : 'PAID' ?></span>
+              </div>
               <div class="course-body"><div class="course-title"><?= e((string) $c['title']) ?></div><div class="course-meta"><?= e((string) ($c['category'] ?? $groupLabel)) ?> / <?= e(academy_delivery_label((string) ($c['delivery_type'] ?? 'lms'))) ?></div><div class="course-footer"><span class="course-price"><?= (int) $c['is_free'] === 1 ? 'Free' : e(ac_money((float) $c['price'])) ?></span><span class="course-rating"><i class="fas fa-star"></i> <?= (int) ($c['lessons'] ?? 0) ?> lessons</span></div></div>
             </a>
           </article>

@@ -78,43 +78,73 @@ admin_page_start('Governance & Production Readiness', [
   <strong><?= (int) $readiness ?>% readiness</strong>
 </section>
 
-<section class="stats">
-  <div class="stat"><div class="metric"><?= (int) $policyTotal ?></div><strong>Policies</strong></div>
-  <div class="stat"><div class="metric"><?= (int) $approved ?></div><strong>Approved</strong></div>
-  <div class="stat"><div class="metric"><?= (int) $due ?></div><strong>Due Soon</strong></div>
-  <div class="stat"><div class="metric"><?= (int) $backupCount ?></div><strong>Backup Manifests</strong></div>
-</section>
+<?= admin_kpi_grid([
+    ['Readiness', (int) $readiness . '%', 'Production level', 'fa-shield-halved', $readiness >= 80 ? '' : 'orange'],
+    ['Policies', number_format((int) $policyTotal), 'In the register', 'fa-book', ''],
+    ['Approved', number_format((int) $approved), 'Active policies', 'fa-circle-check', 'blue'],
+    ['Due Soon', number_format((int) $due), 'Review within 30 days', 'fa-clock', 'red'],
+    ['Backup Manifests', number_format((int) $backupCount), 'Disaster recovery', 'fa-database', 'purple'],
+]) ?>
 
-<section class="layout">
-  <form class="panel" method="post">
-    <h2>Policy Register</h2>
-    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-    <input type="hidden" name="action" value="save_policy">
-    <label>Policy Key<input name="policy_key" placeholder="e.g. emergency_access"></label>
-    <label>Title<input name="title" required></label>
-    <label>Category<input name="category" value="security"></label>
-    <label>Status<select name="status"><option value="draft">Draft</option><option value="approved">Approved</option><option value="expired">Expired</option></select></label>
-    <label>Owner Role<input name="owner_role" value="Super Admin"></label>
-    <label>Review Frequency Days<input name="review_frequency_days" value="180" inputmode="numeric"></label>
-    <label>Summary<textarea name="summary"></textarea></label>
-    <button type="submit">Save Policy</button>
-  </form>
+<details class="collapse-card"<?= $error !== '' ? ' open' : '' ?>>
+  <summary>
+    <span class="cc-icon"><i class="fas fa-book"></i></span>
+    <span class="collapse-title">Policy Register<small>Create or update a governance policy</small></span>
+    <span class="caret"><i class="fas fa-chevron-down"></i></span>
+  </summary>
+  <div class="collapse-body">
+    <form method="post">
+      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+      <input type="hidden" name="action" value="save_policy">
+      <div class="field-grid">
+        <label class="field"><span>Policy Key</span><input name="policy_key" placeholder="e.g. emergency_access"></label>
+        <label class="field"><span>Title</span><input name="title" required></label>
+        <label class="field"><span>Category</span><input name="category" value="security"></label>
+        <label class="field"><span>Status</span><select name="status"><option value="draft">Draft</option><option value="approved">Approved</option><option value="expired">Expired</option></select></label>
+        <label class="field"><span>Owner Role</span><input name="owner_role" value="Super Admin"></label>
+        <label class="field"><span>Review Frequency (days)</span><input name="review_frequency_days" value="180" inputmode="numeric"></label>
+        <label class="field"><span>Summary</span><textarea name="summary"></textarea></label>
+      </div>
+      <div class="actions"><button type="submit"><i class="fas fa-floppy-disk"></i> Save Policy</button></div>
+    </form>
+  </div>
+</details>
 
-  <section class="panel">
-    <h2>Security, Compliance, and DR Controls</h2>
-    <table>
-      <thead><tr><th>Policy</th><th>Category</th><th>Status</th><th>Next Review</th></tr></thead>
-      <tbody>
-        <?php foreach ($policies as $policy): ?>
-          <tr>
-            <td><strong><?= e($policy['title']) ?></strong><br><span class="muted"><?= e($policy['summary']) ?></span></td>
-            <td><?= e($policy['category']) ?></td>
-            <td><span class="policy-status <?= e($policy['status']) ?>"><?= e(ucwords((string) $policy['status'])) ?></span></td>
-            <td><?= $policy['next_review_at'] ? e(date('M j, Y', strtotime((string) $policy['next_review_at']))) : 'Not scheduled' ?></td>
-          </tr>
-        <?php endforeach; ?>
-      </tbody>
-    </table>
-  </section>
+<section class="panel">
+  <div class="user-toolbar">
+    <h2 style="margin:0">Security, Compliance &amp; DR Controls</h2>
+    <span class="meta"><?= count($policies) ?> policy(ies)</span>
+  </div>
+  <div class="record-list">
+    <?php foreach ($policies as $policy): ?>
+      <?php
+        $policyTone = ['approved' => 'ok', 'draft' => 'warn', 'expired' => 'bad'][(string) $policy['status']] ?? 'muted';
+        $reviewDue = !empty($policy['next_review_at']) && strtotime((string) $policy['next_review_at']) <= strtotime('+30 days');
+      ?>
+      <article class="record-row">
+        <span class="record-avatar doc"><i class="fas fa-file-lines"></i></span>
+        <div class="record-main">
+          <div class="record-title">
+            <?= e($policy['title']) ?>
+            <span class="tag <?= e($policyTone) ?>"><?= e(ucwords((string) $policy['status'])) ?></span>
+            <span class="tag info"><?= e($policy['category']) ?></span>
+          </div>
+          <div class="record-excerpt"><?= e(mb_strimwidth((string) $policy['summary'], 0, 160, '...')) ?></div>
+        </div>
+        <div class="record-meta">
+          <?php if (!empty($policy['next_review_at'])): ?>
+            <span class="record-sub"><i class="far fa-calendar-check"></i> Next review <?= e(date('M j, Y', strtotime((string) $policy['next_review_at']))) ?></span>
+            <?php if ($reviewDue): ?><span class="tag warn">Due soon</span><?php endif; ?>
+          <?php else: ?>
+            <span class="record-sub">No review scheduled</span>
+          <?php endif; ?>
+        </div>
+        <div class="record-actions">
+          <?php if (!empty($policy['policy_key'])): ?><span class="ref-pill"><?= e((string) $policy['policy_key']) ?></span><?php endif; ?>
+        </div>
+      </article>
+    <?php endforeach; ?>
+    <?php if (!$policies): ?><div class="record-empty">No policies in the register yet.</div><?php endif; ?>
+  </div>
 </section>
 <?php admin_page_end(); ?>

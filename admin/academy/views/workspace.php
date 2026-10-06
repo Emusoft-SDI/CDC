@@ -1,19 +1,7 @@
 <?php defined('NATCODEV_ACADEMY_WORKSPACE_VIEW') || exit; ?>
 <style>
-  html, body { margin:0 !important; padding:0 !important; overflow-x:hidden; }
-  .admin-main { width:100vw !important; max-width:none !important; margin:0 !important; padding:0 !important; }
-  .acad-workspace { width:100vw !important; min-height:100vh; margin:0 !important; gap:0 !important; grid-template-columns:220px minmax(0,1fr) !important; }
-  .acad-rail { left:0; width:220px; min-height:100vh; max-height:100vh; overflow-y:auto; overflow-x:hidden; }
-  .acad-nav { grid-template-columns:1fr !important; }
-  .acad-nav a { min-width:0; width:100%; align-items:center; }
-  .acad-nav a span:first-child { min-width:0; max-width:100%; overflow-wrap:anywhere; }
-  .acad-count { flex:0 0 auto; }
-  .acad-content { padding:12px 14px 28px !important; background:#f6faf7; min-height:100vh; }
-  .acad-profile-menu{position:relative}.acad-profile-trigger{border:1px solid var(--line);background:#fff;color:#102033;border-radius:8px;padding:9px 11px;font-weight:850;display:flex;align-items:center;gap:8px;cursor:pointer}.acad-profile-dropdown{display:none;position:absolute;right:0;top:calc(100% + 8px);z-index:50;width:230px;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 18px 38px rgba(16,24,40,.16);padding:8px}.acad-profile-menu.open .acad-profile-dropdown{display:grid;gap:5px}.acad-profile-dropdown a,.acad-profile-dropdown button{width:100%;display:flex;align-items:center;gap:8px;justify-content:flex-start;border-radius:6px;padding:9px 10px;background:#fff;color:#102033;border:0;box-shadow:none;text-decoration:none;font-weight:800}.acad-profile-dropdown a:hover,.acad-profile-dropdown button:hover{background:#eef7f1;color:#075c34}.acad-profile-meta{padding:7px 10px;border-bottom:1px solid var(--line);margin-bottom:3px}.acad-profile-meta strong{display:block}.acad-profile-meta small{color:var(--muted)}
-  @media(max-width:1400px){ .acad-workspace{grid-template-columns:220px minmax(0,1fr) !important;} .acad-rail{position:sticky !important; top:0 !important;} .acad-nav{grid-template-columns:1fr !important;} }
+  .acad-content { min-width:0; }
 </style>
-<?php if (!empty($_GET['message'])): ?><div class="notice ok"><?= e((string) $_GET['message']) ?></div><?php endif; ?>
-<?php if ($error): ?><div class="notice error"><?= e($error) ?></div><?php endif; ?>
 <?php $academyAdminUser = current_user($pdo) ?: []; $academyAdminName = (string) (($academyAdminUser['name'] ?? '') ?: 'Academy Admin'); $academyAdminRole = ucwords(str_replace('_', ' ', (string) (($academyAdminUser['platform_role'] ?? '') ?: ($academyAdminUser['role'] ?? 'admin')))); ?>
 
 <div class="acad-workspace">
@@ -29,9 +17,9 @@
       <a class="<?= $tab === 'programs' ? 'active' : '' ?>" href="index.php?page=programs"><span><i class="fa-solid fa-layer-group"></i> Programs</span><span class="acad-count"><?= (int) $stats['programs'] ?></span></a>
       <a class="<?= $tab === 'courses' ? 'active' : '' ?>" href="index.php?page=courses"><span><i class="fa-solid fa-book-open"></i> Courses</span><span class="acad-count"><?= (int) $stats['courses'] ?></span></a>
     </nav>
-    <div class="acad-label">Content & Assessment</div>
+    <div class="acad-label">Content &amp; Assessment</div>
     <nav class="acad-nav">
-      <a class="<?= $tab === 'lessons' ? 'active' : '' ?>" href="index.php?page=lessons"><span><i class="fa-solid fa-file-lines"></i> Lessons & Materials</span><span class="acad-count"><?= (int) $stats['lessons'] ?></span></a>
+      <a class="<?= $tab === 'lessons' ? 'active' : '' ?>" href="index.php?page=lessons"><span><i class="fa-solid fa-file-lines"></i> Lessons &amp; Materials</span><span class="acad-count"><?= (int) $stats['lessons'] ?></span></a>
       <a class="<?= $tab === 'assessments' ? 'active' : '' ?>" href="index.php?page=assessments"><span><i class="fa-solid fa-clipboard-question"></i> Assessments</span></a>
       <a class="<?= $tab === 'certificate_groups' ? 'active' : '' ?>" href="index.php?page=certificate-groups"><span><i class="fa-solid fa-route"></i> Pathways</span></a>
     </nav>
@@ -42,7 +30,7 @@
       <a class="<?= $tab === 'attendance' ? 'active' : '' ?>" href="index.php?page=attendance"><span><i class="fa-solid fa-clipboard-check"></i> Attendance</span><span class="acad-count"><?= (int) $stats['attendance'] ?></span></a>
       <a class="<?= $tab === 'reminders' ? 'active' : '' ?>" href="index.php?page=reminders"><span><i class="fa-solid fa-bell"></i> Reminders</span></a>
     </nav>
-    <div class="acad-label">Learners & Outcomes</div>
+    <div class="acad-label">Learners &amp; Outcomes</div>
     <nav class="acad-nav">
       <a class="<?= $tab === 'enrollments' ? 'active' : '' ?>" href="index.php?page=enrollments"><span><i class="fa-solid fa-users"></i> Learners</span><span class="acad-count"><?= (int) $stats['enrollments'] ?></span></a>
       <a class="<?= $tab === 'certificates' ? 'active' : '' ?>" href="index.php?page=certificates"><span><i class="fa-solid fa-certificate"></i> Certificates</span><span class="acad-count warn"><?= (int) $stats['pending_certificates'] ?></span></a>
@@ -58,10 +46,12 @@
       <a href="index.php?page=courses"><span><i class="fa-solid fa-plus"></i> Add Course</span></a>
       <a href="index.php?page=calendar"><span><i class="fa-solid fa-calendar-plus"></i> Schedule Cohort</span></a>
       <a href="index.php?page=certificates"><span><i class="fa-solid fa-award"></i> Review Certificates</span></a>
-      <a href="../../academy/index.php" target="_blank"><span><i class="fa-solid fa-arrow-up-right-from-square"></i> Public Academy</span></a>
+      <a href="../../academy/index.php" target="_blank" rel="noopener"><span><i class="fa-solid fa-arrow-up-right-from-square"></i> Public Academy</span></a>
     </nav>
   </aside>
-  <main class="acad-content">
+  <div class="acad-content">
+    <?php if (!empty($_GET['message'])): ?><div class="notice ok"><?= e((string) $_GET['message']) ?></div><?php endif; ?>
+    <?php if ($error): ?><div class="notice error"><?= e($error) ?></div><?php endif; ?>
     <?= admin_workspace_operator_strip($pdo, ['asset_prefix' => '../../', 'profile_href' => '../profile.php', 'password_href' => '../profile.php#password', 'logout_action' => '../admin.php', 'title' => 'Academy workspace', 'placeholder' => 'Search courses, learners, certificates...']) ?>
     <div class="acad-top">
       <div class="acad-search"><i class="fa-solid fa-magnifying-glass"></i><input type="search" placeholder="Search courses, learners, certificates, cohorts..." aria-label="Search Academy workspace"></div>
@@ -69,15 +59,6 @@
         <span class="acad-tool"><i class="fa-regular fa-bell"></i> <?= (int) $stats['pending_certificates'] ?></span>
         <span class="acad-tool"><i class="fa-solid fa-wallet"></i> <?= e(academy_admin_money($academyCollections)) ?></span>
         <a class="acad-tool" href="../../academy/index.php" target="_blank" rel="noopener">View Public Academy</a>
-        <div class="acad-profile-menu">
-          <button class="acad-profile-trigger" type="button" data-acad-menu><i class="fa-solid fa-user-circle"></i><?= e($academyAdminName) ?><i class="fa-solid fa-chevron-down"></i></button>
-          <div class="acad-profile-dropdown">
-            <div class="acad-profile-meta"><strong><?= e($academyAdminName) ?></strong><small><?= e($academyAdminRole) ?></small></div>
-            <a href="../profile.php"><i class="fa-solid fa-user"></i> My Profile</a>
-            <a href="../settings.php"><i class="fa-solid fa-gear"></i> Account Settings</a>
-            <form method="post" action="../admin.php"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="logout" value="1"><button type="submit"><i class="fa-solid fa-right-from-bracket"></i> Logout</button></form>
-          </div>
-        </div>
       </div>
     </div>
     <div class="acad-head">
@@ -489,17 +470,6 @@ document.addEventListener('DOMContentLoaded', function () {
   </section>
 <?php endif; ?>
 
-  </main>
+  </div>
 </div>
-<script>
-document.querySelectorAll('[data-acad-menu]').forEach((button) => {
-  button.addEventListener('click', (event) => {
-    event.stopPropagation();
-    const menu = button.closest('.acad-profile-menu');
-    document.querySelectorAll('.acad-profile-menu.open').forEach((other) => { if (other !== menu) other.classList.remove('open'); });
-    if (menu) menu.classList.toggle('open');
-  });
-});
-document.addEventListener('click', () => document.querySelectorAll('.acad-profile-menu.open').forEach((menu) => menu.classList.remove('open')));
-</script>
 <?php admin_page_end(); ?>

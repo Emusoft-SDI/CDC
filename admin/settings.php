@@ -60,6 +60,8 @@ admin_page_start('Settings', [
     'active' => 'settings.php',
     'description' => 'Manage operational controls for SMS validation, notifications, sign-in, and optional modules.',
     'wide' => true,
+    'topbar_only' => true,
+    'breadcrumbs' => [['label' => 'System Settings'], ['label' => 'Operational Settings']],
     'css' => '
       .settings-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:18px;align-items:start}
       .settings-links{display:grid;gap:10px}
@@ -70,13 +72,41 @@ admin_page_start('Settings', [
       .setting-section{border:1px solid var(--line);border-radius:8px;padding:14px;background:#fbfdfb;margin-bottom:14px}
       .setting-section h2{margin-top:0}
       .setting-section code{background:#eef7f1;border:1px solid #d8e2dc;border-radius:5px;padding:2px 5px}
+      .set-brand{display:flex;align-items:center;gap:10px;padding-bottom:14px;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,.14);color:#fff}
+      .set-brand img{width:44px;height:44px;border-radius:50%;background:#fff;object-fit:contain;padding:4px}
+      .set-brand strong{display:block;line-height:1.1}
+      .set-brand span{display:block;margin-top:3px;color:#dff5e8;font-size:.72rem;font-weight:750}
+      .set-label{margin:14px 4px 7px;color:#aee4c4;font-size:.7rem;font-weight:950;text-transform:uppercase;letter-spacing:.03em}
+      .set-rail nav{display:grid;gap:5px}
       @media(max-width:920px){.settings-layout{grid-template-columns:1fr}}
     ',
 ]);
 ?>
-<?php if ($message): ?><div class="notice <?= str_starts_with($message, 'Invalid') ? 'error' : 'ok' ?>"><?= e($message) ?></div><?php endif; ?>
-<section class="settings-layout">
-  <form class="panel" method="post">
+<div class="set-shell">
+  <aside class="set-rail" aria-label="Settings workspace navigation">
+    <div class="set-brand"><img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV"><div><strong>NATCODEV</strong><span>System Settings</span></div></div>
+    <div class="set-label">Related Configuration</div>
+    <nav aria-label="Related configuration">
+      <a href="<?= e(admin_chrome_url('templates.php')) ?>"><i class="fas fa-file-lines"></i><span>Message Templates</span></a>
+      <a href="<?= e(admin_chrome_url('notifications.php')) ?>"><i class="fas fa-bell"></i><span>Notification Log</span></a>
+      <a href="<?= e(admin_chrome_url('communications.php')) ?>"><i class="fas fa-bullhorn"></i><span>Communication Hub</span></a>
+      <a href="<?= e(admin_chrome_url('governance.php')) ?>"><i class="fas fa-shield-halved"></i><span>Policies &amp; Governance</span></a>
+      <a href="<?= e(admin_chrome_url('resources.php')) ?>"><i class="fas fa-book"></i><span>Learning Resources</span></a>
+      <a href="<?= e(admin_chrome_url('import-users.php')) ?>"><i class="fas fa-file-import"></i><span>Import &amp; Engagement</span></a>
+      <a href="<?= e(admin_chrome_url('production-readiness.php')) ?>"><i class="fas fa-clipboard-check"></i><span>Production Readiness</span></a>
+      <a href="<?= e(admin_chrome_url('monitoring.php')) ?>"><i class="fas fa-heart-pulse"></i><span>System Health</span></a>
+      <a href="<?= e(admin_chrome_url('../super-admin/index.php?view=modules')) ?>"><i class="fas fa-puzzle-piece"></i><span>Super Admin Module Setup</span></a>
+    </nav>
+    <div class="set-label">Exits</div>
+    <nav aria-label="Settings exits">
+      <a href="<?= e(admin_chrome_url('settings/')) ?>"><i class="fas fa-sliders"></i><span>Operational Settings</span></a>
+      <a href="<?= e(admin_chrome_url('index.php')) ?>"><i class="fas fa-gauge-high"></i><span>Workspace Hub</span></a>
+    </nav>
+  </aside>
+  <div class="set-main">
+    <div class="page-title"><div><h1>Operational Settings</h1><p>Manage operational controls for SMS validation, notifications, sign-in, and optional modules.</p></div></div>
+    <?php if ($message): ?><div class="notice <?= str_starts_with($message, 'Invalid') ? 'error' : 'ok' ?>"><?= e($message) ?></div><?php endif; ?>
+    <form class="panel" method="post">
     <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
     <div class="setting-section">
       <h2>SMS Validation</h2>
@@ -104,21 +134,6 @@ admin_page_start('Settings', [
 
     <div class="actions"><button type="submit">Save Settings</button></div>
   </form>
-
-  <aside class="panel">
-    <h2>Related Configuration</h2>
-    <p class="muted">Settings is now separate. Use these links for adjacent admin configuration instead of crowding this page.</p>
-    <div class="settings-links">
-      <a href="templates.php"><strong>Message Templates</strong><span>Edit email, SMS, and notification templates.</span></a>
-      <a href="notifications.php"><strong>Notification Log</strong><span>Review delivery status and failed messages.</span></a>
-      <a href="communications.php"><strong>Communication Hub</strong><span>Manage broadcasts and stakeholder messages.</span></a>
-      <a href="governance.php"><strong>Policies & Governance</strong><span>Review platform policy and compliance controls.</span></a>
-      <a href="resources.php"><strong>Learning Resources</strong><span>Upload and manage resource materials used occasionally.</span></a>
-      <a href="import-users.php"><strong>Import & Engagement</strong><span>Bulk user import and engagement tools.</span></a>
-      <a href="production-readiness.php"><strong>Production Readiness</strong><span>Review less frequent launch and operational readiness checks.</span></a>
-      <a href="monitoring.php"><strong>System Health</strong><span>Check production health and integration status.</span></a>
-      <a href="../super-admin/index.php?view=modules"><strong>Super Admin Module Setup</strong><span>Advanced module owners, modes, and rollout notes.</span></a>
-    </div>
-  </aside>
-</section>
+  </div>
+</div>
 <?php admin_page_end(); ?>

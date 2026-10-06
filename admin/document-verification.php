@@ -138,6 +138,11 @@ try {
 } catch (Throwable $e) {
     $error = 'Document requirements table is not available yet.';
 }
+$dvPending = count($pendingDocs);
+$dvCertificates = count($issuedCertificates);
+$dvExpired = count(array_filter($issuedCertificates, static fn($c): bool => !empty($c['expires_at']) && strtotime((string) $c['expires_at']) < time()));
+$dvApiValid = count(array_filter($pendingDocs, static fn($d): bool => in_array(strtolower((string) ($d['api_validation_status'] ?? '')), ['valid', 'verified'], true)));
+
 admin_page_start('Document Verification', [
     'active' => 'document-verification.php',
     'description' => 'Review pending identity and farm documents, reject incomplete uploads, and issue certificates when requirements are complete.',
@@ -147,90 +152,121 @@ admin_page_start('Document Verification', [
   <?php if ($error): ?><div class="notice error"><?= e($error) ?></div><?php endif; ?>
   <?php if ($message): ?><div class="notice ok"><?= e($message) ?></div><?php endif; ?>
 
-  <table>
-    <thead>
-      <tr><th>User</th><th>Document Type</th><th>Document Number</th><th>Identity Gateway API</th><th>Uploaded</th><th>Actions</th></tr>
-    </thead>
-    <tbody>
+  <?= admin_kpi_grid([
+      ['Pending Documents', number_format($dvPending), 'Awaiting review', 'fa-file-circle-exclamation', ''],
+      ['API Validated', number_format($dvApiValid), 'Gateway verified', 'fa-shield-halved', 'blue'],
+      ['Certificates Issued', number_format($dvCertificates), 'Grower credentials', 'fa-certificate', 'purple'],
+      ['Expired', number_format($dvExpired), 'Past validity', 'fa-clock-rotate-left', 'red'],
+  ]) ?>
+
+  <section class="panel">
+    <div class="user-toolbar">
+      <h2 style="margin:0">Pending Document Review</h2>
+      <span class="meta"><?= number_format($dvPending) ?> document(s)</span>
+    </div>
+    <div class="record-list">
       <?php foreach ($pendingDocs as $doc): ?>
-        <tr>
-          <td><?= e($doc['name']) ?><br><small><?= e($doc['email']) ?></small></td>
-          <td><?= e(ucfirst(str_replace('_', ' ', (string) $doc['document_type']))) ?></td>
-          <td><?= e($doc['document_number']) ?></td>
-          <td>
-            <strong><?= e(status_label((string) ($doc['api_validation_status'] ?? 'not checked'))) ?></strong>
-            <?php if (!empty($doc['api_validation_provider'])): ?>
-              <br><small style="color:var(--muted);"><?= e(ucfirst((string) $doc['api_validation_provider'])) ?><?= !empty($doc['api_validation_reference']) ? ' &bull; ' . e((string) $doc['api_validation_reference']) : '' ?></small>
-            <?php endif; ?>
-          </td>
-          <td><?= e(date('M j, Y', strtotime((string) $doc['uploaded_at']))) ?></td>
-          <td>
-            <?php $files = $filesByRequirement[(int) $doc['id']] ?? []; ?>
-            <?php if ($files): ?>
-              <?php foreach ($files as $index => $file): ?>
-                <a href="<?= e(admin_document_public_url((string) $file['file_path'])) ?>" target="_blank">View <?= $index + 1 ?></a><?= $index < count($files) - 1 ? '<br>' : '' ?>
-              <?php endforeach; ?>
-            <?php elseif (!empty($doc['file_path'])): ?>
-              <a href="<?= e(admin_document_public_url((string) $doc['file_path'])) ?>" target="_blank">View</a>
-            <?php endif; ?>
-            <form method="post" class="toolbar" style="margin-top:10px;">
+        <?php
+          $apiStatus = strtolower((string) ($doc['api_validation_status'] ?? 'not checked'));
+          $apiTone = in_array($apiStatus, ['valid', 'verified'], true) ? 'ok' : (in_array($apiStatus, ['invalid', 'failed', 'rejected'], true) ? 'bad' : 'warn');
+          $files = $filesByRequirement[(int) $doc['id']] ?? [];
+        ?>
+        <article class="record-row stack">
+          <span class="record-avatar file"><i class="fas fa-file-circle-check"></i></span>
+          <div class="record-main">
+            <div class="record-title">
+              <?= e($doc['name']) ?>
+              <span class="tag info"><?= e(ucfirst(str_replace('_', ' ', (string) $doc['document_type']))) ?></span>
+              <span class="tag <?= e($apiTone) ?>"><i class="fas fa-shield-halved"></i> API: <?= e(status_label($apiStatus)) ?></span>
+            </div>
+            <div class="record-contact">
+              <span><i class="far fa-envelope"></i><?= e($doc['email']) ?></span>
+              <?php if (!empty($doc['document_number'])): ?><span><i class="fas fa-hashtag"></i><?= e($doc['document_number']) ?></span><?php endif; ?>
+              <span><i class="far fa-calendar"></i><?= e(date('M j, Y', strtotime((string) $doc['uploaded_at']))) ?></span>
+              <?php if (!empty($doc['api_validation_provider'])): ?>
+                <span><i class="fas fa-server"></i><?= e(ucfirst((string) $doc['api_validation_provider'])) ?><?= !empty($doc['api_validation_reference']) ? ' • ' . e((string) $doc['api_validation_reference']) : '' ?></span>
+              <?php endif; ?>
+            </div>
+            <div class="actions" style="margin-top:10px">
+              <?php if ($files): ?>
+                <?php foreach ($files as $index => $file): ?>
+                  <a class="button secondary sm" href="<?= e(admin_document_public_url((string) $file['file_path'])) ?>" target="_blank" rel="noopener"><i class="fas fa-paperclip"></i> View <?= $index + 1 ?></a>
+                <?php endforeach; ?>
+              <?php elseif (!empty($doc['file_path'])): ?>
+                <a class="button secondary sm" href="<?= e(admin_document_public_url((string) $doc['file_path'])) ?>" target="_blank" rel="noopener"><i class="fas fa-paperclip"></i> View</a>
+              <?php else: ?>
+                <span class="muted">No file uploaded</span>
+              <?php endif; ?>
+            </div>
+            <form method="post" class="toolbar" style="margin-top:10px">
               <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
               <input type="hidden" name="doc_id" value="<?= (int) $doc['id'] ?>">
               <select name="action">
-                <option value="verify">Verify & Approve</option>
+                <option value="verify">Verify &amp; Approve</option>
                 <?php if (in_array((string) ($doc['document_type'] ?? ''), ['nin', 'bvn'], true)): ?>
                   <option value="revalidate">Re-validate via Gateways</option>
                 <?php endif; ?>
                 <option value="reject">Reject</option>
               </select>
               <input type="text" name="notes" placeholder="Reason if rejecting">
-              <button type="submit">Submit</button>
+              <button type="submit"><i class="fas fa-check"></i> Submit</button>
             </form>
-          </td>
-        </tr>
+          </div>
+        </article>
       <?php endforeach; ?>
-      <?php if (!$pendingDocs): ?><tr><td colspan="6">No pending documents.</td></tr><?php endif; ?>
-    </tbody>
-  </table>
+      <?php if (!$pendingDocs): ?><div class="record-empty">No pending documents.</div><?php endif; ?>
+    </div>
+  </section>
 
-  <section class="panel" style="margin-top:18px;">
-    <h2>Issued Grower Certificates</h2>
+  <section class="panel" style="margin-top:18px">
+    <div class="user-toolbar">
+      <h2 style="margin:0">Issued Grower Certificates</h2>
+      <span class="meta"><?= number_format($dvCertificates) ?> certificate(s)</span>
+    </div>
     <p class="muted">Grower participation certificates are time-bound credentials. They can expire or be revoked for compliance, identity, farm-status, seller-accreditation, or participation issues.</p>
-    <table>
-      <thead><tr><th>Grower</th><th>Certificate</th><th>Status</th><th>Validity</th><th>Action</th></tr></thead>
-      <tbody>
+    <div class="record-list">
       <?php foreach ($issuedCertificates as $cert): ?>
-        <?php $isExpired = !empty($cert['expires_at']) && strtotime((string) $cert['expires_at']) < time(); ?>
-        <tr>
-          <td><?= e((string) $cert['name']) ?><br><small><?= e((string) ($cert['email'] ?? '')) ?></small></td>
-          <td><?= e((string) $cert['display_ref']) ?><br><small><?= e((string) $cert['location']) ?></small></td>
-          <td><?= e((string) $cert['status']) ?><?= $isExpired ? ' / expired' : '' ?></td>
-          <td>
-            Issued <?= e(date('M j, Y', strtotime((string) $cert['issued_at']))) ?><br>
-            <small>Valid until <?= !empty($cert['expires_at']) ? e(date('M j, Y', strtotime((string) $cert['expires_at']))) : 'not set' ?></small>
-          </td>
-          <td>
-            <div class="toolbar" style="margin-bottom:8px;">
-              <a class="button secondary" href="<?= e(admin_certificate_verify_url($cert)) ?>" target="_blank" rel="noopener">Verify</a>
-              <?php if (!empty($cert['certificate_path'])): ?><a class="button secondary" href="<?= e(admin_document_public_url((string) $cert['certificate_path'])) ?>" target="_blank" rel="noopener">HTML</a><?php endif; ?>
-              <?php if (!empty($cert['certificate_pdf_path'])): ?><a class="button secondary" href="<?= e(admin_document_public_url((string) $cert['certificate_pdf_path'])) ?>" target="_blank" rel="noopener">PDF</a><?php endif; ?>
+        <?php
+          $isExpired = !empty($cert['expires_at']) && strtotime((string) $cert['expires_at']) < time();
+          $certTone = ((string) $cert['status'] === 'issued' && !$isExpired) ? 'ok' : ($isExpired ? 'bad' : 'warn');
+        ?>
+        <article class="record-row stack">
+          <span class="record-avatar doc"><i class="fas fa-certificate"></i></span>
+          <div class="record-main">
+            <div class="record-title">
+              <?= e((string) $cert['name']) ?>
+              <span class="tag <?= e($certTone) ?>"><?= e(ucwords((string) $cert['status'])) ?><?= $isExpired ? ' / expired' : '' ?></span>
             </div>
-            <?php if ((string) $cert['status'] === 'issued'): ?>
-              <form method="post" class="toolbar">
-                <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                <input type="hidden" name="action" value="revoke_certificate">
-                <input type="hidden" name="certificate_id" value="<?= (int) $cert['id'] ?>">
-                <input type="text" name="notes" placeholder="Revocation reason" required>
-                <button type="submit">Revoke</button>
-              </form>
-            <?php else: ?>
-              <small><?= e((string) ($cert['revoked_reason'] ?? '')) ?></small>
-            <?php endif; ?>
-          </td>
-        </tr>
+            <div class="record-contact">
+              <span><i class="far fa-envelope"></i><?= e((string) ($cert['email'] ?? '')) ?></span>
+              <span><i class="fas fa-location-dot"></i><?= e((string) $cert['location']) ?></span>
+              <span><i class="fas fa-hashtag"></i><?= e((string) $cert['display_ref']) ?></span>
+              <span><i class="far fa-calendar"></i>Issued <?= e(date('M j, Y', strtotime((string) $cert['issued_at']))) ?> · valid until <?= !empty($cert['expires_at']) ? e(date('M j, Y', strtotime((string) $cert['expires_at']))) : 'not set' ?></span>
+            </div>
+            <div class="actions" style="margin-top:10px">
+              <?php $certVerifyUrl = trim((string) ($cert['verification_url'] ?? '')) !== '' ? (string) $cert['verification_url'] : '../verify-certificate.php?ref=' . urlencode((string) $cert['display_ref']); ?>
+              <a class="button secondary sm" href="<?= e($certVerifyUrl) ?>" target="_blank" rel="noopener"><i class="fas fa-up-right-from-square"></i> Verify</a>
+              <?php if (!empty($cert['certificate_path'])): ?><a class="button secondary sm" href="<?= e(admin_document_public_url((string) $cert['certificate_path'])) ?>" target="_blank" rel="noopener">HTML</a><?php endif; ?>
+              <?php if (!empty($cert['certificate_pdf_path'])): ?><a class="button secondary sm" href="<?= e(admin_document_public_url((string) $cert['certificate_pdf_path'])) ?>" target="_blank" rel="noopener">PDF</a><?php endif; ?>
+              <?php if ((string) $cert['status'] === 'issued'): ?>
+                <details class="user-manage">
+                  <summary class="button secondary sm"><i class="fas fa-ban"></i> Revoke</summary>
+                  <form class="user-manage-form" method="post">
+                    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+                    <input type="hidden" name="action" value="revoke_certificate">
+                    <input type="hidden" name="certificate_id" value="<?= (int) $cert['id'] ?>">
+                    <label class="field"><span>Revocation reason</span><input type="text" name="notes" required></label>
+                    <button type="submit" class="sm"><i class="fas fa-ban"></i> Revoke certificate</button>
+                  </form>
+                </details>
+              <?php elseif (!empty($cert['revoked_reason'])): ?>
+                <span class="muted"><?= e((string) $cert['revoked_reason']) ?></span>
+              <?php endif; ?>
+            </div>
+          </div>
+        </article>
       <?php endforeach; ?>
-      <?php if (!$issuedCertificates): ?><tr><td colspan="5">No grower certificates issued yet.</td></tr><?php endif; ?>
-      </tbody>
-    </table>
+      <?php if (!$issuedCertificates): ?><div class="record-empty">No grower certificates issued yet.</div><?php endif; ?>
+    </div>
   </section>
 <?php admin_page_end(); ?>

@@ -85,14 +85,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>NATCODEV Wallet Admin</title>
-    <style>
-        body { font-family: 'Inter', sans-serif; background: #f4f6f4; color: #1a1a1a; margin: 0; display: flex; }
-        .main { flex: 1; padding: 30px; }
+<?php admin_page_start('Wallet Workspace', [
+    'topbar_only' => true,
+    'active' => 'wallet/',
+    'breadcrumbs' => array (
+  0 => 
+  array (
+    'label' => 'Wallet & Payments',
+  ),
+  1 => 
+  array (
+    'label' => 'Wallet Workspace',
+  ),
+),
+    'head_pre' => '<link rel="stylesheet" href="../../assets/css/admin-workspaces.css"><script defer src="../../assets/js/nc-collapse.js"></script>',
+    'css' => '.main { flex: 1; padding: 30px; }
         .card { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
         .stat-card { background: #fff; padding: 20px; border-radius: 12px; border: 1px solid #e5e7eb; }
@@ -107,10 +114,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .badge-pending { background: #fef3c7; color: #92400e; }
         .form-group { margin-bottom: 15px; }
         .form-label { display: block; margin-bottom: 5px; font-weight: 600; font-size: 13px; }
-        .form-input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; }
-    </style>
-</head>
-<body>
+        .form-input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; }',
+]); ?>
 
 <p><a href="index.php">Back to Wallet Workspace</a></p>
 
@@ -222,5 +227,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 </div>
 
-</body>
-</html>
+<?php admin_page_end(); ?>

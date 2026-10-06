@@ -144,17 +144,22 @@ admin_page_start('Backup & Disaster Recovery', [
 <section class="panel backup-hero">
   <h2>Backup Control Center</h2>
   <p class="muted">A go-live platform needs more than a manifest. Use this workspace to create local backup bundles, SQL dumps, optional full-site archives, and copy completed bundles to Google Drive or an external drive folder.</p>
-  <div class="stats">
-    <div class="stat"><div class="metric"><?= count($backups) ?></div><strong>Recent Backups</strong></div>
-    <div class="stat"><div class="metric"><?= $zipReady ? 'On' : 'Off' ?></div><strong>Site Zip</strong></div>
-    <div class="stat"><div class="metric"><?= e($settings['dr_backup_frequency'] ?? 'daily') ?></div><strong>Frequency</strong></div>
-    <div class="stat"><div class="metric"><?= e((string) ($settings['dr_backup_retention_days'] ?? '30')) ?>d</div><strong>Retention</strong></div>
-  </div>
 </section>
 
-<section class="backup-grid" id="create">
-  <aside class="panel">
-    <h2>Create Backup Bundle</h2>
+<?= admin_kpi_grid([
+    ['Recent Backups', number_format(count($backups)), 'Evidence records', 'fa-box-archive', ''],
+    ['Site Zip', $zipReady ? 'On' : 'Off', 'Archive capability', 'fa-file-zipper', $zipReady ? 'blue' : 'red'],
+    ['Frequency', (string) ($settings['dr_backup_frequency'] ?? 'daily'), 'Schedule', 'fa-clock', 'orange'],
+    ['Retention', (string) ($settings['dr_backup_retention_days'] ?? '30') . 'd', 'Days kept', 'fa-calendar-days', 'purple'],
+]) ?>
+
+<details class="collapse-card" id="create"<?= $error !== '' ? ' open' : '' ?>>
+  <summary>
+    <span class="cc-icon"><i class="fas fa-box-archive"></i></span>
+    <span class="collapse-title">Create Backup Bundle<small>Local first, then optional Google Drive / external-drive copy</small></span>
+    <span class="caret"><i class="fas fa-chevron-down"></i></span>
+  </summary>
+  <div class="collapse-body">
     <p class="muted">Local backup is created first in <strong><?= e($relativeRoot) ?></strong>. Remote folders receive a copy only after the bundle completes.</p>
     <form method="post">
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
@@ -163,110 +168,131 @@ admin_page_start('Backup & Disaster Recovery', [
       <label class="check"><input type="checkbox" name="include_site" value="1" checked> Include full site archive <?= $zipReady ? '' : '(Zip extension unavailable)' ?></label>
       <label class="check"><input type="checkbox" name="copy_google_drive" value="1"> Copy to Google Drive folder</label>
       <label class="check"><input type="checkbox" name="copy_external_drive" value="1"> Copy to external drive folder</label>
-      <button type="submit">Create Backup Now</button>
+      <div class="actions"><button type="submit"><i class="fas fa-box-archive"></i> Create Backup Now</button></div>
     </form>
+  </div>
+</details>
 
-    <h2>Backup Destinations</h2>
+<details class="collapse-card">
+  <summary>
+    <span class="cc-icon"><i class="fas fa-sliders"></i></span>
+    <span class="collapse-title">Backup Destinations &amp; Integrity Policy<small>Storage paths, frequency, retention and activity-aware auto-backup</small></span>
+    <span class="caret"><i class="fas fa-chevron-down"></i></span>
+  </summary>
+  <div class="collapse-body">
+    <h3 style="margin:0 0 10px">Backup Destinations</h3>
     <form method="post">
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
       <input type="hidden" name="action" value="save_backup_settings">
-      <label>Local backup folder<input name="dr_backup_storage_path" value="<?= e((string) $settings['dr_backup_storage_path']) ?>"></label>
-      <label>Google Drive local sync folder<input name="dr_google_drive_path" value="<?= e((string) ($settings['dr_google_drive_path'] ?? '')) ?>" placeholder="C:\Users\user\Google Drive\NATCODEV Backups"></label>
-      <label>External drive folder<input name="dr_external_drive_path" value="<?= e((string) ($settings['dr_external_drive_path'] ?? '')) ?>" placeholder="E:\NATCODEV Backups"></label>
-      <label>Git remote / repository note<input name="dr_git_remote" value="<?= e((string) ($settings['dr_git_remote'] ?? '')) ?>" placeholder="origin/main or private backup repo"></label>
-      <label>Backup frequency<select name="dr_backup_frequency"><option <?= ($settings['dr_backup_frequency'] ?? '') === 'daily' ? 'selected' : '' ?>>daily</option><option <?= ($settings['dr_backup_frequency'] ?? '') === 'hourly' ? 'selected' : '' ?>>hourly</option><option <?= ($settings['dr_backup_frequency'] ?? '') === 'weekly' ? 'selected' : '' ?>>weekly</option></select></label>
-      <label>Retention days<input name="dr_backup_retention_days" inputmode="numeric" value="<?= e((string) $settings['dr_backup_retention_days']) ?>"></label>
-      <label>Recovery contact<input name="dr_recovery_contact" value="<?= e((string) $settings['dr_recovery_contact']) ?>"></label>
-      <button type="submit">Save Backup Settings</button>
+      <div class="field-grid">
+        <label class="field"><span>Local backup folder</span><input name="dr_backup_storage_path" value="<?= e((string) $settings['dr_backup_storage_path']) ?>"></label>
+        <label class="field"><span>Google Drive local sync folder</span><input name="dr_google_drive_path" value="<?= e((string) ($settings['dr_google_drive_path'] ?? '')) ?>" placeholder="C:\Users\user\Google Drive\NATCODEV Backups"></label>
+        <label class="field"><span>External drive folder</span><input name="dr_external_drive_path" value="<?= e((string) ($settings['dr_external_drive_path'] ?? '')) ?>" placeholder="E:\NATCODEV Backups"></label>
+        <label class="field"><span>Git remote / repository note</span><input name="dr_git_remote" value="<?= e((string) ($settings['dr_git_remote'] ?? '')) ?>" placeholder="origin/main or private backup repo"></label>
+        <label class="field"><span>Backup frequency</span><select name="dr_backup_frequency"><option <?= ($settings['dr_backup_frequency'] ?? '') === 'daily' ? 'selected' : '' ?>>daily</option><option <?= ($settings['dr_backup_frequency'] ?? '') === 'hourly' ? 'selected' : '' ?>>hourly</option><option <?= ($settings['dr_backup_frequency'] ?? '') === 'weekly' ? 'selected' : '' ?>>weekly</option></select></label>
+        <label class="field"><span>Retention days</span><input name="dr_backup_retention_days" inputmode="numeric" value="<?= e((string) $settings['dr_backup_retention_days']) ?>"></label>
+        <label class="field"><span>Recovery contact</span><input name="dr_recovery_contact" value="<?= e((string) $settings['dr_recovery_contact']) ?>"></label>
+      </div>
+      <div class="actions"><button type="submit"><i class="fas fa-floppy-disk"></i> Save Backup Settings</button></div>
     </form>
-    <h2>Data Integrity Auto Backup</h2>
+
+    <h3 style="margin:18px 0 6px">Data Integrity Auto Backup</h3>
     <p class="muted">Creates SQL-only backups when critical activity is detected. A scheduler may call the secured runner every 30 seconds or hourly; the policy decides whether work is actually needed.</p>
     <form method="post">
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
       <input type="hidden" name="action" value="save_backup_settings">
       <label class="check"><input type="checkbox" name="dr_auto_backup_enabled" value="1" <?= ($settings['dr_auto_backup_enabled'] ?? '0') === '1' ? 'checked' : '' ?>> Enable activity-aware SQL backups</label>
-      <label>Minimum interval seconds<input name="dr_auto_backup_interval_seconds" inputmode="numeric" value="<?= e((string) ($settings['dr_auto_backup_interval_seconds'] ?? '3600')) ?>" placeholder="30 or 3600"></label>
-      <label>Activity lookback window seconds<input name="dr_auto_backup_activity_window_seconds" inputmode="numeric" value="<?= e((string) ($settings['dr_auto_backup_activity_window_seconds'] ?? '3600')) ?>"></label>
-      <label>Email backup notice to<input name="dr_auto_backup_email_to" value="<?= e((string) ($settings['dr_auto_backup_email_to'] ?? '')) ?>" placeholder="finance-or-admin@example.com"></label>
-      <label>Critical tables<textarea name="dr_auto_backup_critical_tables" rows="4"><?= e((string) ($settings['dr_auto_backup_critical_tables'] ?? '')) ?></textarea></label>
+      <div class="field-grid">
+        <label class="field"><span>Minimum interval seconds</span><input name="dr_auto_backup_interval_seconds" inputmode="numeric" value="<?= e((string) ($settings['dr_auto_backup_interval_seconds'] ?? '3600')) ?>" placeholder="30 or 3600"></label>
+        <label class="field"><span>Activity lookback window seconds</span><input name="dr_auto_backup_activity_window_seconds" inputmode="numeric" value="<?= e((string) ($settings['dr_auto_backup_activity_window_seconds'] ?? '3600')) ?>"></label>
+        <label class="field"><span>Email backup notice to</span><input name="dr_auto_backup_email_to" value="<?= e((string) ($settings['dr_auto_backup_email_to'] ?? '')) ?>" placeholder="finance-or-admin@example.com"></label>
+        <label class="field"><span>Critical tables</span><textarea name="dr_auto_backup_critical_tables" rows="4"><?= e((string) ($settings['dr_auto_backup_critical_tables'] ?? '')) ?></textarea></label>
+      </div>
       <label class="check"><input type="checkbox" name="dr_auto_backup_copy_google_drive" value="1" <?= ($settings['dr_auto_backup_copy_google_drive'] ?? '0') === '1' ? 'checked' : '' ?>> Copy SQL backup bundle to Google Drive folder</label>
       <label class="check"><input type="checkbox" name="dr_auto_backup_copy_external_drive" value="1" <?= ($settings['dr_auto_backup_copy_external_drive'] ?? '0') === '1' ? 'checked' : '' ?>> Copy SQL backup bundle to external drive folder</label>
-      <button type="submit">Save Integrity Policy</button>
+      <div class="actions"><button type="submit"><i class="fas fa-floppy-disk"></i> Save Integrity Policy</button></div>
     </form>
     <form method="post" style="margin-top:10px">
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
       <input type="hidden" name="action" value="run_integrity_backup">
       <label class="check"><input type="checkbox" name="force_integrity_backup" value="1"> Force now, even if no critical activity or interval is not due</label>
-      <button type="submit">Run Integrity Check Now</button>
+      <div class="actions"><button type="submit"><i class="fas fa-play"></i> Run Integrity Check Now</button></div>
     </form>
     <div class="code-line">Runner URL: <?= e(app_base_url() . '/admin/backup-runner.php?token=' . ($settings['dr_auto_backup_token'] ?? '')) ?></div>
     <div class="code-line">Last result: <?= e((string) ($settings['dr_auto_backup_last_result'] ?? 'No run yet')) ?></div>
-  </aside>
+  </div>
+</details>
 
-  <section>
-    <?php if ($bundle): ?>
-      <div class="panel">
-        <h2>Created Bundle</h2>
-        <p><span class="status-pill"><?= e((string) $bundle['status']) ?></span> <strong><?= e((string) $bundle['backup_ref']) ?></strong></p>
-        <p class="muted">Manifest: <?= e((string) $bundle['manifest_path']) ?></p>
-        <?php foreach (($bundle['targets'] ?? []) as $target => $result): ?>
-          <div class="backup-target"><strong><?= e(ucwords(str_replace('_', ' ', (string) $target))) ?></strong><br><span class="muted"><?= e((string) ($result['status'] ?? 'unknown')) ?> <?= e((string) ($result['path'] ?? '')) ?></span><?php if (!empty($result['error'])): ?><br><span class="error"><?= e((string) $result['error']) ?></span><?php endif; ?></div>
-        <?php endforeach; ?>
-      </div>
-    <?php endif; ?>
-
-    <div class="panel">
-      <h2>Git and Offsite Evidence</h2>
-      <p class="muted">Git is for code history, not database secrets. Use Git for committed code, then keep SQL/site bundles in local, Google Drive, and external-drive storage.</p>
-      <div class="code-line">Branch: <?= e($gitBranch ?: 'unknown') ?> / HEAD: <?= e($gitHead ?: 'unknown') ?></div>
-      <div class="code-line">Recommended: git status -> git add reviewed files -> git commit -m "Backup checkpoint" -> git push</div>
-    </div>
-
-    <div class="panel">
-      <h2 id="evidence">Recent Backup Evidence</h2>
-      <table>
-        <thead><tr><th>Reference</th><th>Type</th><th>Status</th><th>Artifacts</th><th>Storage</th><th>Size</th><th>Created</th></tr></thead>
-        <tbody>
-          <?php foreach ($backups as $backup): ?>
-            <?php $manifest = backup_read_manifest($backup, $absoluteRoot); ?>
-            <tr>
-              <td><strong><?= e((string) $backup['backup_ref']) ?></strong></td>
-              <td><?= e((string) $backup['backup_type']) ?></td>
-              <td><span class="status-pill <?= str_contains((string) $backup['status'], 'warning') ? 'warn' : '' ?>"><?= e((string) $backup['status']) ?></span></td>
-              <td>
-                <div class="artifact-links">
-                  <a href="?download=<?= (int) $backup['id'] ?>&artifact=manifest">Manifest</a>
-                  <?php foreach (($manifest['files'] ?? []) as $file): ?>
-                    <?php if (!empty($file['type'])): ?>
-                      <a href="?download=<?= (int) $backup['id'] ?>&artifact=<?= e((string) $file['type']) ?>"><?= e(backup_artifact_label((string) $file['type'])) ?></a>
-                    <?php endif; ?>
-                  <?php endforeach; ?>
-                </div>
-                <?php foreach (($manifest['notes'] ?? []) as $note): ?>
-                  <span class="artifact-note"><?= e((string) $note) ?></span>
-                <?php endforeach; ?>
-                <?php if (!$manifest): ?><span class="artifact-note">Manifest file is not readable from backup storage.</span><?php endif; ?>
-              </td>
-              <td class="muted"><?= e((string) $backup['storage_path']) ?></td>
-              <td><?= number_format((int) $backup['file_size']) ?> bytes</td>
-              <td><?= e(date('M j, Y g:i A', strtotime((string) $backup['created_at']))) ?></td>
-            </tr>
-          <?php endforeach; ?>
-          <?php if (!$backups): ?><tr><td colspan="7" class="muted">No backup evidence yet.</td></tr><?php endif; ?>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="panel">
-      <h2 id="restore-runbook">Restore Runbook</h2>
-      <ol>
-        <li>Copy the latest backup bundle from local, Google Drive, or external drive.</li>
-        <li>Restore the site archive into the web root if a code/file rollback is needed.</li>
-        <li>Import the SQL dump into the selected database.</li>
-        <li>Restore `.env` values and verify APP_URL, email, SMS, Monnify, Paystack, and OAuth settings.</li>
-        <li>Run Production Readiness and perform a test login, wallet deposit, withdrawal review, support ticket, and marketplace checkout.</li>
-      </ol>
-    </div>
+<?php if ($bundle): ?>
+  <section class="panel" style="margin-bottom:20px">
+    <h2>Created Bundle</h2>
+    <p><span class="status-pill"><?= e((string) $bundle['status']) ?></span> <strong><?= e((string) $bundle['backup_ref']) ?></strong></p>
+    <p class="muted">Manifest: <?= e((string) $bundle['manifest_path']) ?></p>
+    <?php foreach (($bundle['targets'] ?? []) as $target => $result): ?>
+      <div class="backup-target"><strong><?= e(ucwords(str_replace('_', ' ', (string) $target))) ?></strong><br><span class="muted"><?= e((string) ($result['status'] ?? 'unknown')) ?> <?= e((string) ($result['path'] ?? '')) ?></span><?php if (!empty($result['error'])): ?><br><span class="error"><?= e((string) $result['error']) ?></span><?php endif; ?></div>
+    <?php endforeach; ?>
   </section>
+<?php endif; ?>
+
+<section class="panel" style="margin-bottom:20px">
+  <h2>Git and Offsite Evidence</h2>
+  <p class="muted">Git is for code history, not database secrets. Use Git for committed code, then keep SQL/site bundles in local, Google Drive, and external-drive storage.</p>
+  <div class="code-line">Branch: <?= e($gitBranch ?: 'unknown') ?> / HEAD: <?= e($gitHead ?: 'unknown') ?></div>
+  <div class="code-line">Recommended: git status -> git add reviewed files -> git commit -m "Backup checkpoint" -> git push</div>
+</section>
+
+<section class="panel" style="margin-bottom:20px">
+  <div class="user-toolbar">
+    <h2 style="margin:0" id="evidence">Recent Backup Evidence</h2>
+    <span class="meta"><?= number_format(count($backups)) ?> record(s)</span>
+  </div>
+  <div class="record-list">
+    <?php foreach ($backups as $backup): ?>
+      <?php
+        $manifest = backup_read_manifest($backup, $absoluteRoot);
+        $backupStatus = (string) $backup['status'];
+        $backupTone = str_contains($backupStatus, 'warning') ? 'warn' : (str_contains($backupStatus, 'fail') || str_contains($backupStatus, 'error') ? 'bad' : 'ok');
+      ?>
+      <article class="record-row stack">
+        <span class="record-avatar file"><i class="fas fa-box-archive"></i></span>
+        <div class="record-main">
+          <div class="record-title">
+            <?= e((string) $backup['backup_ref']) ?>
+            <span class="tag <?= e($backupTone) ?>"><?= e($backupStatus) ?></span>
+            <span class="tag info"><?= e((string) $backup['backup_type']) ?></span>
+          </div>
+          <div class="record-contact">
+            <span><i class="fas fa-folder"></i><?= e((string) $backup['storage_path']) ?></span>
+            <span><i class="fas fa-database"></i><?= number_format((int) $backup['file_size']) ?> bytes</span>
+            <span><i class="far fa-clock"></i><?= e(date('M j, Y g:i A', strtotime((string) $backup['created_at']))) ?></span>
+          </div>
+          <div class="actions" style="margin-top:10px">
+            <a class="button secondary sm" href="?download=<?= (int) $backup['id'] ?>&artifact=manifest"><i class="fas fa-file-lines"></i> Manifest</a>
+            <?php foreach (($manifest['files'] ?? []) as $file): ?>
+              <?php if (!empty($file['type'])): ?>
+                <a class="button secondary sm" href="?download=<?= (int) $backup['id'] ?>&artifact=<?= e((string) $file['type']) ?>"><?= e(backup_artifact_label((string) $file['type'])) ?></a>
+              <?php endif; ?>
+            <?php endforeach; ?>
+          </div>
+          <?php foreach (($manifest['notes'] ?? []) as $note): ?>
+            <div class="record-excerpt" style="color:#8a5a00"><?= e((string) $note) ?></div>
+          <?php endforeach; ?>
+          <?php if (!$manifest): ?><div class="record-excerpt">Manifest file is not readable from backup storage.</div><?php endif; ?>
+        </div>
+      </article>
+    <?php endforeach; ?>
+    <?php if (!$backups): ?><div class="record-empty">No backup evidence yet.</div><?php endif; ?>
+  </div>
+</section>
+
+<section class="panel">
+  <h2 id="restore-runbook">Restore Runbook</h2>
+  <ol>
+    <li>Copy the latest backup bundle from local, Google Drive, or external drive.</li>
+    <li>Restore the site archive into the web root if a code/file rollback is needed.</li>
+    <li>Import the SQL dump into the selected database.</li>
+    <li>Restore `.env` values and verify APP_URL, email, SMS, Monnify, Paystack, and OAuth settings.</li>
+    <li>Run Production Readiness and perform a test login, wallet deposit, withdrawal review, support ticket, and marketplace checkout.</li>
+  </ol>
 </section>
 <?php admin_page_end(); ?>

@@ -333,6 +333,16 @@ function admin_feature_for_script(?string $script = null): string
         'users.php' => 'user_management',
         'import-users.php' => 'imports',
         'profile.php' => 'profile',
+        // Previously unmapped: these silently fell back to 'dashboard', which
+        // loosened the effective gate for bare admin_require($pdo) pages.
+        'certificates.php' => 'certificates',
+        'identity_gateways.php' => 'documents',
+        'news.php' => 'communications',
+        'sms_gateways.php' => 'communications',
+        'search.php' => 'dashboard',
+        'manage_certificate.php' => 'certificates',
+        'jobs.php' => 'settings',
+        'health.php' => 'dashboard',
     ][$script] ?? 'dashboard';
 }
 
@@ -420,5 +430,109 @@ function admin_per_page(int $default = 50): int
 function admin_current_page(): int
 {
     return max(1, (int) ($_GET['page'] ?? 1));
+}
+
+
+/**
+ * Safe scalar (count/sum) helper for dashboard KPIs.
+ */
+function admin_stat_scalar(PDO $pdo, string $sql, array $params = []): float
+{
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return (float) ($stmt->fetchColumn() ?: 0);
+    } catch (Throwable $e) {
+        return 0.0;
+    }
+}
+
+
+/**
+ * Render a responsive KPI / scorecard grid.
+ *
+ * @param array<int,array<int,string>> $cards Each card: [label, value, sub-label, fa icon, tone]
+ */
+function admin_kpi_grid(array $cards): string
+{
+    $html = '<section class="kpi-grid">';
+    foreach ($cards as $card) {
+        $label = (string) ($card[0] ?? '');
+        $value = (string) ($card[1] ?? '');
+        $sub = (string) ($card[2] ?? '');
+        $icon = (string) ($card[3] ?? 'fa-chart-simple');
+        $tone = (string) ($card[4] ?? '');
+        $html .= '<article class="kpi-card' . ($tone !== '' ? ' tone-' . e($tone) : '') . '"><div>'
+            . '<span class="kpi-label">' . e($label) . '</span>'
+            . '<strong class="kpi-value">' . e($value) . '</strong>'
+            . ($sub !== '' ? '<span class="kpi-sub"><i class="fas fa-arrow-trend-up"></i> ' . e($sub) . '</span>' : '')
+            . '</div><div class="kpi-icon ' . e($tone) . '"><i class="fas ' . e($icon) . '"></i></div></article>';
+    }
+    return $html . '</section>';
+}
+
+/**
+ * Build a breadcrumb trail for workspace pages.
+ *
+ * @param array<int,array{label:string,href?:string}> $trail
+ */
+function admin_breadcrumbs(array $trail): string
+{
+    $hubHref = function_exists('admin_chrome_url') ? admin_chrome_url('index.php') : 'index.php';
+    $parts = ['<a href="' . e($hubHref) . '"><i class="fas fa-house"></i> Workspace Hub</a>'];
+    $count = count($trail);
+
+    foreach (array_values($trail) as $index => $crumb) {
+        $label = (string) ($crumb['label'] ?? '');
+        $href = (string) ($crumb['href'] ?? '');
+        $isLast = $index === ($count - 1);
+        if ($label === '') {
+            continue;
+        }
+        if ($href !== '' && !$isLast) {
+            $parts[] = '<a href="' . e($href) . '">' . e($label) . '</a>';
+        } else {
+            $parts[] = '<span aria-current="page">' . e($label) . '</span>';
+        }
+    }
+
+    return '<nav class="nc-breadcrumbs" aria-label="Breadcrumb">'
+        . implode('<i class="fas fa-chevron-right sep" aria-hidden="true"></i>', $parts)
+        . '</nav>';
+}
+
+
+/**
+ * Build a public URL for a stored document / certificate file path.
+ * Stored paths are relative to the web root (e.g. admin_uploads/documents/file.pdf).
+ */
+function admin_document_public_url(string $path): string
+{
+    $path = trim(str_replace('\\', '/', $path));
+    if ($path === '') {
+        return '';
+    }
+    if (preg_match('#^(https?:)?//#i', $path) || str_starts_with($path, 'data:')) {
+        return $path;
+    }
+
+    $base = function_exists('admin_public_base_path') ? admin_public_base_path() : '';
+    return ($base === '' ? '' : $base) . '/' . ltrim($path, '/');
+}
+
+
+/**
+ * Build the public certificate verification URL for an issued certificate row.
+ */
+function admin_certificate_verify_url(array $certificate): string
+{
+    $existing = trim((string) ($certificate['verification_url'] ?? ''));
+    if ($existing !== '') {
+        return $existing;
+    }
+
+    $ref = trim((string) ($certificate['certificate_ref'] ?? $certificate['display_ref'] ?? $certificate['qr_code_hash'] ?? ''));
+    $base = function_exists('admin_public_base_path') ? admin_public_base_path() : '';
+    return ($base === '' ? '' : $base) . '/verify-certificate.php' . ($ref !== '' ? '?ref=' . urlencode($ref) : '');
 }
 

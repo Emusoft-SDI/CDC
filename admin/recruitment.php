@@ -140,71 +140,95 @@ $stmt = $pdo->prepare("SELECT * FROM recruitment_applications WHERE {$where} ORD
 $stmt->execute($params);
 $applications = $stmt->fetchAll();
 
+$recruitCounts = [];
+foreach ($pdo->query('SELECT status, COUNT(*) AS c FROM recruitment_applications GROUP BY status')->fetchAll() as $recruitRow) {
+    $recruitCounts[(string) $recruitRow['status']] = (int) $recruitRow['c'];
+}
+$recruitTones = ['blue', 'orange', 'purple', 'red', ''];
+$recruitKpis = [['Applications', number_format(array_sum($recruitCounts)), 'All submissions', 'fa-user-clock', '']];
+foreach (array_slice($statuses, 0, 4, true) as $statusValue => $statusLabel) {
+    $recruitKpis[] = [$statusLabel, number_format($recruitCounts[$statusValue] ?? 0), 'Applications', 'fa-circle-dot', $recruitTones[count($recruitKpis) % 5]];
+}
+
 admin_page_start('Recruitment', [
     'active' => 'recruitment.php',
     'description' => 'Review Field Agent, Agronomist, and Agric Extensionist applications before creating staff access.',
     'wide' => true,
-    'action_html' => '<a class="button secondary" href="../recruitment.php" target="_blank">Public Recruitment Form</a>',
+    'action_html' => '<a class="button secondary" href="../recruitment.php" target="_blank"><i class="fas fa-arrow-up-right-from-square"></i> Public Recruitment Form</a>',
 ]);
 ?>
 <?php if ($message): ?><div class="notice ok"><?= e($message) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="notice error"><?= e($error) ?></div><?php endif; ?>
 
-<form class="toolbar panel" method="get">
-  <input type="hidden" name="page" value="1">
-  <select name="status">
-    <option value="all" <?= $filter === 'all' ? 'selected' : '' ?>>All Statuses</option>
-    <?php foreach ($statuses as $value => $label): ?>
-      <option value="<?= e($value) ?>" <?= $filter === $value ? 'selected' : '' ?>><?= e($label) ?></option>
-    <?php endforeach; ?>
-  </select>
-  <button type="submit">Filter</button>
-</form>
+<?= admin_kpi_grid($recruitKpis) ?>
 
-<?= admin_pagination_controls($totalApplications, $page, $perPage) ?>
-<table>
-  <thead><tr><th>Applicant</th><th>Role</th><th>Location</th><th>Experience</th><th>Training</th><th>Status</th><th>Documents</th><th>Review</th></tr></thead>
-  <tbody>
+<section class="panel">
+  <div class="user-toolbar">
+    <form class="toolbar" method="get" style="margin:0">
+      <input type="hidden" name="page" value="1">
+      <select name="status">
+        <option value="all" <?= $filter === 'all' ? 'selected' : '' ?>>All Statuses</option>
+        <?php foreach ($statuses as $value => $label): ?>
+          <option value="<?= e($value) ?>" <?= $filter === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+        <?php endforeach; ?>
+      </select>
+      <button type="submit"><i class="fas fa-filter"></i> Filter</button>
+    </form>
+    <span class="meta"><?= number_format($totalApplications) ?> application(s)</span>
+  </div>
+  <?= admin_pagination_controls($totalApplications, $page, $perPage) ?>
+  <div class="record-list">
     <?php foreach ($applications as $app): ?>
-      <tr>
-        <td>
-          <strong><?= e($app['name']) ?></strong><br>
-          <small><?= e($app['app_ref']) ?><br><?= e($app['email']) ?><br><?= e($app['phone']) ?></small>
-        </td>
-        <td><?= e($roles[$app['role_applied']] ?? $app['role_applied']) ?><br><small><?= e($app['qualification'] ?? '') ?></small></td>
-        <td><?= e($app['state']) ?><?= $app['lga'] ? ', ' . e($app['lga']) : '' ?></td>
-        <td><?= e((string) $app['experience_years']) ?> years<br><small><?= e($app['availability'] ?? '') ?></small></td>
-        <td>
+      <?php
+        $statusTone = ['approve' => 'ok', 'approved' => 'ok', 'shortlisted' => 'info', 'more_info' => 'warn', 'pending' => 'muted', 'rejected' => 'bad'][(string) $app['status']] ?? 'muted';
+        $nameParts = preg_split('/\s+/', trim((string) $app['name'])) ?: [''];
+        $initials = strtoupper(substr((string) ($nameParts[0] ?? ''), 0, 1) . substr((string) ($nameParts[1] ?? ''), 0, 1));
+      ?>
+      <article class="record-row">
+        <span class="record-avatar orange"><?= e($initials !== '' ? $initials : '?') ?></span>
+        <div class="record-main">
+          <div class="record-title">
+            <?= e($app['name']) ?>
+            <span class="tag <?= e($statusTone) ?>"><?= e($statuses[$app['status']] ?? $app['status']) ?></span>
+            <span class="tag info"><?= e($roles[$app['role_applied']] ?? $app['role_applied']) ?></span>
+          </div>
+          <div class="record-contact">
+            <span><i class="fas fa-location-dot"></i><?= e($app['state']) ?><?= $app['lga'] ? ', ' . e($app['lga']) : '' ?></span>
+            <span><i class="fas fa-briefcase"></i><?= e((string) $app['experience_years']) ?> yrs experience</span>
+            <?php if (!empty($app['email'])): ?><span><i class="far fa-envelope"></i><?= e($app['email']) ?></span><?php endif; ?>
+          </div>
+        </div>
+        <div class="record-meta">
+          <?php if (!empty($app['app_ref'])): ?><span class="ref-pill"><i class="fas fa-hashtag"></i><?= e($app['app_ref']) ?></span><?php endif; ?>
           <?php if ((int) ($app['certification_interest'] ?? 0) === 1): ?>
-            <span class="badge pending">Interested</span><br><small><?= e($app['certification_program'] ?? 'Training certification') ?></small>
-          <?php else: ?>
-            <span class="muted">No interest marked</span>
+            <span class="tag warn"><i class="fas fa-certificate"></i> Training interest</span>
           <?php endif; ?>
-        </td>
-        <td><span class="badge <?= e((string) $app['status']) ?>"><?= e($statuses[$app['status']] ?? $app['status']) ?></span></td>
-        <td>
-          <?php if (!empty($app['cv_path'])): ?><a href="../<?= e($app['cv_path']) ?>" target="_blank">CV</a><br><?php endif; ?>
-          <?php if (!empty($app['id_path'])): ?><a href="../<?= e($app['id_path']) ?>" target="_blank">ID/License</a><?php endif; ?>
-        </td>
-        <td>
-          <?php if (!empty($app['cover_note'])): ?><small><?= e($app['cover_note']) ?></small><?php endif; ?>
-          <form method="post" class="toolbar">
-            <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-            <input type="hidden" name="id" value="<?= (int) $app['id'] ?>">
-            <select name="action">
-              <option value="shortlisted">Shortlist</option>
-              <option value="more_info">More Info</option>
-              <option value="approve">Approve & Create User</option>
-              <option value="rejected">Reject</option>
-            </select>
-            <input type="text" name="review_notes" placeholder="Review notes">
-            <button type="submit">Apply</button>
-          </form>
-        </td>
-      </tr>
+        </div>
+        <div class="record-actions">
+          <?php if (!empty($app['cv_path'])): ?><a class="button secondary sm" href="../<?= e($app['cv_path']) ?>" target="_blank" rel="noopener">CV</a><?php endif; ?>
+          <?php if (!empty($app['id_path'])): ?><a class="button secondary sm" href="../<?= e($app['id_path']) ?>" target="_blank" rel="noopener">ID</a><?php endif; ?>
+          <details class="user-manage">
+            <summary class="button secondary sm"><i class="fas fa-clipboard-check"></i> Review</summary>
+            <form class="user-manage-form" method="post">
+              <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+              <input type="hidden" name="id" value="<?= (int) $app['id'] ?>">
+              <label class="field"><span>Decision</span>
+                <select name="action">
+                  <option value="shortlisted">Shortlist</option>
+                  <option value="more_info">More Info</option>
+                  <option value="approve">Approve &amp; Create User</option>
+                  <option value="rejected">Reject</option>
+                </select>
+              </label>
+              <label class="field"><span>Review notes</span><input type="text" name="review_notes"></label>
+              <button type="submit" class="sm"><i class="fas fa-check"></i> Apply decision</button>
+            </form>
+          </details>
+        </div>
+      </article>
     <?php endforeach; ?>
-    <?php if (!$applications): ?><tr><td colspan="8">No recruitment applications match this filter.</td></tr><?php endif; ?>
-  </tbody>
-</table>
-<?= admin_pagination_controls($totalApplications, $page, $perPage) ?>
+    <?php if (!$applications): ?><div class="record-empty">No recruitment applications match this filter.</div><?php endif; ?>
+  </div>
+  <?= admin_pagination_controls($totalApplications, $page, $perPage) ?>
+</section>
 <?php admin_page_end(); ?>

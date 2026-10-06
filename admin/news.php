@@ -317,6 +317,14 @@ admin_page_start('News & Communications Desk', [
 <?php if ($message): ?><div class="notice ok"><?= e($message) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="notice error"><?= e($error) ?></div><?php endif; ?>
 
+<?= admin_kpi_grid([
+    ['Articles', number_format(count($newsList)), 'All communications', 'fa-newspaper', ''],
+    ['Published', number_format(count(array_filter($newsList, static fn($n): bool => strtolower((string) $n['status']) === 'published'))), 'Live to public', 'fa-circle-check', 'blue'],
+    ['Scheduled', number_format(count(array_filter($newsList, static fn($n): bool => in_array(strtolower((string) $n['status']), ['scheduled', 'draft'], true)))), 'Queued / draft', 'fa-clock', 'orange'],
+    ['Views', number_format((int) array_sum(array_map(static fn($n): int => (int) $n['views_count'], $newsList))), 'Public reads', 'fa-eye', 'purple'],
+    ['Clicks', number_format((int) array_sum(array_map(static fn($n): int => (int) $n['clicks_count'], $newsList))), 'Engagement', 'fa-mouse-pointer', ''],
+]) ?>
+
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
   <div style="display:flex;gap:10px;">
     <a href="news.php?action=create" class="button primary"><i class="fas fa-plus"></i> New Announcement</a>
@@ -460,55 +468,50 @@ admin_page_start('News & Communications Desk', [
   </section>
 <?php endif; ?>
 
-<!-- Articles Table Overview -->
+<!-- Articles Overview -->
 <section class="panel">
-  <h2><i class="fas fa-newspaper"></i> Published & Queued Communications Desk Articles</h2>
-
-  <div style="overflow-x:auto;">
-    <table class="data-table" style="width:100%;">
-      <thead>
-        <tr>
-          <th>Title & Category</th>
-          <th>Status</th>
-          <th>Priority</th>
-          <th>Visibility</th>
-          <th>Views / Clicks</th>
-          <th>Date</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <?php foreach ($newsList as $item): ?>
-          <tr>
-            <td>
-              <strong><?= e($item['title']) ?></strong>
-              <br><small class="muted"><span class="tag"><?= e($item['category'] ?? 'General') ?></span> Slug: <code><?= e($item['slug']) ?></code></small>
-            </td>
-            <td><span class="tag <?= $item['status'] === 'published' ? 'green' : ($item['status'] === 'scheduled' ? 'blue' : 'amber') ?>"><?= strtoupper(e($item['status'])) ?></span></td>
-            <td><span class="tag <?= $item['priority'] === 'urgent' ? 'red' : 'green' ?>"><?= strtoupper(e($item['priority'])) ?></span></td>
-            <td><span class="tag"><?= strtoupper(e($item['visibility'])) ?></span></td>
-            <td><small><i class="far fa-eye"></i> <?= number_format((int)$item['views_count']) ?> | <i class="fas fa-mouse-pointer"></i> <?= number_format((int)$item['clicks_count']) ?></small></td>
-            <td><small><?= date('M d, Y', strtotime($item['created_at'])) ?></small></td>
-            <td>
-              <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                <a href="news.php?action=edit&id=<?= (int)$item['id'] ?>" class="button secondary" style="padding:4px 8px;font-size:0.8rem;"><i class="fas fa-edit"></i> Edit</a>
-                <a href="news.php?action=broadcast&id=<?= (int)$item['id'] ?>" class="button secondary" style="padding:4px 8px;font-size:0.8rem;background:#f0fdf4;border-color:#86efac;color:#166534;"><i class="fas fa-bullhorn"></i> Broadcast</a>
-                <a href="../news-detail.php?slug=<?= urlencode((string)$item['slug']) ?>" target="_blank" class="button secondary" style="padding:4px 8px;font-size:0.8rem;"><i class="fas fa-eye"></i> View</a>
-                <form method="post" onsubmit="return confirm('Are you sure you want to delete this article?');" style="display:inline;">
-                  <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                  <input type="hidden" name="action" value="delete">
-                  <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
-                  <button type="submit" class="button secondary" style="padding:4px 8px;font-size:0.8rem;color:#e11d48;"><i class="fas fa-trash"></i></button>
-                </form>
-              </div>
-            </td>
-          </tr>
-        <?php endforeach; ?>
-        <?php if (empty($newsList)): ?>
-          <tr><td colspan="7" style="text-align:center;" class="muted">No news articles created yet.</td></tr>
-        <?php endif; ?>
-      </tbody>
-    </table>
+  <div class="user-toolbar">
+    <h2 style="margin:0"><i class="fas fa-newspaper"></i> Published &amp; Queued Articles</h2>
+    <span class="meta"><?= number_format(count($newsList)) ?> article(s)</span>
+  </div>
+  <div class="record-list">
+    <?php foreach ($newsList as $item): ?>
+      <?php
+        $nStatus = strtolower((string) $item['status']);
+        $nTone = $nStatus === 'published' ? 'ok' : ($nStatus === 'scheduled' ? 'info' : 'warn');
+        $nUrgent = strtolower((string) $item['priority']) === 'urgent';
+      ?>
+      <article class="record-row stack">
+        <span class="record-avatar <?= $nStatus === 'published' ? 'file' : 'log' ?>"><i class="fas fa-newspaper"></i></span>
+        <div class="record-main">
+          <div class="record-title">
+            <?= e($item['title']) ?>
+            <span class="tag <?= e($nTone) ?>"><?= e(strtoupper($nStatus)) ?></span>
+            <?php if ($nUrgent): ?><span class="tag bad">URGENT</span><?php endif; ?>
+            <span class="tag info"><?= e($item['category'] ?? 'General') ?></span>
+            <span class="tag muted"><?= e(strtoupper((string) $item['visibility'])) ?></span>
+          </div>
+          <div class="record-contact">
+            <span><i class="fas fa-link"></i><?= e($item['slug']) ?></span>
+            <span><i class="far fa-eye"></i><?= number_format((int) $item['views_count']) ?> views</span>
+            <span><i class="fas fa-mouse-pointer"></i><?= number_format((int) $item['clicks_count']) ?> clicks</span>
+            <span><i class="far fa-calendar"></i><?= e(date('M d, Y', strtotime((string) $item['created_at']))) ?></span>
+          </div>
+          <div class="actions" style="margin-top:10px">
+            <a class="button secondary sm" href="news.php?action=edit&id=<?= (int) $item['id'] ?>"><i class="fas fa-edit"></i> Edit</a>
+            <a class="button secondary sm" href="news.php?action=broadcast&id=<?= (int) $item['id'] ?>"><i class="fas fa-bullhorn"></i> Broadcast</a>
+            <a class="button secondary sm" href="../news-detail.php?slug=<?= urlencode((string) $item['slug']) ?>" target="_blank" rel="noopener"><i class="fas fa-eye"></i> View</a>
+            <form method="post" onsubmit="return confirm('Are you sure you want to delete this article?');" style="display:inline;margin:0">
+              <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="id" value="<?= (int) $item['id'] ?>">
+              <button type="submit" class="button secondary sm" style="color:#e11d48"><i class="fas fa-trash"></i> Delete</button>
+            </form>
+          </div>
+        </div>
+      </article>
+    <?php endforeach; ?>
+    <?php if (empty($newsList)): ?><div class="record-empty">No news articles created yet.</div><?php endif; ?>
   </div>
 </section>
 

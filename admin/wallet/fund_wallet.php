@@ -31,12 +31,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['user_id'], $_POST['am
 
 $users = $pdo->query("SELECT id, name FROM users ORDER BY name")->fetchAll();
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><title>Fund Wallet</title>
-<style>body{font-family: 'Inter', sans-serif; background: #f4f6f4; display: flex;}.main{flex:1; padding:30px;}.card{background:#fff; padding:20px; border-radius:12px;}.form-input{width:100%; padding:10px; margin:10px 0;}</style>
-</head>
-<body>
+<?php admin_page_start('Fund Wallet', [
+    'topbar_only' => true,
+    'active' => 'wallet/',
+    'breadcrumbs' => array (
+  0 => 
+  array (
+    'label' => 'Wallet & Payments',
+  ),
+  1 => 
+  array (
+    'label' => 'Wallet Workspace',
+  ),
+  2 => 
+  array (
+    'label' => 'Fund Wallet',
+  ),
+),
+    'head_pre' => '<link rel="stylesheet" href="../../assets/css/admin-workspaces.css"><script defer src="../../assets/js/nc-collapse.js"></script>',
+    'css' => '.main{flex:1; padding:30px;}.card{background:#fff; padding:20px; border-radius:12px;}.form-input{width:100%; padding:10px; margin:10px 0;}',
+]); ?>
 <p><a href="index.php">Back to Wallet Workspace</a></p>
 <div class="main">
     <h1>Fund Wallet</h1>
@@ -54,5 +68,4 @@ $users = $pdo->query("SELECT id, name FROM users ORDER BY name")->fetchAll();
         </form>
     </div>
 </div>
-</body>
-</html>
+<?php admin_page_end(); ?>

@@ -2,9 +2,18 @@
 declare(strict_types=1);
 
 /**
- * One-time purge of test-suite fixture rows from the application database.
+ * Purge of test-suite fixture rows from the application database.
+ *
+ * The security suites exercise a real MySQL database and insert users, news,
+ * listings, orders, payments, academy courses, support tickets and rate-limit
+ * rows. When a suite was ever pointed at the live database those fixtures
+ * stayed behind (their parent users may have been deleted, leaving orphans in
+ * the child tables and noise in the log tables).
+ *
  * Dry-run by default. Requires --apply --confirm=<dbname> to delete, and takes a
- * mysqldump backup first (unless --no-backup).
+ * mysqldump backup first (unless --no-backup). Pass --no-orphans to skip the
+ * referential-integrity sweep if the database legitimately contains rows whose
+ * owner has been hard-deleted.
  */
 if (PHP_SAPI !== 'cli') {
     http_response_code(404);
@@ -16,6 +25,7 @@ require_once __DIR__ . '/../config.php';
 $args = $argv ?? [];
 $apply = in_array('--apply', $args, true);
 $noBackup = in_array('--no-backup', $args, true);
+$noOrphans = in_array('--no-orphans', $args, true);
 $confirm = '';
 foreach ($args as $arg) {
     if (str_starts_with($arg, '--confirm=')) {
@@ -38,17 +48,52 @@ if ($apply && $confirm !== $dbName) {
     exit(2);
 }
 
-// --- Test-only identifiers -------------------------------------------------
-$testEmail = "("
-    . "email LIKE '%@example.com' OR email LIKE '%@natcodev.org' "
-    . "OR email LIKE '%@natcodev.gov.ng' OR email LIKE '%@natcodev.test' "
-    . "OR email LIKE 'alice\\_%@natcodev.com' OR email LIKE 'bob\\_%@natcodev.com' "
-    . "OR email LIKE 'charlie\\_%@natcodev.com' OR email LIKE 'legacy\\_%@natcodev.com' "
-    . "OR email LIKE 'victim\\_%@natcodev.com'"
-    . ")";
+$q = static fn (string $value): string => $pdo->quote($value);
 
-$testTicketEmail = "requester_email LIKE '%@example.com' OR requester_email LIKE '%@natcodev.org' "
-    . "OR requester_email LIKE '%@natcodev.gov.ng' OR requester_email LIKE '%@natcodev.test'";
+// --- Test-only identifiers -------------------------------------------------
+// Every local-part / domain below is generated exclusively by tests/ suites.
+$emailPatterns = [
+    'test@example.com',
+    '%@example.com',
+    '%@example.test',
+    '%@example.org',
+    '%@natcodev.test',
+    '%@natcodev.local',
+    '%@natcodev.org',
+    '%natcodev.gov.ng',
+    '%@doe.test',
+    '%@lagosagrobuyers.ng',
+    'adm_test_%',
+    'pub_test_%',
+    'sup_test_%',
+    'cart_test_%',
+    'mkt_test_%',
+    'stk_%',
+    'idempotency_test_%',
+    'upg_test_%',
+    'test_farmer_%',
+    'gov_staff_%',
+    'gov_doc_%',
+    'gov_seller_%',
+    'governance-requester-%',
+    'acad\\_%@natcodev.org',
+    'victim\\_%@natcodev.com',
+    'alice\\_%@natcodev.com',
+    'bob\\_%@natcodev.com',
+    'charlie\\_%@natcodev.com',
+    'legacy\\_%@natcodev.com',
+];
+
+$likeOr = static function (array $patterns, string $column) use ($q): string {
+    $parts = [];
+    foreach ($patterns as $pattern) {
+        $parts[] = "{$column} LIKE " . $q($pattern);
+    }
+    return '(' . implode(' OR ', $parts) . ')';
+};
+
+$testEmail = $likeOr($emailPatterns, 'email');
+$testTicketEmail = $likeOr($emailPatterns, 'requester_email');
 
 // Snapshot the id sets first (all reads), so no DELETE self-references its own table.
 $fetchIds = static function (PDO $pdo, string $sql): string {
@@ -59,56 +104,119 @@ $fetchIds = static function (PDO $pdo, string $sql): string {
 
 $userIds = $fetchIds($pdo, "SELECT id FROM users WHERE {$testEmail}");
 $sellerIds = $fetchIds($pdo, "SELECT id FROM marketplace_sellers WHERE user_id IN ({$userIds})");
-$listingIds = $fetchIds($pdo, "SELECT id FROM marketplace_listings WHERE seller_id IN ({$sellerIds})");
-$newsIds = $fetchIds($pdo, "SELECT id FROM coop_news WHERE slug LIKE 'national-coconut-summit-%' "
-    . "OR slug LIKE 'automated-test-announcement-%' OR slug LIKE 'natcodev-q3-expansion-%' "
-    . "OR slug LIKE 'admin-bulletin-%' OR author_id IN ({$userIds})");
+$listingIds = $fetchIds($pdo, "SELECT id FROM marketplace_listings WHERE seller_id IN ({$sellerIds}) OR title LIKE 'Test %' OR slug LIKE 'test-%'");
+$newsIds = $fetchIds($pdo, "SELECT id FROM coop_news WHERE author_id IN ({$userIds}) "
+    . "OR slug LIKE 'national-coconut-summit-%' OR slug LIKE 'natcodev-q3-expansion-%' "
+    . "OR slug LIKE 'automated-test-announcement-%' OR slug LIKE 'admin-bulletin-%' "
+    . "OR title IN ('Initial Strategic Framework for 2026', 'NATCODEV Unveils Q3 Coconut Expansion Plan')");
 $farmIds = $fetchIds($pdo, "SELECT id FROM grower_farms WHERE user_id IN ({$userIds})");
 $caseIds = $fetchIds($pdo, "SELECT id FROM agronomy_cases WHERE grower_id IN ({$userIds}) "
     . "OR created_by IN ({$userIds}) OR assigned_to IN ({$userIds})");
 $ticketIds = $fetchIds($pdo, "SELECT id FROM support_tickets WHERE user_id IN ({$userIds}) OR {$testTicketEmail}");
 
+// Academy fixtures are identified by the acad_<timestamp>_<hex> token the suites generate.
+// The underscore must be escaped so the pattern does not also match the word "academy".
+$webinarIds = $fetchIds($pdo, "SELECT id FROM webinars WHERE title LIKE '%acad\\_%' "
+    . "OR course_code LIKE 'COCO-acad\\_%' "
+    . "OR title LIKE 'Best Practices in Coconut Propagation%'");
+$programIds = $fetchIds($pdo, "SELECT id FROM academy_programs WHERE title LIKE '%acad\\_%' "
+    . "OR title LIKE 'Commercial Coconut Enterprise Specialization%'");
+$groupIds = $fetchIds($pdo, "SELECT id FROM academy_certificate_groups WHERE title LIKE '%acad\\_%' "
+    . "OR title LIKE 'Master Coconut Agronomy Specialist%'");
+$assessmentIds = $fetchIds($pdo, "SELECT id FROM academy_assessments WHERE webinar_id IN ({$webinarIds})");
+$lessonIds = $fetchIds($pdo, "SELECT id FROM academy_lessons WHERE webinar_id IN ({$webinarIds})");
+$registrationIds = $fetchIds($pdo, "SELECT id FROM webinar_registrations WHERE webinar_id IN ({$webinarIds}) OR user_id IN ({$userIds})");
+
+$notificationPattern = $likeOr($emailPatterns, 'recipient');
+$subscriberPattern = $likeOr($emailPatterns, 'email');
+
+$orphan = static function (string $column): string {
+    return "({$column} IS NOT NULL AND {$column} <> 0 AND {$column} NOT IN (SELECT id FROM users))";
+};
+
 $steps = [
+    // --- Academy LMS fixtures (children first) -----------------------------
+    ['academy_questions', "assessment_id IN ({$assessmentIds})"],
+    ['academy_attempts', "assessment_id IN ({$assessmentIds}) OR webinar_id IN ({$webinarIds}) OR user_id IN ({$userIds})"],
+    ['academy_assessments', "id IN ({$assessmentIds}) OR webinar_id IN ({$webinarIds})"],
+    ['academy_progress', "webinar_id IN ({$webinarIds}) OR lesson_id IN ({$lessonIds}) OR user_id IN ({$userIds})"],
+    ['academy_materials', "webinar_id IN ({$webinarIds}) OR lesson_id IN ({$lessonIds})"],
+    ['academy_lessons', "id IN ({$lessonIds}) OR webinar_id IN ({$webinarIds})"],
+    ['academy_feedback', "webinar_id IN ({$webinarIds}) OR user_id IN ({$userIds})"],
+    ['academy_group_certificates', "group_id IN ({$groupIds}) OR user_id IN ({$userIds})"],
+    ['academy_certificate_group_courses', "group_id IN ({$groupIds}) OR webinar_id IN ({$webinarIds})"],
+    ['academy_certificates', "webinar_id IN ({$webinarIds}) OR registration_id IN ({$registrationIds}) OR user_id IN ({$userIds})"],
+    ['webinar_registrations', "id IN ({$registrationIds}) OR webinar_id IN ({$webinarIds}) OR user_id IN ({$userIds})"],
+    ['webinars', "id IN ({$webinarIds})"],
+    ['academy_certificate_groups', "id IN ({$groupIds})"],
+    ['academy_programs', "id IN ({$programIds})"],
+
+    // --- News fixtures ------------------------------------------------------
     ['coop_news_feedback', "news_id IN ({$newsIds}) OR user_id IN ({$userIds})"],
     ['coop_news_analytics', "news_id IN ({$newsIds})"],
-    ['coop_news_versions', "news_id IN ({$newsIds})"],
+    ['coop_news_versions', "news_id IN ({$newsIds})" . ($noOrphans ? '' : " OR " . $orphan('editor_id'))],
     ['coop_news', "id IN ({$newsIds})"],
+
+    // --- Marketplace fixtures ----------------------------------------------
     ['marketplace_disputes', "buyer_user_id IN ({$userIds}) OR seller_id IN ({$sellerIds})"],
     ['marketplace_reviews', "user_id IN ({$userIds}) OR seller_id IN ({$sellerIds}) OR listing_id IN ({$listingIds})"],
     ['marketplace_favorites', "user_id IN ({$userIds}) OR listing_id IN ({$listingIds})"],
-    ['marketplace_promotions', "seller_id IN ({$sellerIds})"],
+    ['marketplace_promotions', "seller_id IN ({$sellerIds}) OR created_by IN ({$userIds})"],
     ['marketplace_orders', "buyer_user_id IN ({$userIds}) OR seller_id IN ({$sellerIds}) OR listing_id IN ({$listingIds}) OR buyer_email LIKE '%@example.com' OR buyer_email LIKE '%@doe.test'"],
     ['marketplace_inquiries', "seller_id IN ({$sellerIds}) OR listing_id IN ({$listingIds}) OR buyer_email LIKE '%@example.com' OR buyer_email LIKE '%@doe.test'"],
     ['marketplace_listings', "id IN ({$listingIds})"],
     ['marketplace_sellers', "id IN ({$sellerIds})"],
+
+    // --- Wallet / payments --------------------------------------------------
     ['wallet_transactions', "user_id IN ({$userIds})"],
     ['wallet_withdrawals', "user_id IN ({$userIds})"],
     ['wallets', "user_id IN ({$userIds})"],
-    ['agronomy_recommendations', "case_id IN ({$caseIds}) OR author_id IN ({$userIds})"],
-    ['agronomy_cases', "id IN ({$caseIds})"],
+
+    // --- Field operations / agronomy ---------------------------------------
+    ['agronomy_recommendations', "case_id IN ({$caseIds}) OR author_id IN ({$userIds})" . ($noOrphans ? '' : " OR " . $orphan('author_id'))],
+    ['agronomy_cases', "id IN ({$caseIds})" . ($noOrphans ? '' : " OR " . $orphan('grower_id') . " OR " . $orphan('assigned_to') . " OR " . $orphan('created_by'))],
     ['agronomy_soil_crop_records', "farm_id IN ({$farmIds}) OR recorded_by IN ({$userIds})"],
     ['farm_weather_snapshots', "farm_id IN ({$farmIds})"],
     ['farm_visits', "farm_id IN ({$farmIds}) OR agent_id IN ({$userIds})"],
     ['field_tasks', "farm_id IN ({$farmIds}) OR assigned_to IN ({$userIds})"],
+    ['agent_assignments', "agent_id IN ({$userIds}) OR grower_id IN ({$userIds})" . ($noOrphans ? '' : " OR " . $orphan('agent_id') . " OR " . $orphan('grower_id'))],
     ['grower_farms', "id IN ({$farmIds})"],
-    ['academy_feedback', "user_id IN ({$userIds})"],
-    ['academy_group_certificates', "user_id IN ({$userIds})"],
-    ['academy_certificates', "user_id IN ({$userIds})"],
-    ['academy_attempts', "user_id IN ({$userIds})"],
-    ['academy_progress', "user_id IN ({$userIds})"],
-    ['webinar_registrations', "user_id IN ({$userIds})"],
+
+    // --- Certificates -------------------------------------------------------
     ['certificate_access_payments', "user_id IN ({$userIds})"],
     ['certificates', "user_id IN ({$userIds})"],
+
+    // --- Support desk -------------------------------------------------------
     ['support_ticket_attachments', "ticket_id IN ({$ticketIds})"],
     ['support_ticket_messages', "ticket_id IN ({$ticketIds}) OR admin_id IN ({$userIds})"],
     ['support_tickets', "id IN ({$ticketIds})"],
-    ['support_inquiries', "user_id IN ({$userIds}) OR email LIKE '%@example.com' OR email LIKE '%@natcodev.org' OR email LIKE '%@natcodev.gov.ng' OR email LIKE '%@natcodev.test'"],
+    ['support_inquiries', "user_id IN ({$userIds}) OR " . $likeOr($emailPatterns, 'email')],
+    ['support_teams', "created_by IN ({$userIds}) OR team_name LIKE 'Escrow Arbitration Team%'"
+        . ($noOrphans ? '' : " OR " . $orphan('lead_admin_id') . " OR " . $orphan('created_by'))],
+
+    // --- Governance / identity ---------------------------------------------
+    ['governance_deletion_requests', "requested_by_id IN ({$userIds})"
+        . ($noOrphans ? '' : " OR " . $orphan('requested_by_id') . " OR " . $orphan('approved_by_id'))],
     ['document_requirements', "user_id IN ({$userIds})"],
     ['admin_action_requests', "requested_by IN ({$userIds})"],
-    ['governance_deletion_requests', "requested_by_id IN ({$userIds})"],
+    ['user_import_records', "user_id IN ({$userIds})"],
+    ['user_role_assignments', "user_id IN ({$userIds})"],
     ['otp_sessions', "user_id IN ({$userIds})"],
     ['registration_drafts', "user_id IN ({$userIds})"],
-    ['support_teams', "created_by IN ({$userIds})"],
+
+    // --- Logs / settings / misc test residue -------------------------------
+    ['notification_logs', $notificationPattern],
+    ['subscribers', $subscriberPattern],
+    ['audit_log', "action = 'gov_test_event' OR description LIKE '%gov_test_event%' "
+        . "OR description LIKE '%superadmin.test@natcodev.local%' "
+        . "OR description LIKE '%Testing reinstate via CLI%'"],
+    ['settings', "(key_name IN ('admin_profile_name', 'admin_profile_email') AND " . $likeOr($emailPatterns, 'value') . ")"
+        . " OR (key_name = 'admin_profile_name' AND value LIKE 'Test %')"
+        . " OR key_name LIKE 'acad\\_%'"
+        . " OR (key_name = 'paystack_secret_key' AND value LIKE '%GOVCHECK%')"],
+    ['app_rate_limits', "limit_key LIKE 'login\\_attempt\\_%' AND attempts >= 10 AND expires_at < UNIX_TIMESTAMP()"],
+
+    // --- Applications / users ----------------------------------------------
     ['applications', $testEmail],
     ['users', $testEmail],
 ];

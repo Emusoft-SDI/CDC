@@ -33,6 +33,22 @@ function academy_delivery_action(string $type): string
 {
     return academy_delivery_actions()[$type] ?? 'Open Training';
 }
+/**
+ * Public URL for a program thumbnail stored as a web-root relative path
+ * (e.g. academy_uploads/thumbnails/grower-onboarding-program.png).
+ */
+function academy_program_thumbnail_src(array $row): string
+{
+    $thumbnail = trim((string) ($row['program_thumbnail'] ?? $row['thumbnail'] ?? ''));
+    if ($thumbnail === '') {
+        return '';
+    }
+    if (preg_match('#^https?://#i', $thumbnail)) {
+        return $thumbnail;
+    }
+    return '../' . ltrim(str_replace('\\', '/', $thumbnail), '/');
+}
+
 function academy_role_label(string $role): string
 {
     return [
@@ -82,7 +98,7 @@ function academy_courses(PDO $pdo, ?string $role = null, bool $activeOnly = true
     academy_ensure_schema($pdo);
     $where = $activeOnly ? "WHERE COALESCE(w.status, 'active') = 'active'" : '';
     $rows = $pdo->query("
-        SELECT w.*, p.title program_title, p.audience_roles program_roles,
+        SELECT w.*, p.title program_title, p.audience_roles program_roles, p.thumbnail program_thumbnail,
                COUNT(DISTINCT r.id) registrations,
                COUNT(DISTINCT l.id) lessons,
                COUNT(DISTINCT a.id) assessments

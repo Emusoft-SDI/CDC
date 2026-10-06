@@ -87,29 +87,24 @@ class TestHarness
      * marketplace listing. This makes that impossible to do by accident.
      *
      * A database qualifies only if its name is test-scoped, e.g. natcodevcom_data_test.
-     * Set NC_ALLOW_NON_TEST_DB=1 to override, for a database you accept losing.
+     * There is deliberately no environment override: a test run must never be able to
+     * write into the live database, so the guard always exits instead of trusting a
+     * flag. If you need to run the suites locally, point DB_DATABASE at an isolated
+     * test database (the name must contain "test").
      */
     public static function assertTestDatabase(PDO $pdo): void
     {
         $name = (string) $pdo->query('SELECT DATABASE()')->fetchColumn();
 
-        // A test-scoped name is always fine, no override needed.
         if ($name !== '' && preg_match('/(^|_)test(_|$)/i', $name)) {
             return;
         }
 
-        if (getenv('NC_ALLOW_NON_TEST_DB') === '1') {
-            // To STDERR: the suites call session_start(), which warns if anything has
-            // already been written to STDOUT.
-            fwrite(STDERR, "\033[1;33m[WARN] NC_ALLOW_NON_TEST_DB=1: writing fixtures into '{$name}'.\033[0m\n");
-            return;
-        }
-
         $message = "REFUSING TO RUN: the connected database is '{$name}', which is not a test database.\n"
-            . "These suites INSERT users, news, listings, orders and payments.\n\n"
+            . "These suites INSERT users, news, listings, orders and payments, so they are\n"
+            . "blocked from writing to any database that is not test-scoped.\n\n"
             . "Point them at an isolated database instead:\n"
-            . "  DB_DATABASE=<your_test_db> php tests/run_security_suite.php\n\n"
-            . "Only set NC_ALLOW_NON_TEST_DB=1 for a database you are willing to lose.\n";
+            . "  DB_DATABASE=<your_test_db> php tests/run_security_suite.php\n";
 
         fwrite(STDERR, "\033[1;31m" . $message . "\033[0m");
         exit(2);

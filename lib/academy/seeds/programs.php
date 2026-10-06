@@ -577,10 +577,18 @@ function academy_slug(string $value): string
     return trim($value, '-') ?: 'academy-course';
 }
 
-function academy_write_course_pdf(string $relativePath, array $course): void
+function academy_material_path(string $relativePath): string
 {
-    $path = __DIR__ . '/../' . $relativePath;
-    if (is_file($path)) {
+    // This file lives at lib/academy/seeds. Academy course files are served from
+    // the web root at academy_uploads/, so resolve the path from the app root.
+    $root = dirname(__DIR__, 3);
+    return $root . '/' . ltrim(str_replace('\\', '/', $relativePath), '/');
+}
+
+function academy_write_course_pdf(string $relativePath, array $course, bool $overwrite = false): void
+{
+    $path = academy_material_path($relativePath);
+    if (is_file($path) && !$overwrite) {
         return;
     }
     $dir = dirname($path);
@@ -611,10 +619,10 @@ function academy_write_course_pdf(string $relativePath, array $course): void
     file_put_contents($path, academy_pdf_from_lines($lines), LOCK_EX);
 }
 
-function academy_write_video_brief(string $relativePath, array $course): void
+function academy_write_video_brief(string $relativePath, array $course, bool $overwrite = false): void
 {
-    $path = __DIR__ . '/../' . $relativePath;
-    if (is_file($path)) {
+    $path = academy_material_path($relativePath);
+    if (is_file($path) && !$overwrite) {
         return;
     }
     $dir = dirname($path);

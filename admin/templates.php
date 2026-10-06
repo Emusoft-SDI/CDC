@@ -343,59 +343,78 @@ admin_page_start('Notification Templates', [
 <?php if ($message): ?><div class="notice ok"><?= e($message) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="notice error"><?= e($error) ?></div><?php endif; ?>
 
-<section class="stats">
-  <div class="stat"><span>Template Workflows</span><div class="metric"><?= $templateCount ?></div><p class="meta">Generated out of <?= $expectedCount ?> defaults.</p></div>
-  <div class="stat"><span>Channels</span><div class="metric">3</div><p class="meta">Email, SMS, and WhatsApp.</p></div>
-  <div class="stat"><span>Total Records</span><div class="metric"><?= $templateCount * 3 ?></div><p class="meta">One record per workflow/channel.</p></div>
-</section>
+<?= admin_kpi_grid([
+    ['Template Workflows', number_format($templateCount), 'Generated of ' . $expectedCount . ' defaults', 'fa-layer-group', ''],
+    ['Channels', '3', 'Email, SMS &amp; WhatsApp', 'fa-tower-broadcast', 'blue'],
+    ['Total Records', number_format($templateCount * 3), 'Workflow x channel', 'fa-database', 'purple'],
+    ['Coverage', ($expectedCount > 0 ? (int) round($templateCount / $expectedCount * 100) : 0) . '%', 'Default library coverage', 'fa-gauge-high', 'orange'],
+]) ?>
 
 <section class="panel">
-  <form method="post" class="toolbar">
+  <form method="post" class="toolbar" style="margin:0">
     <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-    <button type="submit" name="action" value="seed_missing">Generate Missing Templates</button>
+    <button type="submit" name="action" value="seed_missing"><i class="fas fa-wand-magic-sparkles"></i> Generate Missing Templates</button>
     <button type="submit" class="secondary" name="action" value="reset_defaults" onclick="return confirm('Reset all default template text to the generated library? Custom edits to default templates will be overwritten.')">Reset Default Text</button>
   </form>
 </section>
 
-<section class="layout" style="margin-top:18px;">
-  <form class="panel" method="post" id="templateForm">
-    <h2>Template Editor</h2>
-    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-    <input type="hidden" name="action" value="save">
-    <label>Template Name</label>
-    <select name="template_name" required onchange="loadTemplate(this.value)">
-      <option value="">Select Template</option>
-      <?php foreach ($library as $value => $template): ?>
-        <option value="<?= e($value) ?>"><?= e($template['category'] . ' - ' . $template['label']) ?></option>
-      <?php endforeach; ?>
-    </select>
-    <label>SMS Template</label>
-    <textarea name="sms_template" rows="5" required></textarea>
-    <small>Common variables: {name}, {code}, {timeout}, {app_ref}, {document_type}, {reason}, {certificate_ref}, {ticket_id}, {amount}, {balance}, {reference}, {login_url}.</small>
-    <label>WhatsApp Template</label>
-    <textarea name="whatsapp_template" rows="8" required></textarea>
-    <label><input type="checkbox" name="is_active" checked> Active</label>
-    <div class="actions"><button type="submit">Save Template</button></div>
-  </form>
+<details class="collapse-card" id="templateFormCard"<?= $error !== '' ? ' open' : '' ?>>
+  <summary>
+    <span class="cc-icon"><i class="fas fa-message"></i></span>
+    <span class="collapse-title">Template Editor<small>Generate or edit SMS and WhatsApp message text</small></span>
+    <span class="caret"><i class="fas fa-chevron-down"></i></span>
+  </summary>
+  <div class="collapse-body">
+    <form method="post" id="templateForm">
+      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+      <input type="hidden" name="action" value="save">
+      <div class="field-grid">
+        <label class="field"><span>Template Name</span>
+          <select name="template_name" required onchange="loadTemplate(this.value)">
+            <option value="">Select Template</option>
+            <?php foreach ($library as $value => $template): ?>
+              <option value="<?= e($value) ?>"><?= e($template['category'] . ' - ' . $template['label']) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+        <label class="field"><span>Status</span><span><input type="checkbox" name="is_active" checked> Active</span></label>
+        <label class="field"><span>SMS Template</span><textarea name="sms_template" rows="5" required></textarea></label>
+        <label class="field"><span>WhatsApp Template</span><textarea name="whatsapp_template" rows="8" required></textarea></label>
+      </div>
+      <small>Common variables: {name}, {code}, {timeout}, {app_ref}, {document_type}, {reason}, {certificate_ref}, {ticket_id}, {amount}, {balance}, {reference}, {login_url}.</small>
+      <div class="actions"><button type="submit"><i class="fas fa-floppy-disk"></i> Save Template</button></div>
+    </form>
+  </div>
+</details>
 
-  <section>
-    <table>
-      <thead><tr><th>Template</th><th>Category</th><th>SMS</th><th>WhatsApp</th><th>Action</th></tr></thead>
-      <tbody>
-        <?php foreach ($templates as $template): ?>
-          <?php $meta = $library[$template['template_name']] ?? ['label' => $template['template_name'], 'category' => 'Custom']; ?>
-          <tr>
-            <td><?= e($meta['label']) ?><br><small><?= e((string) $template['template_name']) ?></small></td>
-            <td><?= e($meta['category']) ?></td>
-            <td><span class="badge <?= (int) $template['sms_active'] === 1 ? 'verified' : 'closed' ?>"><?= (int) $template['sms_active'] === 1 ? 'Active' : 'Inactive' ?></span></td>
-            <td><span class="badge <?= (int) $template['whatsapp_active'] === 1 ? 'verified' : 'closed' ?>"><?= (int) $template['whatsapp_active'] === 1 ? 'Active' : 'Inactive' ?></span></td>
-            <td><button type="button" class="secondary" onclick="editTemplate('<?= e((string) $template['template_name']) ?>')">Edit</button></td>
-          </tr>
-        <?php endforeach; ?>
-        <?php if (!$templates): ?><tr><td colspan="5">No templates saved yet. Use Generate Missing Templates.</td></tr><?php endif; ?>
-      </tbody>
-    </table>
-  </section>
+<section class="panel">
+  <div class="user-toolbar">
+    <h2 style="margin:0">Template Library</h2>
+    <span class="meta"><?= number_format($templateCount) ?> saved template(s)</span>
+  </div>
+  <div class="record-list">
+    <?php foreach ($templates as $template): ?>
+      <?php $meta = $library[$template['template_name']] ?? ['label' => $template['template_name'], 'category' => 'Custom']; ?>
+      <article class="record-row">
+        <span class="record-avatar doc"><i class="fas fa-message"></i></span>
+        <div class="record-main">
+          <div class="record-title">
+            <?= e($meta['label']) ?>
+            <span class="tag info"><?= e($meta['category']) ?></span>
+          </div>
+          <div class="record-sub"><?= e((string) $template['template_name']) ?></div>
+        </div>
+        <div class="record-meta">
+          <span class="tag <?= (int) $template['sms_active'] === 1 ? 'ok' : 'muted' ?>"><i class="fas fa-comment-sms"></i> SMS <?= (int) $template['sms_active'] === 1 ? 'active' : 'off' ?></span>
+          <span class="tag <?= (int) $template['whatsapp_active'] === 1 ? 'ok' : 'muted' ?>"><i class="fab fa-whatsapp"></i> WhatsApp <?= (int) $template['whatsapp_active'] === 1 ? 'active' : 'off' ?></span>
+        </div>
+        <div class="record-actions">
+          <button type="button" class="button secondary sm" onclick="editTemplate('<?= e((string) $template['template_name']) ?>')"><i class="fas fa-pen"></i> Edit</button>
+        </div>
+      </article>
+    <?php endforeach; ?>
+    <?php if (!$templates): ?><div class="record-empty">No templates saved yet. Use Generate Missing Templates.</div><?php endif; ?>
+  </div>
 </section>
 
 <script>
@@ -410,6 +429,8 @@ async function loadTemplate(templateName) {
 
 function editTemplate(templateName) {
   document.querySelector('[name="template_name"]').value = templateName;
+  const card = document.getElementById('templateFormCard');
+  if (card) card.open = true;
   loadTemplate(templateName);
   document.getElementById('templateForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }

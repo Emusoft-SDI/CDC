@@ -186,9 +186,14 @@ function public_academy_course_image(array $course, array $images): string
     <section id="programs">
       <div class="section-head"><div><h2>Academic Programs</h2><p>Each program groups courses around a real NATCODEV operating path.</p></div><a class="btn secondary" href="<?= $user ? 'dashboard.php?screen=catalog' : 'register.php' ?>">Join as Learner</a></div>
       <div class="grid g3">
-        <?php foreach (array_slice($programs, 0, 6) as $index => $program): ?>
+        <?php foreach ($programs as $index => $program): ?>
+          <?php $programThumb = academy_program_thumbnail_src($program); ?>
           <article class="program">
-            <div class="num"><?= $index + 1 ?></div>
+            <?php if ($programThumb !== ''): ?>
+              <img src="<?= e($programThumb) ?>" alt="<?= e((string) $program['title']) ?> thumbnail" loading="lazy" style="width:calc(100% + 32px);height:150px;object-fit:cover;display:block;margin:-16px -16px 14px;border-radius:8px 8px 0 0">
+            <?php else: ?>
+              <div class="num"><?= $index + 1 ?></div>
+            <?php endif; ?>
             <h3><?= e((string) $program['title']) ?></h3>
             <p class="meta"><?= e((string) ($program['description'] ?? 'Structured NATCODEV Academy program.')) ?></p>
             <span class="badge"><?= e(academy_role_labels((string) ($program['audience_roles'] ?? 'all'))) ?></span>
@@ -219,7 +224,8 @@ function public_academy_course_image(array $course, array $images): string
         <div class="grid g3">
           <?php foreach ($categoryCourses as $course): ?>
             <article class="course">
-              <div class="thumb"><img src="<?= e(public_academy_course_image($course, $courseImages)) ?>" alt="<?= e((string) $course['title']) ?> course image"><span><?= e((string) ($course['course_code'] ?? 'Course')) ?></span></div>
+              <?php $courseThumb = academy_program_thumbnail_src($course); ?>
+              <div class="thumb"><img src="<?= e($courseThumb !== '' ? $courseThumb : public_academy_course_image($course, $courseImages)) ?>" alt="<?= e((string) $course['title']) ?> course image"><span><?= e((string) ($course['course_code'] ?? 'Course')) ?></span></div>
               <div class="course-body">
                 <div style="display:flex;gap:8px;flex-wrap:wrap"><span class="badge"><?= e((string) ($course['category'] ?? $categoryLabel)) ?></span><?php if (!empty($course['program_title'])): ?><span class="badge blue"><?= e((string) $course['program_title']) ?></span><?php endif; ?></div>
                 <h3><?= e((string) $course['title']) ?></h3>

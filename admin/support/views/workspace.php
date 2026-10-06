@@ -82,18 +82,6 @@
   });
 </script>
 
-<header class="support-topbar" aria-label="Support workspace top bar">
-  <a class="support-topbrand" href="index.php">
-    <img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV">
-    <strong>NATCODEV Support<span>Admin support workspace</span></strong>
-  </a>
-  <nav class="support-topnav" aria-label="Support quick navigation"><a class="support-toplink primary" href="<?= e(sd_url(['view' => 'overview', 'status' => 'active', 'scope' => 'all'])) ?>">Workspace</a>
-    <a class="support-toplink" href="<?= e(sd_url(['view' => 'assigned', 'status' => 'active', 'scope' => 'assigned'])) ?>">My Queue</a>
-    <a class="support-toplink" href="<?= e(sd_url(['view' => 'teams'])) ?>">Teams</a>
-    <a class="support-toplink" href="logout.php">Logout</a>
-  </nav>
-</header>
-
 <div class="support-layout">
   <aside class="support-rail" aria-label="Support workspace side menu">
     <a class="support-rail-brand" href="<?= e(sd_url(['view' => 'overview', 'status' => 'active', 'scope' => 'all'])) ?>">
@@ -144,7 +132,7 @@
     </div>
   </aside>
 
-  <main class="support-main">
+  <div class="support-main">
 <div class="support-control-center">
   <div class="card border-0 shadow-sm mb-3">
     <div class="card-body">
@@ -192,7 +180,7 @@
     <?php endif; ?>
   </div>
 </div>
-  </main>
+  </div>
 </div>
 <?php admin_page_end(); return; ?>
 <?php endif; ?>
@@ -584,6 +572,6 @@
 </div>
   </div>
 </div>
-  </main>
+  </div>
 </div>
 <?php admin_page_end(); ?>

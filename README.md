@@ -37,7 +37,15 @@ DB_DATABASE=natcodev_test php tests/run_security_suite.php
 ```
 
 The harness **refuses to run against a non-test database** (the DB name must match `*test*`), because
-a past run wrote fixtures into production.
+a past run wrote fixtures into production. There is deliberately no override: every suite aborts
+before writing if it is not pointed at a test-scoped database.
+
+If fixtures ever do leak into a database, purge them with the dry-run cleanup tool:
+
+```
+php tools/purge-test-data.php                          # report what would be removed
+php tools/purge-test-data.php --apply --confirm=<db>   # back up, then delete
+```
 
 ## Lint
 

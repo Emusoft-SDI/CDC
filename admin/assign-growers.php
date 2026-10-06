@@ -92,6 +92,15 @@ $growerStmt = $pdo->prepare("
 $growerStmt->execute($growerParams);
 $growers = $growerStmt->fetchAll();
 
+$totalAssignments = app_table_exists($pdo, 'agent_assignments') ? (int) $pdo->query('SELECT COUNT(*) FROM agent_assignments')->fetchColumn() : 0;
+$assignedGrowers = app_table_exists($pdo, 'agent_assignments') ? (int) $pdo->query('SELECT COUNT(DISTINCT grower_id) FROM agent_assignments')->fetchColumn() : 0;
+$agentAssignmentCount = 0;
+if ($agent) {
+    $agentCountStmt = $pdo->prepare('SELECT COUNT(*) FROM agent_assignments WHERE agent_id = ?');
+    $agentCountStmt->execute([(int) $agent['id']]);
+    $agentAssignmentCount = (int) $agentCountStmt->fetchColumn();
+}
+
 admin_page_start('Assignments', [
     'active' => 'assign-growers.php',
     'description' => 'Assign growers to field agents for visits and follow-up workflows.',
@@ -102,41 +111,62 @@ admin_page_start('Assignments', [
 <?php if ($error): ?><div class="notice error"><?= e($error) ?></div><?php endif; ?>
 <?php if ($scopeState !== ''): ?><div class="notice ok">State Coordinator scope: assignments are limited to <?= e($scopeState) ?>.</div><?php endif; ?>
 
-<section class="layout">
-  <form class="panel" method="get">
-    <h2>Select Agent</h2>
-    <label>Field Agent</label>
-    <select name="agent" onchange="this.form.submit()">
-      <option value="">Choose agent</option>
-      <?php foreach ($agents as $row): ?>
-        <option value="<?= (int) $row['id'] ?>" <?= $agent && (int) $agent['id'] === (int) $row['id'] ? 'selected' : '' ?>><?= e($row['name']) ?> - <?= e(ucfirst(str_replace('_', ' ', (string) $row['staff_type']))) ?></option>
-      <?php endforeach; ?>
-    </select>
-  </form>
+<?= admin_kpi_grid([
+    ['Field Agents', number_format(count($agents)), 'Available for assignment', 'fa-user-shield', ''],
+    ['Growers', number_format($totalGrowers), 'In current scope', 'fa-seedling', 'blue'],
+    ['Assignments', number_format($totalAssignments), 'Agent-grower links', 'fa-link', 'purple'],
+    ['Unassigned Growers', number_format(max(0, $totalGrowers - $assignedGrowers)), 'Awaiting an agent', 'fa-user-clock', 'orange'],
+]) ?>
 
-  <section class="panel">
-    <h2><?= $agent ? 'Assign to ' . e($agent['name']) : 'Growers' ?></h2>
-    <?= admin_pagination_controls($totalGrowers, $page, $perPage, ['agent' => $agent ? (int) $agent['id'] : '']) ?>
-    <form method="post">
+<details class="collapse-card"<?= $error !== '' ? ' open' : '' ?>>
+  <summary>
+    <span class="cc-icon"><i class="fas fa-user-check"></i></span>
+    <span class="collapse-title">Select Field Agent<small>Choose an agent to view and manage grower assignments</small></span>
+    <span class="caret"><i class="fas fa-chevron-down"></i></span>
+  </summary>
+  <div class="collapse-body">
+    <form method="get">
+      <div class="field-grid">
+        <label class="field"><span>Field Agent</span>
+          <select name="agent" onchange="this.form.submit()">
+            <option value="">Choose agent</option>
+            <?php foreach ($agents as $row): ?>
+              <option value="<?= (int) $row['id'] ?>" <?= $agent && (int) $agent['id'] === (int) $row['id'] ? 'selected' : '' ?>><?= e($row['name']) ?> - <?= e(ucfirst(str_replace('_', ' ', (string) $row['staff_type']))) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+      </div>
+      <div class="actions"><button type="submit"><i class="fas fa-user-check"></i> Load Agent</button></div>
+    </form>
+  </div>
+</details>
+
+<section class="panel">
+  <div class="toolbar" style="justify-content:space-between">
+    <h2 style="margin:0"><?= $agent ? 'Assign to ' . e($agent['name']) : 'Growers' ?></h2>
+    <span class="meta"><?= $agent ? number_format($agentAssignmentCount) . ' already assigned' : 'Select an agent to enable assignment' ?></span>
+  </div>
+  <?= admin_pagination_controls($totalGrowers, $page, $perPage, ['agent' => $agent ? (int) $agent['id'] : '']) ?>
+  <form method="post">
     <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
     <input type="hidden" name="agent_id" value="<?= $agent ? (int) $agent['id'] : 0 ?>">
-    <table>
-      <thead><tr><th></th><th>Grower</th><th>Email</th><th>Reference</th></tr></thead>
-      <tbody>
-        <?php foreach ($growers as $grower): ?>
-          <tr>
-            <td><input type="checkbox" name="grower_ids[]" value="<?= (int) $grower['id'] ?>" <?= !$agent ? 'disabled' : '' ?>></td>
-            <td><?= e($grower['name']) ?></td>
-            <td><?= e($grower['email']) ?></td>
-            <td><?= e($grower['app_ref'] ?? '') ?></td>
-          </tr>
-        <?php endforeach; ?>
-        <?php if (!$growers): ?><tr><td colspan="4">No growers found.</td></tr><?php endif; ?>
-      </tbody>
-    </table>
-    <div class="actions"><button type="submit" <?= !$agent ? 'disabled' : '' ?>>Save Assignments</button></div>
-    </form>
-    <?= admin_pagination_controls($totalGrowers, $page, $perPage, ['agent' => $agent ? (int) $agent['id'] : '']) ?>
-  </section>
+    <div class="record-list">
+      <?php foreach ($growers as $grower): ?>
+        <label class="record-row compact" style="cursor:<?= $agent ? 'pointer' : 'not-allowed' ?>">
+          <span class="record-avatar<?= $agent ? '' : ' gray' ?>"><input class="record-check" type="checkbox" name="grower_ids[]" value="<?= (int) $grower['id'] ?>" <?= !$agent ? 'disabled' : '' ?>></span>
+          <div class="record-main">
+            <div class="record-title"><?= e($grower['name']) ?></div>
+            <div class="record-contact"><span><i class="far fa-envelope"></i><?= e($grower['email']) ?></span></div>
+          </div>
+          <div class="record-actions">
+            <?php if (!empty($grower['app_ref'])): ?><span class="ref-pill"><i class="fas fa-hashtag"></i><?= e($grower['app_ref']) ?></span><?php endif; ?>
+          </div>
+        </label>
+      <?php endforeach; ?>
+      <?php if (!$growers): ?><div class="record-empty">No growers found.</div><?php endif; ?>
+    </div>
+    <div class="actions"><button type="submit" <?= !$agent ? 'disabled' : '' ?>><i class="fas fa-floppy-disk"></i> Save Assignments</button></div>
+  </form>
+  <?= admin_pagination_controls($totalGrowers, $page, $perPage, ['agent' => $agent ? (int) $agent['id'] : '']) ?>
 </section>
 <?php admin_page_end(); ?>

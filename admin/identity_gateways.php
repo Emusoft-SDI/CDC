@@ -138,6 +138,14 @@ admin_page_start('Identity & KYC Gateways', [
 <?php if ($message): ?><div class="notice ok"><?= e($message) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="notice error"><?= e($error) ?></div><?php endif; ?>
 
+<?= admin_kpi_grid([
+    ['Gateways', number_format(count($gateways)), 'Configured providers', 'fa-server', ''],
+    ['Active', number_format(count(array_filter($gateways, static fn($g): bool => strtolower((string) $g['status']) === 'active'))), 'Enabled routes', 'fa-circle-check', 'blue'],
+    ['Live Mode', number_format(count(array_filter($gateways, static fn($g): bool => strtolower((string) $g['environment']) === 'live'))), 'Production credentials', 'fa-bolt', 'purple'],
+    ['Recent Checks', number_format(count($logs)), 'Last 50 verifications', 'fa-list-check', 'orange'],
+    ['Failed', number_format(count(array_filter($logs, static fn($l): bool => in_array(strtolower((string) $l['status']), ['invalid', 'failed', 'error'], true)))), 'Needs attention', 'fa-triangle-exclamation', 'red'],
+]) ?>
+
 <!-- Top Row: Interactive Live Test & Gateway Priority Info -->
 <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:20px;margin-bottom:24px;">
   <!-- Live Test Verifier -->
@@ -195,88 +203,82 @@ admin_page_start('Identity & KYC Gateways', [
 
 <!-- Configured Gateways List -->
 <section class="panel" style="margin-bottom:24px;">
-  <h2><i class="fas fa-server"></i> Configured KYC & Identity Providers</h2>
-
-  <table class="data-table" style="width:100%;">
-    <thead>
-      <tr>
-        <th>Provider & Driver</th>
-        <th>Supported Types</th>
-        <th>Priority</th>
-        <th>Environment</th>
-        <th>Status</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      <?php foreach ($gateways as $gw): ?>
-        <tr>
-          <td>
-            <strong><?= e($gw['name']) ?></strong>
-            <?php if (!empty($gw['is_primary'])): ?><span class="tag green" style="font-size:0.75rem;margin-left:4px;">Primary Provider</span><?php endif; ?>
-            <br><small class="muted">Key: <code><?= e($gw['gateway_key']) ?></code> | Driver: <?= e($gw['provider_driver']) ?></small>
-          </td>
-          <td><span class="tag"><?= strtoupper(e($gw['supported_types'])) ?></span></td>
-          <td>Rank #<?= (int) $gw['priority'] ?></td>
-          <td><span class="tag <?= $gw['environment'] === 'live' ? 'green' : ($gw['environment'] === 'simulation' ? 'blue' : 'amber') ?>"><?= strtoupper(e($gw['environment'])) ?></span></td>
-          <td><span class="tag <?= $gw['status'] === 'active' ? 'green' : 'red' ?>"><?= strtoupper(e($gw['status'])) ?></span></td>
-          <td>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;">
-              <?php if (empty($gw['is_primary'])): ?>
-                <form method="post" style="display:inline;">
-                  <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                  <input type="hidden" name="action" value="set_primary">
-                  <input type="hidden" name="gateway_id" value="<?= (int) $gw['id'] ?>">
-                  <button type="submit" class="button secondary" style="padding:4px 8px;font-size:0.8rem;"><i class="fas fa-star"></i> Set Primary</button>
-                </form>
-              <?php endif; ?>
-            </div>
-          </td>
-        </tr>
-      <?php endforeach; ?>
-    </tbody>
-  </table>
+  <div class="user-toolbar">
+    <h2 style="margin:0"><i class="fas fa-server"></i> Configured KYC &amp; Identity Providers</h2>
+    <span class="meta"><?= number_format(count($gateways)) ?> gateway(s)</span>
+  </div>
+  <div class="record-list">
+    <?php foreach ($gateways as $gw): ?>
+      <?php
+        $gwActive = strtolower((string) $gw['status']) === 'active';
+        $gwLive = strtolower((string) $gw['environment']) === 'live';
+      ?>
+      <article class="record-row">
+        <span class="record-avatar <?= $gwActive ? 'file' : 'log' ?>"><i class="fas fa-server"></i></span>
+        <div class="record-main">
+          <div class="record-title">
+            <?= e($gw['name']) ?>
+            <?php if (!empty($gw['is_primary'])): ?><span class="tag ok"><i class="fas fa-star"></i> Primary</span><?php endif; ?>
+            <span class="tag <?= $gwActive ? 'ok' : 'bad' ?>"><?= e(strtoupper((string) $gw['status'])) ?></span>
+          </div>
+          <div class="record-contact">
+            <span><i class="fas fa-key"></i><?= e($gw['gateway_key']) ?></span>
+            <span><i class="fas fa-plug"></i><?= e($gw['provider_driver']) ?></span>
+            <span><i class="fas fa-id-card"></i><?= e(strtoupper((string) $gw['supported_types'])) ?></span>
+          </div>
+        </div>
+        <div class="record-meta">
+          <span class="tag info">Rank #<?= (int) $gw['priority'] ?></span>
+          <span class="tag <?= $gwLive ? 'ok' : 'warn' ?>"><?= e(strtoupper((string) $gw['environment'])) ?></span>
+        </div>
+        <div class="record-actions">
+          <?php if (empty($gw['is_primary'])): ?>
+            <form method="post" style="display:inline;margin:0">
+              <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+              <input type="hidden" name="action" value="set_primary">
+              <input type="hidden" name="gateway_id" value="<?= (int) $gw['id'] ?>">
+              <button type="submit" class="button secondary sm"><i class="fas fa-star"></i> Set Primary</button>
+            </form>
+          <?php endif; ?>
+        </div>
+      </article>
+    <?php endforeach; ?>
+    <?php if (!$gateways): ?><div class="record-empty">No gateways configured yet.</div><?php endif; ?>
+  </div>
 </section>
 
 <!-- Recent Identity Verification Logs -->
 <section class="panel">
-  <h2><i class="fas fa-list-check"></i> Identity Verification Audit Trail</h2>
-  <div style="overflow-x:auto;">
-    <table class="data-table" style="width:100%;">
-      <thead>
-        <tr>
-          <th>Date/Time</th>
-          <th>Type</th>
-          <th>Number (Masked)</th>
-          <th>Provider</th>
-          <th>Status</th>
-          <th>Match Result</th>
-          <th>Reference</th>
-        </tr>
-      </thead>
-      <tbody>
-        <?php foreach ($logs as $log): 
-          $masked = substr((string)$log['document_number'], 0, 3) . '*****' . substr((string)$log['document_number'], -3);
-        ?>
-          <tr>
-            <td><small><?= e(date('M d, Y H:i:s', strtotime((string)$log['created_at']))) ?></small></td>
-            <td><span class="tag"><?= strtoupper(e($log['document_type'])) ?></span></td>
-            <td><code><?= e($masked) ?></code></td>
-            <td><?= e($log['provider_name'] ?: $log['gateway_key']) ?></td>
-            <td>
-              <span class="tag <?= in_array($log['status'], ['valid', 'simulated'], true) ? 'green' : ($log['status'] === 'invalid' ? 'amber' : 'red') ?>">
-                <?= strtoupper(e($log['status'])) ?>
-              </span>
-            </td>
-            <td><?= e($log['match_status'] ?: '-') ?></td>
-            <td><code><?= e($log['provider_reference'] ?: '-') ?></code></td>
-          </tr>
-        <?php endforeach; ?>
-        <?php if (empty($logs)): ?>
-          <tr><td colspan="7" style="text-align:center;" class="muted">No verification logs recorded yet.</td></tr>
-        <?php endif; ?>
-      </tbody>
-    </table>
+  <div class="user-toolbar">
+    <h2 style="margin:0"><i class="fas fa-list-check"></i> Identity Verification Audit Trail</h2>
+    <span class="meta"><?= number_format(count($logs)) ?> recent check(s)</span>
+  </div>
+  <div class="record-list">
+    <?php foreach ($logs as $log):
+      $masked = substr((string) $log['document_number'], 0, 3) . '*****' . substr((string) $log['document_number'], -3);
+      $logStatus = strtolower((string) $log['status']);
+      $logTone = in_array($logStatus, ['valid', 'simulated'], true) ? 'ok' : ($logStatus === 'invalid' ? 'warn' : 'bad');
+    ?>
+      <article class="record-row">
+        <span class="record-avatar log"><i class="fas fa-fingerprint"></i></span>
+        <div class="record-main">
+          <div class="record-title">
+            <?= e($log['provider_name'] ?: $log['gateway_key']) ?>
+            <span class="tag"><?= e(strtoupper((string) $log['document_type'])) ?></span>
+            <span class="tag <?= e($logTone) ?>"><?= e(strtoupper((string) $log['status'])) ?></span>
+          </div>
+          <div class="record-contact">
+            <span><i class="fas fa-hashtag"></i><?= e($masked) ?></span>
+            <span><i class="fas fa-check-double"></i>Match: <?= e($log['match_status'] ?: '-') ?></span>
+            <span><i class="fas fa-barcode"></i><?= e($log['provider_reference'] ?: '-') ?></span>
+          </div>
+        </div>
+        <div class="record-actions">
+          <span class="ref-pill"><i class="far fa-clock"></i><?= e(date('M d, Y H:i', strtotime((string) $log['created_at']))) ?></span>
+        </div>
+      </article>
+    <?php endforeach; ?>
+    <?php if (empty($logs)): ?><div class="record-empty">No verification logs recorded yet.</div><?php endif; ?>
   </div>
 </section>
 
