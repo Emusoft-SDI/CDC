@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../courses.php';
+require_once __DIR__ . '/starter-course-questions.php';
+
 function academy_seed_programs(PDO $pdo): void
 {
     $programs = [
@@ -91,14 +94,16 @@ function academy_seed_starter_program_content(PDO $pdo): void
     $assessmentLookup = $pdo->prepare("SELECT id FROM academy_assessments WHERE webinar_id = ? AND title = ? LIMIT 1");
     $questionStmt = $pdo->prepare("
         INSERT INTO academy_questions
-            (assessment_id, question_text, option_a, option_b, option_c, option_d, correct_option, points, sort_order, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 'active')
+            (assessment_id, question_text, option_a, option_b, option_c, option_d, correct_option, points, sort_order, rationale, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
         ON DUPLICATE KEY UPDATE
             option_a = VALUES(option_a),
             option_b = VALUES(option_b),
             option_c = VALUES(option_c),
             option_d = VALUES(option_d),
             correct_option = VALUES(correct_option),
+            points = VALUES(points),
+            rationale = VALUES(rationale),
             sort_order = VALUES(sort_order),
             status = 'active'
     ");
@@ -202,7 +207,9 @@ function academy_seed_starter_program_content(PDO $pdo): void
                 (string) $question['c'],
                 (string) $question['d'],
                 (string) $question['correct'],
+                (float) ($question['points'] ?? 1.0),
                 ($index + 1) * 10,
+                (string) ($question['rationale'] ?? ''),
             ]);
         }
     }
@@ -245,16 +252,32 @@ function academy_starter_content_seeded(PDO $pdo): bool
     $stmt->execute($codes);
     $row = $stmt->fetch() ?: [];
 
+    $qualityStmt = $pdo->prepare("
+        SELECT
+            COUNT(DISTINCT q.correct_option) distinct_options,
+            SUM(CASE WHEN q.option_c IS NULL OR TRIM(q.option_c) = '' OR q.option_d IS NULL OR TRIM(q.option_d) = '' THEN 1 ELSE 0 END) missing_options,
+            SUM(CASE WHEN q.rationale IS NULL OR TRIM(q.rationale) = '' THEN 1 ELSE 0 END) missing_rationales
+        FROM webinars w
+        JOIN academy_assessments a ON a.webinar_id = w.id AND a.status = 'active'
+        JOIN academy_questions q ON q.assessment_id = a.id AND q.status = 'active'
+        WHERE w.course_code IN ({$placeholders})
+    ");
+    $qualityStmt->execute($codes);
+    $qRow = $qualityStmt->fetch() ?: [];
+
     return (int) ($row['courses'] ?? 0) >= 12
         && (int) ($row['lessons'] ?? 0) >= 36
         && (int) ($row['materials'] ?? 0) >= 24
         && (int) ($row['assessments'] ?? 0) >= 12
-        && (int) ($row['questions'] ?? 0) >= 60;
+        && (int) ($row['questions'] ?? 0) >= 225
+        && (int) ($qRow['distinct_options'] ?? 0) >= 4
+        && (int) ($qRow['missing_options'] ?? 0) === 0
+        && (int) ($qRow['missing_rationales'] ?? 0) === 0;
 }
 
 function academy_starter_programs(): array
 {
-    return [
+    $programs = [
         [
             'program' => 'Grower Onboarding Program',
             'title' => 'Grower Onboarding Program',
@@ -568,13 +591,17 @@ function academy_starter_programs(): array
             ],
         ],
     ];
-}
 
-function academy_slug(string $value): string
-{
-    $value = strtolower(trim($value));
-    $value = preg_replace('/[^a-z0-9]+/', '-', $value) ?? $value;
-    return trim($value, '-') ?: 'academy-course';
+    $starterQuestions = function_exists('academy_starter_course_questions') ? academy_starter_course_questions() : [];
+    foreach ($programs as &$item) {
+        $code = (string) ($item['code'] ?? '');
+        if (isset($starterQuestions[$code]) && !empty($starterQuestions[$code])) {
+            $item['questions'] = $starterQuestions[$code];
+        }
+    }
+    unset($item);
+
+    return $programs;
 }
 
 function academy_material_path(string $relativePath): string
@@ -644,38 +671,237 @@ function academy_write_video_brief(string $relativePath, array $course, bool $ov
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{$title} - One Minute Brief</title>
   <style>
-    body{margin:0;font-family:Arial,sans-serif;background:#102516;color:#fff;display:grid;min-height:100vh;place-items:center}
-    main{width:min(920px,92vw);border:1px solid rgba(255,255,255,.2);background:linear-gradient(135deg,#163b24,#245c34);box-shadow:0 24px 70px rgba(0,0,0,.35);padding:42px;border-radius:10px}
-    .brand{color:#d7b246;font-weight:800;letter-spacing:3px;text-transform:uppercase}
-    h1{font-family:Georgia,serif;font-size:46px;line-height:1.05;margin:18px 0}
-    p{font-size:22px;line-height:1.45;color:#edf7ee}
-    .bar{height:12px;background:rgba(255,255,255,.18);border-radius:99px;overflow:hidden;margin-top:30px}
-    .bar span{display:block;height:100%;width:0;background:#d7b246;animation:fill 60s linear forwards}
-    .timer{margin-top:12px;color:#d8e8d8;font-size:14px}
-    @keyframes fill{to{width:100%}}
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;height:100%}
+    body{font-family:Arial,Helvetica,sans-serif;background:#102516;color:#fff;display:flex}
+    .player{flex:1 1 auto;display:flex;flex-direction:column;width:100%;min-height:100vh;background:linear-gradient(135deg,#163b24,#245c34)}
+    .player.enlarged{position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483000;min-height:100vh;box-shadow:0 0 0 4px #d7b246}
+    .stage{flex:1 1 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:clamp(20px,5vw,64px);overflow:auto}
+    .brand{color:#d7b246;font-weight:800;letter-spacing:3px;text-transform:uppercase;font-size:clamp(11px,1.4vw,14px)}
+    h1{font-family:Georgia,'Times New Roman',serif;font-size:clamp(28px,4.6vw,52px);line-height:1.08;margin:16px 0 10px;max-width:920px}
+    .slide{font-size:clamp(17px,2.3vw,24px);line-height:1.5;color:#edf7ee;max-width:840px;min-height:2.7em;margin:8px 0 0;opacity:0;transform:translateY(8px);transition:opacity .45s ease,transform .45s ease}
+    .slide.show{opacity:1;transform:none}
+    .progress{width:min(720px,86%);height:12px;background:rgba(255,255,255,.18);border-radius:99px;overflow:hidden;margin-top:26px}
+    .progress-fill{display:block;height:100%;width:0;background:#d7b246;border-radius:99px;transition:width .25s linear}
+    .time{margin-top:10px;color:#d8e8d8;font-size:clamp(12px,1.4vw,14px);font-variant-numeric:tabular-nums}
+    .controls{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px;padding:14px 16px;background:rgba(0,0,0,.28);border-top:1px solid rgba(255,255,255,.14)}
+    .ctl{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:108px;padding:11px 18px;font-family:inherit;font-size:15px;font-weight:700;line-height:1.2;color:#102516;background:#d7b246;border:0;border-radius:8px;cursor:pointer}
+    .ctl:hover{background:#e6c45c}
+    .ctl:active{transform:translateY(1px)}
+    .ctl:focus-visible{outline:3px solid #fff;outline-offset:2px}
+    .ctl.secondary{background:#2f6b40;color:#fff}
+    .ctl.secondary:hover{background:#3a8050}
+    .status{color:#cfe4d2;font-size:13px;margin:0 4px}
+    @media (max-width:600px){.ctl{min-width:92px;padding:9px 12px;font-size:14px}.status{width:100%;text-align:center;margin:2px 0}}
   </style>
 </head>
 <body>
-  <main>
-    <div class="brand">NATCODEV Academy Video Brief</div>
-    <h1 id="title">{$title}</h1>
-    <p id="slide"></p>
-    <div class="bar"><span></span></div>
-    <div class="timer"><span id="time">00:00</span> / 01:00</div>
-  </main>
+  <div class="player" id="player">
+    <div class="stage" id="stage">
+      <div class="brand">NATCODEV Academy Video Brief</div>
+      <h1 id="title">{$title}</h1>
+      <p class="slide" id="slide"></p>
+      <div class="progress" id="progress" role="progressbar" aria-label="One-minute brief progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="progress-fill" id="progressFill"></span></div>
+      <div class="time"><span id="time">00:00</span> / 01:00</div>
+    </div>
+    <div class="controls">
+      <button type="button" class="ctl" id="playPause" aria-label="Pause the brief" title="Play / Pause the brief">Pause</button>
+      <button type="button" class="ctl secondary" id="restart" aria-label="Restart the brief from the beginning" title="Restart / Replay from the start">Restart</button>
+      <button type="button" class="ctl secondary" id="soundBtn" aria-label="Toggle narration audio" title="Voice Narration">Audio: On</button>
+      <button type="button" class="ctl secondary" id="fullscreen" aria-label="Show the brief in fullscreen" title="Fullscreen / Enlarge">Fullscreen</button>
+      <span class="status" id="slideInfo"></span>
+      <span class="status" id="status" aria-live="polite"></span>
+    </div>
+  </div>
   <script>
-    const slides = {$slideJson};
-    const slide = document.getElementById('slide');
-    const time = document.getElementById('time');
-    const started = Date.now();
-    function tick(){
-      const elapsed = Math.min(60, Math.floor((Date.now() - started) / 1000));
-      const index = Math.min(slides.length - 1, Math.floor(elapsed / Math.max(1, Math.ceil(60 / slides.length))));
-      slide.textContent = slides[index];
-      time.textContent = '00:' + String(elapsed).padStart(2,'0');
-      if (elapsed < 60) requestAnimationFrame(tick);
-    }
-    tick();
+    (function(){
+      const slides = {$slideJson};
+      const DURATION = 60;
+      const TICK_MS = 250;
+      const perSlide = Math.max(1, Math.ceil(DURATION / slides.length));
+      const player = document.getElementById('player');
+      const slideEl = document.getElementById('slide');
+      const timeEl = document.getElementById('time');
+      const fill = document.getElementById('progressFill');
+      const progress = document.getElementById('progress');
+      const slideInfo = document.getElementById('slideInfo');
+      const statusEl = document.getElementById('status');
+      const playBtn = document.getElementById('playPause');
+      const restartBtn = document.getElementById('restart');
+      const fsBtn = document.getElementById('fullscreen');
+      const soundBtn = document.getElementById('soundBtn');
+      let soundEnabled = true;
+      let elapsed = 0;
+      let playing = false;
+      let ended = false;
+      let timer = null;
+      let currentIndex = -1;
+
+      function speakSlide(text){
+        if (!soundEnabled || !('speechSynthesis' in window)) return;
+        try {
+          window.speechSynthesis.cancel();
+          const u = new SpeechSynthesisUtterance(text);
+          u.rate = 0.95;
+          const voices = window.speechSynthesis.getVoices() || [];
+          const best = voices.find(v => v.lang.startsWith('en')) || voices[0];
+          if (best) u.voice = best;
+          window.speechSynthesis.speak(u);
+        } catch (e){}
+      }
+
+      function fmt(seconds){
+        const s = Math.min(DURATION, Math.floor(seconds));
+        if (s >= DURATION){ return '01:00'; }
+        return '00:' + String(s).padStart(2, '0');
+      }
+      function render(){
+        const idx = Math.min(slides.length - 1, Math.floor(elapsed / perSlide));
+        if (idx !== currentIndex){
+          currentIndex = idx;
+          slideEl.classList.remove('show');
+          void slideEl.offsetWidth;
+          slideEl.textContent = slides[idx];
+          slideEl.classList.add('show');
+          slideInfo.textContent = 'Slide ' + (idx + 1) + ' of ' + slides.length;
+          if (playing) speakSlide(slides[idx]);
+        }
+        const pct = Math.min(100, (elapsed / DURATION) * 100);
+        fill.style.width = pct.toFixed(2) + '%';
+        progress.setAttribute('aria-valuenow', String(Math.round(pct)));
+        timeEl.textContent = fmt(elapsed);
+      }
+      function tick(){
+        elapsed = Math.min(DURATION, elapsed + (TICK_MS / 1000));
+        render();
+        if (elapsed >= DURATION){
+          finish();
+        }
+      }
+      function startTimer(){
+        stopTimer();
+        timer = setInterval(tick, TICK_MS);
+      }
+      function stopTimer(){
+        if (timer !== null){
+          clearInterval(timer);
+          timer = null;
+        }
+      }
+      function markPlaying(){
+        playing = true;
+        ended = false;
+        playBtn.textContent = 'Pause';
+        playBtn.setAttribute('aria-label', 'Pause the brief');
+        statusEl.textContent = 'Playing';
+      }
+      function markPaused(){
+        playing = false;
+        playBtn.textContent = ended ? 'Replay' : 'Play';
+        playBtn.setAttribute('aria-label', ended ? 'Replay the brief' : 'Play the brief');
+        statusEl.textContent = ended ? 'Finished' : 'Paused';
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      }
+      function finish(){
+        stopTimer();
+        playing = false;
+        ended = true;
+        playBtn.textContent = 'Replay';
+        playBtn.setAttribute('aria-label', 'Replay the brief');
+        statusEl.textContent = 'Finished - press Replay or Restart to watch again.';
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      }
+      function togglePlay(){
+        if (playing){
+          stopTimer();
+          markPaused();
+          return;
+        }
+        if (ended || elapsed >= DURATION){
+          elapsed = 0;
+          currentIndex = -1;
+          render();
+        }
+        markPlaying();
+        startTimer();
+        if (currentIndex >= 0) speakSlide(slides[currentIndex]);
+      }
+      function restart(){
+        stopTimer();
+        elapsed = 0;
+        currentIndex = -1;
+        ended = false;
+        render();
+        markPlaying();
+        startTimer();
+        if (slides[0]) speakSlide(slides[0]);
+      }
+      if (soundBtn){
+        soundBtn.addEventListener('click', function(){
+          soundEnabled = !soundEnabled;
+          soundBtn.textContent = soundEnabled ? 'Audio: On' : 'Audio: Off';
+          if (!soundEnabled && ('speechSynthesis' in window)){
+            window.speechSynthesis.cancel();
+          } else if (soundEnabled && currentIndex >= 0){
+            speakSlide(slides[currentIndex]);
+          }
+        });
+      }
+      function setFullscreenLabel(on){
+        fsBtn.textContent = on ? 'Exit' : 'Fullscreen';
+        fsBtn.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Show the brief in fullscreen');
+      }
+      function enlargeFallback(){
+        const on = player.classList.toggle('enlarged');
+        setFullscreenLabel(on);
+        statusEl.textContent = on ? 'Enlarged to near-viewport (Fullscreen API unavailable).' : '';
+      }
+      function toggleFullscreen(){
+        const doc = document;
+        if (doc.fullscreenElement || doc.webkitFullscreenElement || doc.msFullscreenElement){
+          if (doc.exitFullscreen){ doc.exitFullscreen(); }
+          else if (doc.webkitExitFullscreen){ doc.webkitExitFullscreen(); }
+          else if (doc.msExitFullscreen){ doc.msExitFullscreen(); }
+          return;
+        }
+        const request = player.requestFullscreen || player.webkitRequestFullscreen || player.msRequestFullscreen;
+        if (request){
+          try {
+            const result = request.call(player);
+            if (result && typeof result.catch === 'function'){
+              result.catch(function(){ enlargeFallback(); });
+            }
+          } catch (err){
+            enlargeFallback();
+          }
+        } else {
+          enlargeFallback();
+        }
+      }
+      function onFullscreenChange(){
+        const doc = document;
+        const on = !!(doc.fullscreenElement || doc.webkitFullscreenElement || doc.msFullscreenElement);
+        setFullscreenLabel(on);
+        if (on){ statusEl.textContent = 'Fullscreen'; }
+      }
+      function onKeydown(event){
+        if (event.key === 'Escape' && player.classList.contains('enlarged')){
+          player.classList.remove('enlarged');
+          setFullscreenLabel(false);
+          statusEl.textContent = '';
+        }
+      }
+      playBtn.addEventListener('click', togglePlay);
+      restartBtn.addEventListener('click', restart);
+      fsBtn.addEventListener('click', toggleFullscreen);
+      document.addEventListener('fullscreenchange', onFullscreenChange);
+      document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+      document.addEventListener('MSFullscreenChange', onFullscreenChange);
+      document.addEventListener('keydown', onKeydown);
+      render();
+      markPlaying();
+      startTimer();
+    })();
   </script>
 </body>
 </html>

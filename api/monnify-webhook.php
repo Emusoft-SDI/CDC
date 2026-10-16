@@ -110,6 +110,20 @@ try {
         json_response(['success' => true, 'ignored' => true, 'status' => $status]);
     }
 
+    // Validate the paid amount against the pre-registered funding request when one
+    // exists (NAT-FUND-* checkouts). Reserved-account top-ups (NAT-WALLET-*) have no
+    // pre-registered row, so the signature-verified amountPaid is the source of truth.
+    $pendingStmt = $pdo->prepare("SELECT amount FROM wallet_transactions WHERE reference = ? AND user_id = ? AND status = 'pending' LIMIT 1");
+    $pendingStmt->execute([$reference, $userId]);
+    $expectedAmount = (float) ($pendingStmt->fetchColumn() ?: 0);
+    if ($expectedAmount > 0) {
+        if ($amount + 0.01 < $expectedAmount) {
+            error_log('Underpaid Monnify wallet funding webhook ignored for ' . $reference . ': paid=' . $amount . ', expected=' . $expectedAmount);
+            json_response(['success' => true, 'ignored' => true, 'reason' => 'Wallet funding amount is incomplete']);
+        }
+        $amount = $expectedAmount;
+    }
+
     $credit = wallet_credit_once(
         $pdo,
         $userId,

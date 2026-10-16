@@ -174,6 +174,133 @@ function market_cart_save_for_later(PDO $pdo, array $user): bool
     return true;
 }
 
+function market_cart_save_one_for_later(PDO $pdo, array $user, int $listingId): bool
+{
+    $userId = (int) ($user['id'] ?? 0);
+    if ($userId <= 0 || $listingId <= 0) {
+        return false;
+    }
+    $cart = market_cart_items();
+    if (!isset($cart[$listingId])) {
+        return false;
+    }
+    $quantity = max(1, (int) $cart[$listingId]);
+    $stmt = $pdo->prepare("
+        INSERT INTO marketplace_saved_carts (user_id, listing_id, quantity)
+        VALUES (?, ?, ?)
+        ON DUPLICATE KEY UPDATE quantity = VALUES(quantity), updated_at = NOW()
+    ");
+    $stmt->execute([$userId, $listingId, $quantity]);
+    market_cart_remove($listingId);
+    return true;
+}
+
+function market_saved_rows(PDO $pdo, array $user): array
+{
+    $userId = (int) ($user['id'] ?? 0);
+    if ($userId <= 0) {
+        return [];
+    }
+    // A soft-deleted seller's listings are not purchasable.
+    $msSoft = app_column_exists($pdo, 'marketplace_sellers', 'deleted_at') ? ' AND s.deleted_at IS NULL' : '';
+    // A soft-deleted listing must not be purchasable.
+    $mlSoft = app_column_exists($pdo, 'marketplace_listings', 'deleted_at') ? ' AND l.deleted_at IS NULL' : '';
+    $stmt = $pdo->prepare("
+        SELECT sc.listing_id, sc.quantity AS saved_quantity, sc.created_at, sc.updated_at,
+               l.id AS listing_live, l.title, l.price, l.unit, l.price_unit, l.summary,
+               c.name AS category_name, s.store_name, s.slug AS seller_slug, s.user_id AS seller_user_id,
+               (l.id IS NOT NULL AND l.approval_status = 'approved' AND s.approval_status = 'approved') AS purchasable
+        FROM marketplace_saved_carts sc
+        LEFT JOIN marketplace_listings l ON l.id = sc.listing_id{$mlSoft}
+        LEFT JOIN marketplace_sellers s ON s.id = l.seller_id{$msSoft}
+        LEFT JOIN marketplace_categories c ON c.id = l.category_id
+        WHERE sc.user_id = ?
+        ORDER BY sc.updated_at DESC, sc.id DESC
+    ");
+    $stmt->execute([$userId]);
+    $rows = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $qty = max(1, (int) $row['saved_quantity']);
+        $row['saved_quantity'] = $qty;
+        $row['purchasable'] = (bool) $row['purchasable'];
+        $row['saved_total'] = $qty * (float) $row['price'];
+        $rows[] = $row;
+    }
+    return $rows;
+}
+
+function market_saved_count(PDO $pdo, ?array $user = null): int
+{
+    $userId = (int) ($user['id'] ?? 0);
+    if ($userId <= 0) {
+        return 0;
+    }
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM marketplace_saved_carts WHERE user_id = ?");
+    $stmt->execute([$userId]);
+    return (int) $stmt->fetchColumn();
+}
+
+function market_saved_restore(PDO $pdo, array $user, ?int $listingId = null): int
+{
+    $userId = (int) ($user['id'] ?? 0);
+    if ($userId <= 0) {
+        return 0;
+    }
+    $restored = 0;
+    foreach (market_saved_rows($pdo, $user) as $row) {
+        if (!$row['purchasable']) {
+            continue;
+        }
+        if ($listingId !== null && (int) $row['listing_id'] !== $listingId) {
+            continue;
+        }
+        market_cart_add((int) $row['listing_id'], (int) $row['saved_quantity']);
+        $pdo->prepare("DELETE FROM marketplace_saved_carts WHERE user_id = ? AND listing_id = ?")
+            ->execute([$userId, (int) $row['listing_id']]);
+        $restored++;
+    }
+    return $restored;
+}
+
+function market_saved_remove(PDO $pdo, array $user, int $listingId): bool
+{
+    $userId = (int) ($user['id'] ?? 0);
+    if ($userId <= 0 || $listingId <= 0) {
+        return false;
+    }
+    $stmt = $pdo->prepare("DELETE FROM marketplace_saved_carts WHERE user_id = ? AND listing_id = ?");
+    $stmt->execute([$userId, $listingId]);
+    return $stmt->rowCount() > 0;
+}
+
+function market_saved_clear(PDO $pdo, array $user): bool
+{
+    $userId = (int) ($user['id'] ?? 0);
+    if ($userId <= 0) {
+        return false;
+    }
+    $pdo->prepare("DELETE FROM marketplace_saved_carts WHERE user_id = ?")->execute([$userId]);
+    return true;
+}
+
+function market_saved_remove_unavailable(PDO $pdo, array $user): int
+{
+    $userId = (int) ($user['id'] ?? 0);
+    if ($userId <= 0) {
+        return 0;
+    }
+    $removed = 0;
+    foreach (market_saved_rows($pdo, $user) as $row) {
+        if ($row['purchasable']) {
+            continue;
+        }
+        $pdo->prepare("DELETE FROM marketplace_saved_carts WHERE user_id = ? AND listing_id = ?")
+            ->execute([$userId, (int) $row['listing_id']]);
+        $removed++;
+    }
+    return $removed;
+}
+
 function market_settle_seller_wallet(PDO $pdo, int $sellerUserId, float $amount, string $reference, string $description): void
 {
     if ($sellerUserId <= 0 || $amount <= 0) {
@@ -327,6 +454,57 @@ function market_settle_checkout_orders(PDO $pdo, string $checkoutRef): void
             SET payout_status = 'settled', settled_at = COALESCE(settled_at, NOW())
             WHERE id = ?
         ")->execute([(int) $order['id']]);
+    }
+
+    // Checkout-level delivery and service fees are stored on every order row
+    // of the checkout (the same checkout total on each line), so they are
+    // recorded once — anchored on the checkout's first order — as platform
+    // revenue alongside the per-order commissions.
+    $feeStmt = $pdo->prepare("
+        SELECT MIN(id) first_order_id,
+               MAX(COALESCE(delivery_fee, 0)) delivery_fee,
+               MAX(COALESCE(service_fee, 0)) service_fee,
+               MIN(COALESCE(buyer_user_id, 0)) buyer_user_id
+        FROM marketplace_orders
+        WHERE checkout_ref = ? AND payment_status = 'paid'
+    ");
+    $feeStmt->execute([$checkoutRef]);
+    $fees = $feeStmt->fetch(PDO::FETCH_ASSOC);
+    if ($fees && (int) ($fees['first_order_id'] ?? 0) > 0) {
+        $firstOrderId = (int) $fees['first_order_id'];
+        $buyerUserId = (int) ($fees['buyer_user_id'] ?? 0);
+        $deliveryFee = round((float) ($fees['delivery_fee'] ?? 0), 2);
+        $serviceFee = round((float) ($fees['service_fee'] ?? 0), 2);
+        if ($deliveryFee > 0) {
+            revenue_record_once($pdo, [
+                'revenue_ref' => 'REV-DELIVERY-' . $checkoutRef,
+                'source_module' => 'marketplace',
+                'source_type' => 'checkout_delivery_fee',
+                'source_id' => $firstOrderId,
+                'user_id' => $buyerUserId,
+                'gross_amount' => $deliveryFee,
+                'revenue_amount' => $deliveryFee,
+                'net_payable_amount' => 0,
+                'rule_key' => 'marketplace_delivery_fee',
+                'description' => 'Marketplace delivery fee for checkout ' . $checkoutRef,
+                'metadata' => ['checkout_ref' => $checkoutRef],
+            ]);
+        }
+        if ($serviceFee > 0) {
+            revenue_record_once($pdo, [
+                'revenue_ref' => 'REV-SERVICE-' . $checkoutRef,
+                'source_module' => 'marketplace',
+                'source_type' => 'checkout_service_fee',
+                'source_id' => $firstOrderId,
+                'user_id' => $buyerUserId,
+                'gross_amount' => $serviceFee,
+                'revenue_amount' => $serviceFee,
+                'net_payable_amount' => 0,
+                'rule_key' => 'marketplace_service_fee',
+                'description' => 'Marketplace service fee for checkout ' . $checkoutRef,
+                'metadata' => ['checkout_ref' => $checkoutRef],
+            ]);
+        }
     }
 }
 

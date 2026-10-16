@@ -120,6 +120,87 @@ admin_register_job_handler('notification.broadcast', static function (PDO $pdo, 
     return ['channel' => $channel, 'sent' => $sent, 'failed' => $failed];
 });
 
+/**
+ * Validate broadcast input at the boundary and build the payloads the
+ * notification.broadcast worker expects. The worker takes a single
+ * channel per job, so a multi-channel broadcast becomes one queued job
+ * per selected channel.
+ *
+ * @param array<string,mixed> $input
+ * @return array{ok:bool,error?:string,payloads?:list<array<string,mixed>>}
+ */
+function admin_broadcast_payloads(array $input): array
+{
+    $message = trim((string) ($input['message'] ?? ''));
+    if ($message === '') {
+        return ['ok' => false, 'error' => 'Enter a message to broadcast.'];
+    }
+    if (mb_strlen($message) > 500) {
+        return ['ok' => false, 'error' => 'Message must be 500 characters or fewer.'];
+    }
+
+    $rawChannels = $input['channels'] ?? [];
+    if (is_string($rawChannels)) {
+        $rawChannels = preg_split('/[\s,]+/', $rawChannels) ?: [];
+    }
+    $channels = [];
+    foreach ((array) $rawChannels as $rawChannel) {
+        $channel = strtolower(trim((string) $rawChannel));
+        if (in_array($channel, ['email', 'sms', 'whatsapp'], true) && !in_array($channel, $channels, true)) {
+            $channels[] = $channel;
+        }
+    }
+    if ($channels === []) {
+        return ['ok' => false, 'error' => 'Choose at least one channel (email, SMS or WhatsApp).'];
+    }
+
+    $rawRecipients = $input['recipients'] ?? [];
+    if (is_string($rawRecipients)) {
+        $rawRecipients = preg_split('/[\r\n,]+/', $rawRecipients) ?: [];
+    }
+    $recipients = [];
+    foreach ((array) $rawRecipients as $rawRecipient) {
+        $recipient = trim((string) $rawRecipient);
+        if ($recipient !== '') {
+            $recipients[] = $recipient;
+        }
+    }
+    if ($recipients === []) {
+        return ['ok' => false, 'error' => 'Add at least one recipient.'];
+    }
+
+    // Each recipient must be valid for every selected channel: the email
+    // channel takes addresses, SMS/WhatsApp take phone numbers.
+    $isPhone = static function (string $value): bool {
+        if (!preg_match('/^\+?[\d\s\-\(\)]{8,20}$/', $value)) {
+            return false;
+        }
+        $digits = strlen(preg_replace('/\D+/', '', $value));
+        return $digits >= 10 && $digits <= 15;
+    };
+    foreach ($channels as $channel) {
+        foreach ($recipients as $recipient) {
+            $valid = $channel === 'email'
+                ? filter_var($recipient, FILTER_VALIDATE_EMAIL) !== false
+                : $isPhone($recipient);
+            if (!$valid) {
+                return ['ok' => false, 'error' => 'Recipient "' . $recipient . '" is not a valid ' . ($channel === 'email' ? 'email address' : 'phone number') . ' for the ' . strtoupper($channel) . ' channel.'];
+            }
+        }
+    }
+
+    $payloads = [];
+    foreach ($channels as $channel) {
+        $payloads[] = [
+            'recipients' => $recipients,
+            'subject' => (string) ($input['subject'] ?? 'NATCODEV notice'),
+            'body' => $message,
+            'channel' => $channel,
+        ];
+    }
+    return ['ok' => true, 'payloads' => $payloads];
+}
+
 // ---------------------------------------------------------------------------
 // Admin actions that enqueue work (used by admin/jobs.php and the palette)
 // ---------------------------------------------------------------------------
@@ -150,4 +231,19 @@ if (function_exists('admin_register_action')) {
         admin_cron_heartbeat($pdo, 'manual');
         return ['ok' => true, 'processed' => $processed, 'depth' => admin_queue_depth($pdo)];
     }, 'settings.manage');
+
+    admin_register_action('notifications.broadcast', static function (PDO $pdo, array $input): array {
+        $validated = admin_broadcast_payloads($input);
+        if (empty($validated['ok'])) {
+            return ['ok' => false, 'status' => 422, 'error' => $validated['error'] ?? 'invalid_broadcast'];
+        }
+        $jobIds = [];
+        foreach ($validated['payloads'] as $payload) {
+            $jobIds[] = admin_enqueue($pdo, 'notification.broadcast', $payload);
+        }
+        if (function_exists('admin_audit_event')) {
+            admin_audit_event($pdo, 'job_enqueued', 'admin_jobs', (int) ($jobIds[0] ?? 0), [], ['type' => 'notification.broadcast', 'channels' => implode(',', array_column($validated['payloads'], 'channel'))], 'success', 'Broadcast queued');
+        }
+        return ['ok' => true, 'queued' => true, 'job' => 'notification.broadcast', 'job_ids' => $jobIds];
+    }, 'communications.manage');
 }

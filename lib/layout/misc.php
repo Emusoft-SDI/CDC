@@ -1,12 +1,16 @@
 <?php
 
+require_once __DIR__ . '/constants.php';
+require_once __DIR__ . '/roles.php';
+
 function admin_audit(PDO $pdo, string $action, string $description, array $context = []): void
 {
     if (!app_table_exists($pdo, 'audit_log')) {
         return;
     }
-    $actorId = admin_current_user_id($pdo);
-    $actorName = admin_current_user_name($pdo);
+
+    $actorId = function_exists('admin_current_user_id') ? admin_current_user_id($pdo) : null;
+    $actorName = function_exists('admin_current_user_name') ? admin_current_user_name($pdo) : null;
     if ($actorName === null && !empty($_SESSION['admin_authenticated'])) {
         $actorName = 'legacy_operator';
     }
@@ -102,9 +106,9 @@ function admin_record_authenticity_status(PDO $pdo, string $targetTable, ?int $t
 
 function admin_review_action_request(PDO $pdo, int $requestId, string $decision, string $note = ''): void
 {
-    if (!admin_current_user_is_super_admin($pdo)) {
-        http_response_code(403);
-        exit('Forbidden: only Super Admin can review delete requests.');
+    $isSuper = function_exists('admin_current_user_is_super_admin') ? admin_current_user_is_super_admin($pdo) : false;
+    if (!$isSuper) {
+        app_render_error_page(403, 'Only Super Admin can review delete requests.');
     }
     admin_ensure_action_request_schema($pdo);
     $stmt = $pdo->prepare("SELECT * FROM admin_action_requests WHERE id = ? AND status = 'pending' LIMIT 1");
@@ -120,11 +124,12 @@ function admin_review_action_request(PDO $pdo, int $requestId, string $decision,
         if ($decision === 'approved') {
             admin_execute_approved_delete($pdo, $request);
         }
+        $reviewerId = function_exists('admin_current_user_id') ? admin_current_user_id($pdo) : null;
         $pdo->prepare("
             UPDATE admin_action_requests
             SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_note = ?
             WHERE id = ?
-        ")->execute([$decision, admin_current_user_id($pdo), $note !== '' ? $note : null, $requestId]);
+        ")->execute([$decision, $reviewerId, $note !== '' ? $note : null, $requestId]);
         if (app_table_exists($pdo, 'audit_log')) {
             $pdo->prepare("INSERT INTO audit_log (action, description, ip_address) VALUES (?, ?, ?)")
                 ->execute(['delete_request_' . $decision, 'Reviewed delete request #' . $requestId . ' for ' . (string) $request['target_table'] . '.', $_SERVER['REMOTE_ADDR'] ?? null]);
@@ -147,7 +152,7 @@ function admin_user_has_admin_access(PDO $pdo, int $userId): bool
     if (!app_table_exists($pdo, 'user_role_assignments')) {
         return false;
     }
-    $adminRoles = ['admin', 'support_agent', 'national_coordinator', 'state_coordinator', 'agronomist', 'agric_extensionist', 'field_agent'];
+    $adminRoles = ['admin', 'support_agent', 'national_coordinator', 'regional_coordinator', 'state_coordinator', 'lga_coordinator', 'district_coordinator', 'village_coordinator', 'cooperative_admin', 'agronomist', 'agric_extensionist', 'field_agent'];
     $placeholders = implode(',', array_fill(0, count($adminRoles), '?'));
     $stmt = $pdo->prepare("
         SELECT COUNT(*)
@@ -248,7 +253,12 @@ function admin_default_access(string $role): array
         'super_admin' => array_keys(admin_feature_catalog()),
         'admin' => array_values(array_diff(array_keys(admin_feature_catalog()), ['backups'])),
         'national_coordinator' => array_values(array_diff(array_keys(admin_feature_catalog()), ['backups'])),
+        'regional_coordinator' => array_values(array_diff(array_keys(admin_feature_catalog()), ['backups'])),
         'state_coordinator' => ['dashboard', 'state_dashboard', 'profile', 'applications', 'documents', 'certificates', 'field_network', 'field_management', 'agronomy_advisory', 'support', 'farm_health', 'providers', 'resource_allocation', 'communications', 'resources', 'training', 'wallet', 'notifications', 'reports', 'analytics'],
+        'lga_coordinator' => ['dashboard', 'state_dashboard', 'profile', 'applications', 'documents', 'certificates', 'field_network', 'field_management', 'agronomy_advisory', 'support', 'farm_health', 'providers', 'resource_allocation', 'communications', 'resources', 'training', 'wallet', 'notifications', 'reports', 'analytics'],
+        'district_coordinator' => ['dashboard', 'state_dashboard', 'profile', 'applications', 'documents', 'certificates', 'field_network', 'field_management', 'agronomy_advisory', 'support', 'farm_health', 'providers', 'resource_allocation', 'communications', 'resources', 'training', 'wallet', 'notifications', 'reports', 'analytics'],
+        'village_coordinator' => ['dashboard', 'state_dashboard', 'profile', 'applications', 'documents', 'certificates', 'field_network', 'field_management', 'agronomy_advisory', 'support', 'farm_health', 'providers', 'resource_allocation', 'communications', 'resources', 'training', 'wallet', 'notifications', 'reports', 'analytics'],
+        'cooperative_admin' => ['dashboard', 'profile', 'applications', 'documents', 'certificates', 'support', 'farm_health', 'resources', 'training', 'wallet', 'notifications', 'reports', 'analytics'],
         'support_agent' => ['dashboard', 'profile', 'support', 'communications', 'notifications', 'reports'],
         'field_agent', 'agronomist', 'agric_extensionist' => ['dashboard', 'profile', 'applications', 'field_network', 'field_management', 'agronomy_advisory', 'support', 'farm_health', 'resources', 'training', 'wallet', 'notifications', 'reports'],
         'investor' => ['dashboard', 'profile', 'marketplace', 'wallet', 'reports', 'analytics', 'notifications'],
@@ -256,6 +266,7 @@ function admin_default_access(string $role): array
         'buyer' => ['dashboard', 'profile', 'marketplace', 'wallet', 'support', 'notifications', 'reports'],
         'provider' => ['dashboard', 'profile', 'providers', 'marketplace', 'wallet', 'support', 'notifications', 'reports'],
         'learner' => ['dashboard', 'profile', 'support', 'wallet', 'training', 'notifications', 'reports'],
+        'guest', 'public' => ['training', 'marketplace', 'support'],
         default => ['dashboard', 'profile', 'applications', 'documents', 'certificates', 'support', 'farm_health', 'marketplace', 'wallet', 'training', 'notifications', 'reports'],
     };
 }
@@ -369,7 +380,7 @@ function admin_feature_allowed_for_role(PDO $pdo, ?string $role, string $feature
         return false;
     }
     if ($role === null || $role === '') {
-        return false;
+        $role = 'guest';
     }
     if ($role === 'super_admin') {
         return true;
@@ -396,7 +407,7 @@ function admin_feature_is_allowed(PDO $pdo, string $feature): bool
 
     $role = admin_current_platform_role($pdo);
     if ($role === null) {
-        return false;
+        return admin_feature_allowed_for_role($pdo, 'guest', $feature);
     }
     if ($role === 'super_admin') {
         return true;

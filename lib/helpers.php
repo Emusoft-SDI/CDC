@@ -452,3 +452,148 @@ function generate_application_ref(): string
     return 'NAT-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
 }
 }
+
+if (!function_exists('page_breadcrumbs')) {
+/**
+ * Render the shared workspace breadcrumb trail with a Back affordance.
+ *
+ * @param array<int,array{label:string,href?:string}> $trail
+ */
+function page_breadcrumbs(array $trail, string $rootLabel = 'Home', string $rootHref = '/index.php', bool $back = true): string
+{
+    static $styleEmitted = false;
+    $style = '';
+    if (!$styleEmitted) {
+        $styleEmitted = true;
+        $style = '<style>.bc{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem;padding:.55rem .9rem;margin:0 0 1rem;font-size:.86rem;font-weight:700;background:#fff;border:1px solid #e5e7eb;border-radius:.6rem}.bc a{color:#175cd3;text-decoration:none}.bc a:hover{text-decoration:underline}.bc .sep{color:#98a2b3;font-size:.65rem}.bc .here{color:#344054}.bc .back{display:inline-flex;align-items:center;gap:.35rem;padding:.15rem .55rem;border:1px solid #d0d5dd;border-radius:.45rem;color:#344054;background:#f9fafb}.bc .back:hover{background:#f2f4f7}</style>';
+    }
+    $parts = [];
+    if ($back) {
+        $firstTrailHref = '';
+        foreach ($trail as $crumb) {
+            if (!empty($crumb['href'])) {
+                $firstTrailHref = (string) $crumb['href'];
+                break;
+            }
+        }
+        $referer = (string) ($_SERVER['HTTP_REFERER'] ?? '');
+        $host = (string) parse_url((string) ($_SERVER['HTTP_HOST'] ?? ''), PHP_URL_HOST);
+        $refHost = (string) parse_url($referer, PHP_URL_HOST);
+        $sameSite = $referer !== '' && ($refHost === '' || $refHost === $host);
+        $backHref = $sameSite ? $referer : ($firstTrailHref !== '' ? $firstTrailHref : $rootHref);
+        $parts[] = '<a class="back" href="' . e($backHref) . '"><i class="fas fa-arrow-left" aria-hidden="true"></i> Back</a>';
+    }
+    $parts[] = '<a href="' . e($rootHref) . '"><i class="fas fa-house" aria-hidden="true"></i> ' . e($rootLabel) . '</a>';
+    $lastIndex = -1;
+    foreach (array_values($trail) as $index => $crumb) {
+        if ((string) ($crumb['label'] ?? '') !== '') {
+            $lastIndex = $index;
+        }
+    }
+    foreach (array_values($trail) as $index => $crumb) {
+        $label = (string) ($crumb['label'] ?? '');
+        $href = (string) ($crumb['href'] ?? '');
+        if ($label === '') {
+            continue;
+        }
+        if ($href !== '' && $index !== $lastIndex) {
+            $parts[] = '<a href="' . e($href) . '">' . e($label) . '</a>';
+        } else {
+            $parts[] = '<span class="here" aria-current="page">' . e($label) . '</span>';
+        }
+    }
+    return $style . '<nav class="bc" aria-label="Breadcrumb">' . implode('<i class="fas fa-chevron-right sep" aria-hidden="true"></i>', $parts) . '</nav>';
+}
+}
+
+if (!function_exists('auto_breadcrumbs')) {
+/**
+ * Derive a two-level breadcrumb trail from a workspace nav map and the active key.
+ *
+ * Handles the nav shapes used across the app: lists of [key,label,icon,href]
+ * (buyer/provider), assoc key => [label,href,icon] (seller/field/coordination),
+ * assoc key => ['label'=>,...] (super admin), lists of groups with an 'items'
+ * key (dashboard), and assoc group name => item list (admin console).
+ *
+ * @param array $items
+ * @return array<int,array{label:string,href:string}>
+ */
+function auto_breadcrumbs(array $items, string $active, string $areaLabel, string $areaHref): array
+{
+    $trail = [['label' => $areaLabel, 'href' => $areaHref]];
+    $activeTrim = trim($active);
+    $match = null;
+
+    $scan = static function (array $list, string $parentLabel = '', string $parentHref = '') use ($activeTrim, &$match, &$scan): void {
+        foreach ($list as $key => $item) {
+            if (!is_array($item) || $item === []) {
+                continue;
+            }
+            if (isset($item['items']) && is_array($item['items'])) {
+                $groupHref = '';
+                foreach ($item['items'] as $child) {
+                    if (is_array($child) && (string) ($child['href'] ?? '') !== '') {
+                        $groupHref = (string) $child['href'];
+                        break;
+                    }
+                }
+                $scan($item['items'], (string) ($item['label'] ?? ''), $groupHref);
+                if ($match !== null) {
+                    return;
+                }
+                continue;
+            }
+            if (is_string($key) && array_is_list($item) && isset($item[0]) && is_array($item[0]) && (isset($item[0]['href']) || isset($item[0]['label']))) {
+                $groupHref = '';
+                foreach ($item as $child) {
+                    if (is_array($child) && (string) ($child['href'] ?? '') !== '') {
+                        $groupHref = (string) $child['href'];
+                        break;
+                    }
+                }
+                $scan($item, (string) $key, $groupHref);
+                if ($match !== null) {
+                    return;
+                }
+                continue;
+            }
+            if (is_string($key)) {
+                $label = (string) ($item['label'] ?? ($item[0] ?? ''));
+                $href = (string) ($item['href'] ?? ($item[1] ?? ''));
+                $itemKey = $key;
+            } else {
+                $label = (string) ($item['label'] ?? ($item[1] ?? ''));
+                $href = (string) ($item['href'] ?? ($item[3] ?? ($item[2] ?? '')));
+                $itemKey = (string) ($item['key'] ?? ($item[0] ?? ''));
+            }
+            if ($label === '') {
+                continue;
+            }
+            $hrefBase = $href !== '' ? basename((string) strtok($href, '?')) : '';
+            if (
+                ($itemKey !== '' && $activeTrim === $itemKey)
+                || ($href !== '' && $activeTrim === $href)
+                || ($hrefBase !== '' && $activeTrim === $hrefBase)
+                || ($hrefBase !== '' && $activeTrim !== '' && strpos($activeTrim, $hrefBase) === 0)
+            ) {
+                $match = [
+                    'label' => $label,
+                    'href' => $href,
+                    'parent' => $parentLabel,
+                    'parent_href' => $parentHref,
+                ];
+                return;
+            }
+        }
+    };
+
+    $scan($items);
+    if ($match !== null) {
+        if ($match['parent'] !== '') {
+            $trail[] = ['label' => $match['parent'], 'href' => $match['parent_href']];
+        }
+        $trail[] = ['label' => $match['label'], 'href' => $match['href']];
+    }
+    return $trail;
+}
+}

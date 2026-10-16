@@ -6,9 +6,14 @@
         <option value="">All Categories</option>
         <?php foreach (array_keys($catalogCategories) as $categoryOption): ?><option value="<?= e($categoryOption) ?>" <?= $catalogCategory === $categoryOption ? 'selected' : '' ?>><?= e($categoryOption) ?></option><?php endforeach; ?>
       </select>
+      <select name="program">
+        <option value="0">All Programs</option>
+        <?php foreach ($programs as $programOption): ?><option value="<?= (int) $programOption['id'] ?>" <?= $catalogProgram === (int) $programOption['id'] ? 'selected' : '' ?>><?= e((string) $programOption['title']) ?></option><?php endforeach; ?>
+      </select>
       <button class="btn btn-o" type="submit"><i class="fas fa-search"></i> Search</button>
     </form>
-    <p class="muted" style="margin-bottom:12px">Showing <?= number_format($catalogTotal) ?> course<?= $catalogTotal === 1 ? '' : 's' ?>, page <?= $catalogPage ?> of <?= $catalogPages ?>.</p>
+    <?php $catalogProgramTitle = ''; foreach ($programs as $programTitleRow) { if ((int) $programTitleRow['id'] === $catalogProgram) { $catalogProgramTitle = (string) $programTitleRow['title']; break; } } ?>
+    <p class="muted" style="margin-bottom:12px">Showing <?= number_format($catalogTotal) ?> course<?= $catalogTotal === 1 ? '' : 's' ?><?= $catalogProgram > 0 && $catalogProgramTitle !== '' ? ' in ' . e($catalogProgramTitle) : '' ?>, page <?= $catalogPage ?> of <?= $catalogPages ?>.</p>
     <div style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap">
       <?php foreach (array_keys($catalogGroupLabels) as $groupLabel): ?><span class="badge-pill bp-gray"><?= e($groupLabel) ?></span><?php endforeach; ?>
       <?php if (!$catalogGroupLabels): ?><span class="badge-pill bp-gray">No course categories found</span><?php endif; ?>
@@ -17,16 +22,20 @@
       <div style="margin:18px 0 10px;display:flex;align-items:center;justify-content:space-between;gap:12px"><h3 style="margin:0;color:var(--green-700);font-size:16px"><?= e($groupLabel) ?></h3><span class="badge-pill bp-green"><?= count($groupCourses) ?> shown</span></div>
       <div class="grid g4">
       <?php foreach ($groupCourses as $i => $c): ?>
-          <?php $courseThumb = academy_program_thumbnail_src($c); ?>
+          <?php 
+            $courseThumb = function_exists('academy_course_artwork_url') ? academy_course_artwork_url($c) : (function_exists('academy_course_thumbnail_src') ? academy_course_thumbnail_src($c) : academy_program_thumbnail_src($c)); 
+            $isEnrolled = in_array((int) $c['id'], $registeredIds, true);
+            $targetUrl = 'dashboard.php?screen=lesson&course_id=' . (int) $c['id'];
+          ?>
           <article class="course-card">
-            <a href="dashboard.php?screen=course&course_id=<?= (int) $c['id'] ?>">
+            <a href="<?= e($targetUrl) ?>">
               <div class="course-thumb cat-<?= ($i % 4) + 1 ?>">
                 <?php if ($courseThumb !== ''): ?>
                   <img src="<?= e($courseThumb) ?>" alt="<?= e((string) ($c['program_title'] ?? $c['title'])) ?> thumbnail" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
                 <?php else: ?>
                   <i class="fas fa-graduation-cap"></i>
                 <?php endif; ?>
-                <span class="new-tag"><?= (int) $c['is_free'] === 1 ? 'FREE' : 'PAID' ?></span>
+                <span class="new-tag"><?= $isEnrolled ? 'ENROLLED' : ((int) $c['is_free'] === 1 ? 'FREE' : 'PAID') ?></span>
               </div>
               <div class="course-body"><div class="course-title"><?= e((string) $c['title']) ?></div><div class="course-meta"><?= e((string) ($c['category'] ?? $groupLabel)) ?> / <?= e(academy_delivery_label((string) ($c['delivery_type'] ?? 'lms'))) ?></div><div class="course-footer"><span class="course-price"><?= (int) $c['is_free'] === 1 ? 'Free' : e(ac_money((float) $c['price'])) ?></span><span class="course-rating"><i class="fas fa-star"></i> <?= (int) ($c['lessons'] ?? 0) ?> lessons</span></div></div>
             </a>
@@ -37,7 +46,7 @@
     <?php if (!$catalogPaged): ?><div class="empty">No Academy course is currently available for your role, category, or search.</div><?php endif; ?>
     <?php if ($catalogPages > 1): ?>
       <nav class="pagination" aria-label="Academy catalog pages">
-        <?php $pageBase = ['screen' => 'catalog']; if ($catalogQuery !== '') { $pageBase['q'] = $catalogQuery; } if ($catalogCategory !== '') { $pageBase['category'] = $catalogCategory; } ?>
+        <?php $pageBase = ['screen' => 'catalog']; if ($catalogQuery !== '') { $pageBase['q'] = $catalogQuery; } if ($catalogCategory !== '') { $pageBase['category'] = $catalogCategory; } if ($catalogProgram > 0) { $pageBase['program'] = $catalogProgram; } ?>
         <?php if ($catalogPage > 1): ?><a href="dashboard.php?<?= e(http_build_query($pageBase + ['page' => $catalogPage - 1])) ?>">Previous</a><?php endif; ?>
         <?php for ($page = 1; $page <= $catalogPages; $page++): ?><a class="<?= $page === $catalogPage ? 'active' : '' ?>" href="dashboard.php?<?= e(http_build_query($pageBase + ['page' => $page])) ?>"><?= $page ?></a><?php endfor; ?>
         <?php if ($catalogPage < $catalogPages): ?><a href="dashboard.php?<?= e(http_build_query($pageBase + ['page' => $catalogPage + 1])) ?>">Next</a><?php endif; ?>

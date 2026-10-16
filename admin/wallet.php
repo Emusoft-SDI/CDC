@@ -22,7 +22,7 @@ admin_ensure_schema($pdo);
 wallet_ensure_schema($pdo);
 marketplace_ensure_schema($pdo);
 academy_ensure_schema($pdo);
-admin_require($pdo);
+admin_require($pdo, 'wallet');
 
 $admin = current_user($pdo) ?: [];
 

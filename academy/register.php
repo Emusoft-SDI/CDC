@@ -10,6 +10,16 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 }
 
 $pdo = db();
+
+// Gate by module state.
+if (!admin_feature_is_allowed($pdo, 'training')) {
+    http_response_code(403);
+    echo '<!DOCTYPE html><html><head><meta charset="utf-8"><title>NATCODEV Academy</title></head>';
+    echo '<body style="font-family:system-ui;padding:60px;text-align:center;color:#555">';
+    echo '<h1>Academy Currently Unavailable</h1><p>This module is temporarily disabled.</p></body></html>';
+    exit;
+}
+
 app_ensure_core_schema($pdo);
 academy_ensure_schema($pdo);
 app_add_column_if_missing($pdo, 'users', 'platform_role', "VARCHAR(60) NULL");
@@ -23,13 +33,29 @@ if ($courseId > 0) {
     $course = $stmt->fetch() ?: null;
 }
 
+$programId = (int) ($_GET['program_id'] ?? $_POST['program_id'] ?? 0);
+$program = null;
+if ($programId > 0) {
+    $programStmt = $pdo->prepare("SELECT id, title FROM academy_programs WHERE id = ? AND status = 'active' LIMIT 1");
+    $programStmt->execute([$programId]);
+    $program = $programStmt->fetch() ?: null;
+}
+
 if (current_user($pdo)) {
+    if ($programId > 0) {
+        redirect_to('dashboard.php?screen=catalog&program=' . $programId);
+    }
     redirect_to($course ? 'dashboard.php?screen=course&course_id=' . $courseId : 'dashboard.php');
 }
 
 $error = '';
 $message = '';
-$oauthNext = $course ? 'academy/dashboard.php?screen=course&course_id=' . $courseId : 'academy/dashboard.php?screen=catalog';
+if ($programId > 0) {
+    $oauthNext = 'academy/dashboard.php?screen=catalog&program=' . $programId;
+    $otpTarget = $oauthNext;
+} else {
+    $oauthNext = $course ? 'academy/dashboard.php?screen=course&course_id=' . $courseId : 'academy/dashboard.php?screen=catalog';
+}
 if (isset($_GET['social'])) {
     app_oauth_begin((string) $_GET['social'], 'learner', $oauthNext);
 }
@@ -40,7 +66,13 @@ if (isset($_GET['oauth_callback'])) {
         $stmt->execute([(int) $oauth['user_id']]);
         $oauthUser = $stmt->fetch() ?: ['id' => (int) $oauth['user_id'], 'email' => ''];
         unset($_SESSION['user_id']);
-        $otpTarget = $course ? 'academy/dashboard.php?screen=course&course_id=' . $courseId : 'academy/dashboard.php?screen=catalog';
+        if ($programId > 0) {
+            $otpTarget = 'academy/dashboard.php?screen=catalog&program=' . $programId;
+        } elseif ($course) {
+            $otpTarget = 'academy/dashboard.php?screen=course&course_id=' . $courseId;
+        } else {
+            $otpTarget = 'academy/dashboard.php?screen=catalog';
+        }
         $otpStart = otp_begin_email_login_challenge($pdo, $oauthUser, $otpTarget);
         if ($otpStart['ok']) {
             redirect_to('../verify-otp.php');
@@ -60,28 +92,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!verify_csrf($_POST['_csrf'] ?? null)) {
         $error = 'Please refresh and try again.';
     } else {
-        $name = trim((string) ($_POST['name'] ?? ''));
-        $email = filter_var(trim((string) ($_POST['email'] ?? '')), FILTER_VALIDATE_EMAIL);
-        $phone = trim((string) ($_POST['phone'] ?? ''));
-        $password = (string) ($_POST['password'] ?? '');
-        if ($name === '' || !$email || strlen($password) < 6) {
-            $error = 'Enter your name, a valid email, and a password of at least 6 characters.';
-        } else {
-            try {
-                $stmt = $pdo->prepare("INSERT INTO users (name, email, password, phone, role, platform_role, account_status) VALUES (?, ?, ?, ?, 'grower', 'learner', 'needs_confirmation')");
-                $stmt->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $phone]);
-                $userId = (int) $pdo->lastInsertId();
-                app_send_user_verification($pdo, $userId, 'NATCODEV Academy learner');
-                $message = 'Learner account created. Check your email and verify before logging in.';
-            } catch (Throwable $e) {
-                $error = str_contains($e->getMessage(), 'Duplicate') ? 'That email already exists. Please login instead.' : 'Unable to create learner account now.';
+        // Every public sign-up goes through the shared registration wizard:
+        // the account is created as needs_confirmation and the learner
+        // profile is completed in the wizard after the email OTP is verified.
+        try {
+            $result = registration_wizard_begin($pdo, 'learner', $_POST);
+            if (!empty($result['ok'])) {
+                redirect_to('../verify-otp.php');
             }
+            $error = (string) $result['message'];
+        } catch (Throwable $e) {
+            error_log('Academy registration error: ' . $e->getMessage());
+            $error = str_contains($e->getMessage(), 'Duplicate') ? 'That email already exists. Please login instead.' : 'Unable to create learner account now.';
         }
     }
 }
 
 $logo = app_primary_logo_url();
-$loginNext = '../academy/dashboard.php' . ($course ? '?screen=course&course_id=' . $courseId : '');
+$loginNext = '../academy/dashboard.php' . ($program ? '?screen=catalog&program=' . $programId : ($course ? '?screen=course&course_id=' . $courseId : ''));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -101,6 +129,7 @@ $loginNext = '../academy/dashboard.php' . ($course ? '?screen=course&course_id='
     <a class="brand" href="index.php"><img src="<?= e($logo) ?>" alt="NATCODEV"><strong>NATCODEV Academy</strong></a>
     <h2>Create learner account</h2>
     <p>Use this account for courses, progress, payments, certificates, and role requests.</p>
+    <?php if ($program): ?><div class="course"><strong>Selected program:</strong><br><?= e((string) $program['title']) ?></div><?php endif; ?>
     <?php if ($course): ?><div class="course"><strong>Selected course:</strong><br><?= e((string) $course['title']) ?></div><?php endif; ?>
     <?php if ($error): ?><div class="alert err"><?= e($error) ?></div><?php endif; ?>
     <?php if ($message): ?><div class="alert ok"><?= e($message) ?></div><?php endif; ?>
@@ -110,6 +139,7 @@ $loginNext = '../academy/dashboard.php' . ($course ? '?screen=course&course_id='
       <input type="hidden" name="board" value="learner">
       <input type="hidden" name="action" value="start">
       <input type="hidden" name="course_id" value="<?= $courseId ?>">
+      <input type="hidden" name="program_id" value="<?= $programId ?>">
       <label>Name<input name="name" required></label>
       <label>Email<input type="email" name="email" required></label>
       <label>Phone<input name="phone" placeholder="+234..."></label>

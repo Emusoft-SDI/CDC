@@ -48,12 +48,12 @@
         }
         $existingCert = null;
         foreach ($certificates as $cert) {
-            if ((int) $cert['webinar_id'] === (int) $reg['id']) {
+            if ((int) ($cert['webinar_id'] ?? 0) === (int) ($reg['id'] ?? 0)) {
                 $existingCert = $cert;
                 break;
             }
         }
-        $certEligibility = ac_certificate_eligibility($pdo, (int) $user['id'], (int) $reg['registration_id']);
+        $certEligibility = ac_certificate_eligibility($pdo, (int) $user['id'], (int) ($reg['registration_id'] ?? 0));
         $displayCertificateStatus = (string) ($existingCert['status'] ?? ($reg['certificate_status'] ?? 'not_started'));
         $displayCertificateLabel = $certEligibility['eligible'] && $displayCertificateStatus !== 'rejected' ? 'Eligible' : ac_status($displayCertificateStatus);
         $eligibleRows++;

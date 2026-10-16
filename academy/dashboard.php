@@ -8,7 +8,9 @@ require_once __DIR__ . '/../lib/monnify.php';
 require_once __DIR__ . '/../lib/support.php';
 require_once __DIR__ . '/../lib/workspace-account.php';
 
-session_start();
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
 $pdo = db();
 $user = current_user($pdo);
 if (!$user) {
@@ -26,8 +28,7 @@ if (app_user_needs_email_verification($user)) {
 
 $academyRole = academy_current_role($pdo, $user);
 if (!admin_feature_is_allowed($pdo, 'training')) {
-    http_response_code(403);
-    exit('Forbidden: NATCODEV Academy is not enabled for your role.');
+    app_render_error_page(403, 'NATCODEV Academy is not enabled for your role.');
 }
 
 wallet_ensure_schema($pdo);
@@ -123,7 +124,7 @@ $pdo->exec("
 
 require_once __DIR__ . '/../lib/academy/dashboard-helpers.php';
 
-$screen = ac_screen((string) ($_GET['screen'] ?? ($_GET['tab'] ?? 'catalog')));
+$screen = ac_screen((string) ($_GET['screen'] ?? ($_GET['tab'] ?? 'overview')));
 $tabMap = ['learn' => 'learning', 'calendar' => 'learning', 'catalog' => 'catalog', 'certificates' => 'certificates', 'payments' => 'transactions', 'feedback' => 'settings'];
 if (isset($tabMap[$screen])) {
     $screen = $tabMap[$screen];
@@ -185,7 +186,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($eligibility['eligible']) {
                     $pdo->prepare("UPDATE webinar_registrations SET certificate_status = 'eligible' WHERE id = ?")->execute([(int) $lesson['registration_id']]);
                 }
-                ac_redirect('lesson', 'message', 'Lesson marked complete.', ['course_id' => (int) $lesson['webinar_id']]);
+                $courseLessonIdsStmt = $pdo->prepare("SELECT id FROM academy_lessons WHERE webinar_id = ? AND status = 'active' ORDER BY sort_order ASC, id ASC");
+                $courseLessonIdsStmt->execute([(int) $lesson['webinar_id']]);
+                $courseLessonIds = array_map('intval', $courseLessonIdsStmt->fetchAll(PDO::FETCH_COLUMN));
+                $lessonPosition = array_search($lessonId, $courseLessonIds, true);
+                $lessonRedirectId = $lessonId;
+                if ($lessonPosition !== false && ($lessonPosition + 1) < count($courseLessonIds)) {
+                    $lessonRedirectId = $courseLessonIds[$lessonPosition + 1];
+                }
+                ac_redirect('lesson', 'message', 'Lesson marked complete.', ['course_id' => (int) $lesson['webinar_id'], 'lesson_id' => $lessonRedirectId]);
             }
 
             if ($action === 'submit_assessment') {
@@ -214,7 +223,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 foreach ($questions as $question) {
                     $possible += (float) $question['points'];
                     $answer = strtoupper(trim((string) ($answers[(int) $question['id']] ?? '')));
-                    if ($answer === strtoupper((string) $question['correct_option'])) {
+                    if (str_starts_with($answer, 'OPTION_')) {
+                        $answer = substr($answer, -1);
+                    }
+                    if (strlen($answer) > 1) {
+                        $answer = substr($answer, 0, 1);
+                    }
+                    $correctOpt = strtoupper(trim((string) ($question['correct_option'] ?? 'A')));
+                    if (str_starts_with($correctOpt, 'OPTION_')) {
+                        $correctOpt = substr($correctOpt, -1);
+                    }
+                    if (strlen($correctOpt) > 1) {
+                        $correctOpt = substr($correctOpt, 0, 1);
+                    }
+                    if ($answer !== '' && $answer === $correctOpt) {
                         $earned += (float) $question['points'];
                     }
                 }
@@ -224,8 +246,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     INSERT INTO academy_attempts (assessment_id, webinar_id, user_id, score_percent, passed, answers, completed_at)
                     VALUES (?, ?, ?, ?, ?, ?, NOW())
                 ")->execute([$assessmentId, (int) $assessment['webinar_id'], (int) $user['id'], $score, $passed, json_encode($answers, JSON_UNESCAPED_SLASHES)]);
+                $attemptId = (int) $pdo->lastInsertId();
                 if ($passed) {
                     $eligibility = ac_certificate_eligibility($pdo, (int) $user['id'], (int) $assessment['registration_id']);
+                    $currentCertStatus = (string) ($eligibility['registration']['certificate_status'] ?? 'not_started');
+                    $isCertTrack = (int) ($eligibility['registration']['certification_required'] ?? 0) === 1;
+                    $allReqLessonsDone = ($eligibility['required_lessons'] === 0) || ($eligibility['completed_lessons'] >= $eligibility['required_lessons']);
+
+                    $newCertStatus = $currentCertStatus;
+                    if ($isCertTrack) {
+                        if (in_array($currentCertStatus, ['issued', 'approved', 'pending'], true)) {
+                            $newCertStatus = $currentCertStatus;
+                        } elseif ($eligibility['eligible']) {
+                            $newCertStatus = 'eligible';
+                        } else {
+                            $newCertStatus = 'not_started';
+                        }
+                    } else {
+                        $newCertStatus = 'not_required';
+                    }
+
+                    $isCourseCompleted = $isCertTrack ? (!empty($eligibility['eligible'])) : $allReqLessonsDone;
+
                     $pdo->prepare("
                         UPDATE webinar_registrations
                         SET certificate_status = ?, completion_status = IF(? = 1, 'completed', completion_status),
@@ -233,14 +275,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             completed_at = IF(? = 1, COALESCE(completed_at, NOW()), completed_at)
                         WHERE id = ?
                     ")->execute([
-                        $eligibility['eligible'] ? 'eligible' : 'not_started',
-                        $eligibility['eligible'] ? 1 : 0,
-                        $eligibility['eligible'] ? 1 : 0,
-                        $eligibility['eligible'] ? 1 : 0,
+                        $newCertStatus,
+                        $isCourseCompleted ? 1 : 0,
+                        $isCourseCompleted ? 1 : 0,
+                        $isCourseCompleted ? 1 : 0,
                         (int) $assessment['registration_id'],
                     ]);
+                    $passMessage = !empty($eligibility['eligible'])
+                        ? 'Assessment passed! You have completed all course requirements and unlocked certification eligibility.'
+                        : ($isCertTrack
+                            ? 'Assessment passed. Certificate eligibility will unlock after all required lessons are complete.'
+                            : 'Assessment passed! You have completed all requirements for this course.');
                 }
-                ac_redirect('quiz', $passed ? 'message' : 'error', $passed ? 'Assessment passed. Certificate eligibility will unlock after all required lessons are complete.' : 'Assessment submitted. Score: ' . $score . '%.', ['course_id' => (int) $assessment['webinar_id']]);
+                $redirectParams = ['course_id' => (int) $assessment['webinar_id']];
+                if ($attemptId > 0) {
+                    $redirectParams['attempt_id'] = $attemptId;
+                }
+                ac_redirect('quiz', $passed ? 'message' : 'error', $passed ? $passMessage : ('Assessment submitted. Score: ' . $score . '%. Review your answers below.'), $redirectParams);
             }
 
             if ($action === 'request_certificate') {
@@ -451,7 +502,11 @@ foreach ($catalog as $catalogCourse) {
 }
 ksort($catalogCategories);
 $catalogCategory = trim((string) ($_GET['category'] ?? ''));
-$catalogFiltered = array_values(array_filter($catalog, static function (array $course) use ($catalogQuery, $catalogCategory): bool {
+$catalogProgram = (int) ($_GET['program'] ?? 0);
+$catalogFiltered = array_values(array_filter($catalog, static function (array $course) use ($catalogQuery, $catalogCategory, $catalogProgram): bool {
+    if ($catalogProgram > 0 && (int) ($course['program_id'] ?? 0) !== $catalogProgram) {
+        return false;
+    }
     if ($catalogCategory !== '' && strcasecmp((string) ($course['category'] ?? ''), $catalogCategory) !== 0) {
         return false;
     }
@@ -470,14 +525,62 @@ $catalogPaged = array_slice($catalogFiltered, ($catalogPage - 1) * $catalogPerPa
 $registered = academy_registered_courses($pdo, (int) $user['id']);
 $registeredIds = array_map(static fn(array $row): int => (int) $row['id'], $registered);
 $requestedCourseId = (int) ($_GET['course_id'] ?? 0);
+if ($requestedCourseId <= 0 && !empty($_GET['lesson_id'])) {
+    try {
+        $lessonCourseStmt = $pdo->prepare("SELECT webinar_id FROM academy_lessons WHERE id = ? LIMIT 1");
+        $lessonCourseStmt->execute([(int) $_GET['lesson_id']]);
+        $requestedCourseId = (int) ($lessonCourseStmt->fetchColumn() ?: 0);
+    } catch (Throwable $e) {
+    }
+}
 $course = ac_current_course($catalog, $registered, $requestedCourseId);
 $courseId = $course ? (int) $course['id'] : 0;
 $isCourseRegistered = $courseId > 0 && in_array($courseId, $registeredIds, true);
+if (in_array($screen, ['lesson', 'quiz'], true) && $courseId > 0 && !$isCourseRegistered) {
+    try {
+        $certReq = (int) ($course['certification_required'] ?? 0) === 1 ? 'not_started' : 'not_required';
+        $payStatus = (int) ($course['is_free'] ?? 0) === 1 ? 'free' : 'enrolled';
+        $pdo->prepare("
+            INSERT INTO webinar_registrations (webinar_id, user_id, payment_status, progress_percent, completion_status, certificate_status, registered_at)
+            VALUES (?, ?, ?, 0, 'registered', ?, NOW())
+            ON DUPLICATE KEY UPDATE id=id
+        ")->execute([$courseId, (int) $user['id'], $payStatus, $certReq]);
+        $registered = academy_registered_courses($pdo, (int) $user['id']);
+        $registeredIds = array_map(static fn(array $row): int => (int) $row['id'], $registered);
+        $isCourseRegistered = true;
+    } catch (Throwable $e) {
+    }
+}
 $requestedCourseAvailable = $screen === 'learning' && $requestedCourseId > 0 && $courseId === $requestedCourseId && !$isCourseRegistered;
+
+$programId = (int) ($_GET['program_id'] ?? 0);
+$program = null;
+if ($programId > 0) {
+    $programStmt = $pdo->prepare("SELECT * FROM academy_programs WHERE id = ? AND status = 'active' LIMIT 1");
+    $programStmt->execute([$programId]);
+    $program = $programStmt->fetch() ?: null;
+}
+if ($screen === 'program' && !$program) {
+    redirect_to('dashboard.php?screen=catalog');
+}
+$programCourses = $program
+    ? array_values(array_filter($catalog, static fn(array $course): bool => (int) ($course['program_id'] ?? 0) === (int) $program['id']))
+    : [];
 $lessons = $courseId > 0 ? academy_lessons_for_course($pdo, $courseId) : [];
 $completedLessonIds = [];
 if ($courseId > 0) {
-    $progressStmt = $pdo->prepare("SELECT lesson_id FROM academy_progress WHERE user_id = ? AND webinar_id = ? AND status = 'completed'");
+    // Only count progress that still belongs to an active
+    // lesson, so a replaced curriculum can never inflate the
+    // completed count past the live lesson list (the "7/5" bug).
+    $progressStmt = $pdo->prepare("
+        SELECT ap.lesson_id
+        FROM academy_progress ap
+        JOIN academy_lessons l
+          ON l.id = ap.lesson_id
+         AND l.webinar_id = ap.webinar_id
+         AND l.status = 'active'
+        WHERE ap.user_id = ? AND ap.webinar_id = ? AND ap.status = 'completed'
+    ");
     $progressStmt->execute([(int) $user['id'], $courseId]);
     $completedLessonIds = array_map('intval', $progressStmt->fetchAll(PDO::FETCH_COLUMN));
 }
@@ -504,6 +607,53 @@ if ($assessment) {
     $qStmt = $pdo->prepare("SELECT * FROM academy_questions WHERE assessment_id = ? AND status = 'active' ORDER BY sort_order ASC, id ASC");
     $qStmt->execute([(int) $assessment['id']]);
     $questions = $qStmt->fetchAll();
+}
+$allAttempts = [];
+$currentAttempt = null;
+$isRetake = (int) ($_GET['retake'] ?? 0) === 1;
+if ($assessment && !empty($user['id'])) {
+    $attStmt = $pdo->prepare("
+        SELECT * FROM academy_attempts
+        WHERE assessment_id = ? AND user_id = ?
+        ORDER BY completed_at DESC, id DESC
+    ");
+    $attStmt->execute([(int) $assessment['id'], (int) $user['id']]);
+    $allAttempts = $attStmt->fetchAll();
+
+    $requestedAttemptId = (int) ($_GET['attempt_id'] ?? 0);
+    if ($requestedAttemptId > 0) {
+        foreach ($allAttempts as $attRow) {
+            if ((int) $attRow['id'] === $requestedAttemptId) {
+                $currentAttempt = $attRow;
+                break;
+            }
+        }
+    }
+    if (!$currentAttempt && !empty($allAttempts)) {
+        $currentAttempt = $allAttempts[0];
+    }
+}
+// The assessment is the final step of the course: it is offered
+// inline at the end of the lesson flow once every required
+// lesson is complete.
+$totalLessons = count($lessons);
+$allLessonsDone = $isCourseRegistered && $totalLessons > 0 && count($completedLessonIds) >= $totalLessons;
+$lessonsMaterials = $courseId > 0 ? academy_materials_for_course($pdo, $courseId) : [];
+// Course video scenes: compact lesson payload (id, title,
+// duration, body) that the in-app course video player walks
+// through as narrated scenes.
+$lessonVideoScenes = [];
+foreach ($lessons as $lessonRow) {
+    $lessonVideoScenes[] = [
+        'id' => (int) $lessonRow['id'],
+        'title' => (string) $lessonRow['title'],
+        'duration' => (int) ($lessonRow['duration_minutes'] ?? 0),
+        'body' => (string) ($lessonRow['content'] ?? ''),
+    ];
+}
+$lessonVideoJson = json_encode($lessonVideoScenes, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE);
+if ($lessonVideoJson === false) {
+    $lessonVideoJson = '[]';
 }
 $currentRegistration = null;
 foreach ($registered as $registrationRow) {
@@ -546,7 +696,7 @@ $certStmt->execute([(int) $user['id']]);
 $certificates = $certStmt->fetchAll();
 $currentCourseCertificate = null;
 foreach ($certificates as $certificateRow) {
-    if ($courseId > 0 && (int) $certificateRow['webinar_id'] === $courseId) {
+    if ($courseId > 0 && (int) ($certificateRow['webinar_id'] ?? 0) === $courseId) {
         $currentCourseCertificate = $certificateRow;
         break;
     }
@@ -628,7 +778,8 @@ $completedLearning = array_values(array_filter($registered, static fn(array $row
 $avgProgress = $registered ? (int) round(array_sum(array_map(static fn(array $row): int => (int) ($row['progress_percent'] ?? 0), $registered)) / count($registered)) : 0;
 $logo = app_primary_logo_url();
 $screenTitles = [
-    'catalog' => ['Academy Catalog', 'Browse courses by role'],
+    'overview'  => ['Dashboard', 'Your learning overview, progress and quick actions'],
+    'catalog'   => ['Academy Catalog', 'Browse courses by role'],
     'course' => ['Course Detail', $course ? (string) $course['title'] : 'Course information'],
     'checkout' => ['Checkout / Register', 'Complete your enrollment'],
     'learning' => ['My Learning', 'Your enrolled courses'],
@@ -639,6 +790,7 @@ $screenTitles = [
     'messages' => ['Academy Messages', 'Course notices and support updates'],
     'settings' => ['Settings & Feedback', 'Learning preferences and course ratings'],
     'support' => ['Academy Support', 'Get help with courses, payments and certificates'],
+    'program' => ['Program Detail', $program ? (string) $program['title'] : 'Program information'],
 ];
 $titleSet = $screenTitles[$screen];
 $initials = strtoupper(substr((string) ($user['name'] ?? 'U'), 0, 1));
@@ -650,7 +802,7 @@ $initials = strtoupper(substr((string) ($user['name'] ?? 'U'), 0, 1));
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NATCODEV Academy - <?= e($titleSet[0]) ?></title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<link rel="stylesheet" href="../assets/css/academy-dashboard.css">
+<link rel="stylesheet" href="../assets/css/academy-dashboard.css?v=<?= filemtime(__DIR__ . '/../assets/css/academy-dashboard.css') ?>">
 </head>
 <body>
 <div class="sidebar-overlay" id="overlay"></div>
@@ -659,42 +811,58 @@ $initials = strtoupper(substr((string) ($user['name'] ?? 'U'), 0, 1));
 <main class="main">
   <?php if ($message): ?><div class="notice ok"><?= e($message) ?></div><?php endif; ?>
   <?php if ($error): ?><div class="notice err"><?= e($error) ?></div><?php endif; ?>
-  <div class="breadcrumb"><a href="dashboard.php?screen=catalog">Academy</a><i class="fas fa-chevron-right" style="font-size:10px"></i><span><?= e($titleSet[0]) ?></span></div>
-  <div class="pg-head"><div><h2><?= e($titleSet[0]) ?></h2><div class="sub"><?= e($titleSet[1]) ?>. Practical knowledge, verified skills, real platform outcomes.</div></div><a class="btn btn-o" href="dashboard.php?screen=catalog"><i class="fas fa-home"></i> Academy Home</a></div>
+  <?= page_breadcrumbs([['label' => 'Academy', 'href' => 'dashboard.php?screen=overview'], ['label' => (string) $titleSet[0]]], 'NATCODEV', '../index.php') ?>
+  <?php if ($screen !== 'overview'): ?>
+  <div class="pg-head">
+    <div>
+      <h2><?= e($titleSet[0]) ?></h2>
+      <div class="sub"><?= e($titleSet[1]) ?>. Practical knowledge, verified skills, real platform outcomes.</div>
+    </div>
+    <a class="btn btn-o" href="dashboard.php?screen=overview"><i class="fas fa-th-large"></i> Dashboard</a>
+  </div>
+  <?php endif; ?>
 
 <?php if ($screen === 'catalog'): require __DIR__ . '/modules/catalog.php'; endif; ?>
 
+<?php if ($screen === 'overview'): ?>
+  <?php require __DIR__ . '/modules/overview.php'; ?>
+<?php elseif ($screen === 'course' && $course): ?>
+  <?php require __DIR__ . '/modules/course.php'; ?>
 
-<?php if ($screen === 'course' && $course): require __DIR__ . '/modules/course.php'; endif; ?>
+<?php elseif ($screen === 'program' && $program): ?>
+  <?php require __DIR__ . '/modules/program.php'; ?>
 
+<?php elseif ($screen === 'checkout' && $course): ?>
+  <?php require __DIR__ . '/modules/checkout.php'; ?>
 
-<?php if ($screen === 'checkout' && $course): require __DIR__ . '/modules/checkout.php'; endif; ?>
+<?php elseif ($screen === 'learning'): ?>
+  <?php require __DIR__ . '/modules/learning.php'; ?>
 
-<?php if ($screen === 'learning'): require __DIR__ . '/modules/learning.php'; endif; ?>
+<?php elseif ($screen === 'lesson' && $course): ?>
+  <?php require __DIR__ . '/modules/lesson.php'; ?>
 
+<?php elseif ($screen === 'quiz' && $course): ?>
+  <?php require __DIR__ . '/modules/quiz.php'; ?>
 
-<?php if ($screen === 'lesson' && $course): require __DIR__ . '/modules/lesson.php'; endif; ?>
+<?php elseif ($screen === 'certificates'): ?>
+  <?php require __DIR__ . '/modules/certificates.php'; ?>
 
+<?php elseif ($screen === 'transactions'): ?>
+  <?php require __DIR__ . '/modules/transactions.php'; ?>
 
-<?php if ($screen === 'quiz' && $course): require __DIR__ . '/modules/quiz.php'; endif; ?>
+<?php elseif ($screen === 'messages'): ?>
+  <?php require __DIR__ . '/modules/messages.php'; ?>
 
+<?php elseif ($screen === 'settings'): ?>
+  <?php require __DIR__ . '/modules/settings.php'; ?>
 
-<?php if ($screen === 'certificates'): require __DIR__ . '/modules/certificates.php'; endif; ?>
+<?php elseif ($screen === 'support'): ?>
+  <?php require __DIR__ . '/modules/support.php'; ?>
+<?php endif; ?>
 
-
-<?php if ($screen === 'transactions'): require __DIR__ . '/modules/transactions.php'; endif; ?>
-
-
-<?php if ($screen === 'messages'): require __DIR__ . '/modules/messages.php'; endif; ?>
-
-<?php if ($screen === 'settings'): require __DIR__ . '/modules/settings.php'; endif; ?>
-
-
-<?php if ($screen === 'support'): require __DIR__ . '/modules/support.php'; endif; ?>
-
-
-  <?php require __DIR__ . '/partials/learning-summary.php'; ?>
+  <?php if ($screen !== 'overview'): require __DIR__ . '/partials/learning-summary.php'; endif; ?>
 </main>
-<script src="../assets/js/academy-dashboard.js"></script>
+<script src="../assets/js/academy-dashboard.js?v=<?= filemtime(__DIR__ . '/../assets/js/academy-dashboard.js') ?>"></script>
+<script src="../assets/js/academy-player.js"></script>
 </body>
 </html>

@@ -52,7 +52,6 @@ function admin_can(PDO $pdo, string $capability): bool
 function admin_require_capability(PDO $pdo, string $capability): void
 {
     if (!admin_can($pdo, $capability)) {
-        http_response_code(403);
-        exit('Forbidden: missing capability ' . $capability . '.');
+        app_render_error_page(403, 'Missing capability: ' . $capability . '.');
     }
 }

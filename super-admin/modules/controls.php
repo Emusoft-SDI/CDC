@@ -1,6 +1,8 @@
 <?php defined('NATCODEV_SUPER_ADMIN') || exit; 
 admin_ensure_action_request_schema($pdo);
-$pendingRevocationRequests = $pdo->query("SELECT ar.*, c.certificate_ref, c.status certificate_status, u.name requester_name, u.email requester_email FROM admin_action_requests ar LEFT JOIN certificates c ON c.id = ar.target_id AND c.deleted_at IS NULL LEFT JOIN users u ON u.id = ar.requested_by WHERE ar.request_type = 'revoke_certificate' AND ar.target_table = 'certificates' AND ar.status = 'pending' ORDER BY ar.created_at DESC LIMIT 25")->fetchAll();
+$certSoft = app_column_exists($pdo, 'certificates', 'deleted_at') ? ' AND c.deleted_at IS NULL' : '';
+$providerSoft = app_column_exists($pdo, 'provider_registry', 'deleted_at') ? ' AND pr.deleted_at IS NULL' : '';
+$pendingCertRequests = $pdo->query("SELECT ar.*, c.certificate_ref, c.status certificate_status, pr.company_name provider_name, u.name requester_name, u.email requester_email FROM admin_action_requests ar LEFT JOIN certificates c ON c.id = ar.target_id AND ar.target_table = 'certificates'{$certSoft} LEFT JOIN provider_registry pr ON pr.id = ar.target_id AND ar.target_table = 'provider_registry'{$providerSoft} LEFT JOIN users u ON u.id = ar.requested_by WHERE ar.status = 'pending' AND ar.request_type IN ('revoke_certificate', 'restore_certificate', 'revoke_provider_certification', 'suspend_provider_certification', 'reinstate_provider_certification') ORDER BY ar.created_at DESC LIMIT 25")->fetchAll();
 $settings = super_admin_control_settings($pdo);
 $accessMatrix = super_admin_access_matrix($pdo, $roles);
 $moduleSettings = super_admin_module_settings($pdo);
@@ -39,7 +41,7 @@ $activeRole = super_admin_active_tab(array_keys($roles), (string) (array_key_fir
     'integrations' => 'Integrations & Secrets',
     'modules' => 'Module Setup',
     'announcements' => ['label' => 'Announcements', 'count' => count($announcements)],
-    'approvals' => ['label' => 'Certificate Revocations', 'count' => count($pendingRevocationRequests)],
+    'approvals' => ['label' => 'Certificate Approvals', 'count' => count($pendingCertRequests)],
     'audit' => 'Audit Trail',
   ], $activeTab) ?>
   <div class="tab-panels">
@@ -59,9 +61,9 @@ $activeRole = super_admin_active_tab(array_keys($roles), (string) (array_key_fir
           <small>Permissions defined across all platform roles.</small>
         </article>
         <article>
-          <span>Pending Revocations</span>
-          <strong><?= count($pendingRevocationRequests) ?></strong>
-          <small>Certificate revocations awaiting Super Admin sign-off.</small>
+          <span>Pending Approvals</span>
+          <strong><?= count($pendingCertRequests) ?></strong>
+          <small>Certificate and provider accreditation requests awaiting Super Admin sign-off.</small>
         </article>
         <article>
           <span>Active Announcements</span>
@@ -156,6 +158,12 @@ $activeRole = super_admin_active_tab(array_keys($roles), (string) (array_key_fir
               <option value="0" <?= $settings['access_user_export_enabled'] === '0' ? 'selected' : '' ?>>Disabled</option>
             </select>
           </label>
+          <label><span>Enrollment Auto-Approve</span>
+            <select name="enrollment_auto_approve">
+              <option value="1" <?= $settings['enrollment_auto_approve'] === '1' ? 'selected' : '' ?>>Enabled — skip ops review, activate immediately</option>
+              <option value="0" <?= $settings['enrollment_auto_approve'] === '0' ? 'selected' : '' ?>>Disabled — require manual ops approval</option>
+            </select>
+          </label>
         </div>
         <button type="submit" data-busy-text="Saving controls...">Save Controls</button>
       </form>
@@ -244,6 +252,12 @@ $activeRole = super_admin_active_tab(array_keys($roles), (string) (array_key_fir
                 </div>
                 <input type="hidden" name="modules[<?= e($feature) ?>][feature]" value="<?= e($feature) ?>">
                 <div class="settings-grid">
+                  <label><span class="toggle-label">Enabled</span>
+                    <select name="modules[<?= e($feature) ?>][enabled]">
+                      <option value="1" <?= ($moduleState['enabled'] ?? $module['enabled']) === '1' ? 'selected' : '' ?>>Yes — publicly accessible</option>
+                      <option value="0" <?= ($moduleState['enabled'] ?? $module['enabled']) !== '1' ? 'selected' : '' ?>>No — hidden from users</option>
+                    </select>
+                  </label>
                   <label>Operating Mode
                     <select name="modules[<?= e($feature) ?>][mode]">
                       <?php foreach (['active' => 'Active', 'pilot' => 'Pilot', 'setup' => 'Setup Required', 'paused' => 'Paused'] as $key => $label): ?>
@@ -308,6 +322,35 @@ $activeRole = super_admin_active_tab(array_keys($roles), (string) (array_key_fir
                   </form>
                 </div>
                 <p><?= e($announcement['body']) ?></p>
+                <details class="announcement-edit" style="margin-top:8px">
+                  <summary>Edit / Delete</summary>
+                  <form class="panel" method="post" style="margin-top:8px">
+                    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+                    <input type="hidden" name="action" value="update_announcement">
+                    <input type="hidden" name="announcement_id" value="<?= (int) $announcement['id'] ?>">
+                    <input type="hidden" name="tab" value="announcements">
+                    <label>Title</label>
+                    <input name="title" maxlength="180" required value="<?= e($announcement['title']) ?>">
+                    <label>Audience</label>
+                    <select name="audience_role">
+                      <option value="all" <?= $announcement['audience_role'] === 'all' ? 'selected' : '' ?>>All users</option>
+                      <?php foreach ($roles as $roleKey => $roleLabel): ?>
+                        <option value="<?= e($roleKey) ?>" <?= $announcement['audience_role'] === $roleKey ? 'selected' : '' ?>><?= e($roleLabel) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                    <label>Message</label>
+                    <textarea name="body" required><?= e($announcement['body']) ?></textarea>
+                    <label><input type="checkbox" name="is_active" value="1" <?= (int) $announcement['is_active'] === 1 ? 'checked' : '' ?>> Active announcement</label>
+                    <button type="submit" data-busy-text="Saving announcement...">Save Changes</button>
+                  </form>
+                  <form method="post" style="margin-top:8px">
+                    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+                    <input type="hidden" name="action" value="delete_announcement">
+                    <input type="hidden" name="announcement_id" value="<?= (int) $announcement['id'] ?>">
+                    <input type="hidden" name="tab" value="announcements">
+                    <button type="submit" class="danger" data-busy-text="Deleting..." onclick="return confirm('Delete the announcement "<?= e(addslashes((string) $announcement['title'])) ?>"? This cannot be undone.');">Delete Announcement</button>
+                  </form>
+                </details>
               </article>
             <?php endforeach; ?>
             <?php if (!$announcements): ?><p class="empty">No announcements created yet.</p><?php endif; ?>
@@ -320,29 +363,49 @@ $activeRole = super_admin_active_tab(array_keys($roles), (string) (array_key_fir
       <section class="panel">
         <div class="section-head">
           <div>
-            <h2>Pending Certificate Revocation Approvals</h2>
-            <p>Admins can request revocation, but only Super Admin can finalize a public certificate as revoked.</p>
+            <h2>Pending Certificate &amp; Provider Accreditation Approvals</h2>
+            <p>Admins can request revocations, restorations and provider accreditation changes, but only Super Admin can finalize them.</p>
           </div>
           <a class="button secondary" href="../admin/registry/certificates.php?status=issued">Open Certificates</a>
         </div>
+        <?php
+        $certRequestMeta = [
+            'revoke_certificate' => ['title' => 'Certificate revocation', 'approve' => 'Approve &amp; Revoke'],
+            'restore_certificate' => ['title' => 'Certificate restoration', 'approve' => 'Approve &amp; Restore'],
+            'revoke_provider_certification' => ['title' => 'Provider accreditation revocation', 'approve' => 'Approve &amp; Revoke'],
+            'suspend_provider_certification' => ['title' => 'Provider accreditation suspension', 'approve' => 'Approve &amp; Suspend'],
+            'reinstate_provider_certification' => ['title' => 'Provider accreditation reinstatement', 'approve' => 'Approve &amp; Reinstate'],
+        ];
+        ?>
         <div class="audit-list">
-          <?php foreach ($pendingRevocationRequests as $request): ?>
+          <?php foreach ($pendingCertRequests as $request): ?>
+            <?php
+            $type = (string) $request['request_type'];
+            $meta = $certRequestMeta[$type] ?? ['title' => 'Certificate request', 'approve' => 'Approve'];
+            $payload = json_decode((string) ($request['payload_json'] ?? ''), true);
+            $payload = is_array($payload) ? $payload : [];
+            $requestRef = (string) ($request['certificate_ref'] ?: ($payload['certificate_ref'] ?: ($request['target_key'] ?: $request['target_label'])));
+            if ($requestRef === '') {
+                $requestRef = (string) ('#' . $request['target_id']);
+            }
+            $requestSubject = (string) ($request['provider_name'] ?: $request['certificate_status']);
+            ?>
             <div>
-              <strong><?= e((string) ($request['certificate_ref'] ?: $request['target_label'])) ?></strong>
+              <strong><?= e($meta['title']) ?>: <?= e($requestRef) ?><?= $requestSubject !== '' ? ' &middot; ' . e($requestSubject) : '' ?></strong>
               <span><?= e((string) ($request['reason'] ?? 'No reason supplied.')) ?></span>
               <small>Requested by <?= e((string) ($request['requester_name'] ?: $request['requester_email'] ?: 'Unknown admin')) ?> on <?= e(date('M j, Y g:i A', strtotime((string) $request['created_at']))) ?></small>
               <form method="post" class="actions" style="margin-top:10px">
                 <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                <input type="hidden" name="action" value="review_certificate_revocation">
+                <input type="hidden" name="action" value="review_certificate_request">
                 <input type="hidden" name="request_id" value="<?= (int) $request['id'] ?>">
                 <input type="hidden" name="tab" value="approvals">
                 <input name="review_note" placeholder="Optional review note">
-                <button type="submit" name="decision" value="approve" data-busy-text="Approving...">Approve & Revoke</button>
+                <button type="submit" name="decision" value="approve" data-busy-text="Approving..."><?= $meta['approve'] ?></button>
                 <button type="submit" name="decision" value="reject" class="secondary" data-busy-text="Rejecting...">Reject</button>
               </form>
             </div>
           <?php endforeach; ?>
-          <?php if (!$pendingRevocationRequests): ?><p class="empty">No pending certificate revocation requests.</p><?php endif; ?>
+          <?php if (!$pendingCertRequests): ?><p class="empty">No pending certificate or provider accreditation requests.</p><?php endif; ?>
         </div>
       </section>
     </div>
@@ -354,8 +417,8 @@ $activeRole = super_admin_active_tab(array_keys($roles), (string) (array_key_fir
             <h2>Audit Trail</h2>
             <p>Filter privileged activity and export the evidence.</p>
           </div>
-          <?php $auditExportQuery = array_merge($_GET, ['view' => 'controls', 'tab' => 'audit', 'export' => 'audit']); ?>
-          <a class="button secondary" href="?<?= e(http_build_query($auditExportQuery)) ?>">Export CSV</a>
+          <?php $auditExportQuery = array_merge($_GET, ['view' => 'controls', 'tab' => 'audit']); ?>
+          <form method="post" action="?<?= e(http_build_query($auditExportQuery)) ?>" style="display:inline"><input type="hidden" name="action" value="export_audit"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><button type="submit" class="button secondary">Export CSV</button></form>
         </div>
         <form class="filters" method="get">
           <input type="hidden" name="view" value="controls">

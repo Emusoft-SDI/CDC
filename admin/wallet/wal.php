@@ -14,7 +14,7 @@ admin_ensure_schema($pdo);
 wallet_ensure_schema($pdo);
 marketplace_ensure_schema($pdo);
 academy_ensure_schema($pdo);
-admin_require($pdo);
+admin_require($pdo, 'wallet');
 
 $admin = current_user($pdo) ?: [];
 $message = '';
@@ -48,8 +48,8 @@ function wx_rows($pdo, $sql, $params = []) {
 }
 
 $platformBalance = wx_scalar($pdo, "SELECT COALESCE(SUM(balance), 0) FROM wallets");
-$todayInflow = wx_scalar($pdo, "SELECT COALESCE(SUM(amount), 0) FROM wallet_transactions WHERE type='credit' AND DATE(created_at) = CURDATE()");
-$todayOutflow = wx_scalar($pdo, "SELECT COALESCE(SUM(amount), 0) FROM wallet_transactions WHERE type='debit' AND DATE(created_at) = CURDATE()");
+$todayInflow = wx_scalar($pdo, "SELECT COALESCE(SUM(amount), 0) FROM wallet_transactions WHERE (type IN ('credit', 'funding') OR direction = 'inflow') AND DATE(created_at) = CURDATE()");
+$todayOutflow = wx_scalar($pdo, "SELECT COALESCE(SUM(amount), 0) FROM wallet_transactions WHERE (type IN ('debit', 'withdrawal') OR direction = 'outflow') AND DATE(created_at) = CURDATE()");
 $pendingWithdrawals = wx_rows($pdo, "SELECT ww.*, u.name as user_name FROM wallet_withdrawals ww LEFT JOIN users u ON u.id = ww.user_id WHERE ww.status = 'pending' ORDER BY ww.requested_at DESC LIMIT 10");
 $recentTransactions = wx_rows($pdo, "SELECT wt.*, u.name as user_name FROM wallet_transactions wt LEFT JOIN wallets w ON w.id = wt.wallet_id LEFT JOIN users u ON u.id = w.user_id ORDER BY wt.created_at DESC LIMIT 10");
 $users = wx_rows($pdo, "SELECT id, name, email FROM users ORDER BY name LIMIT 100");
@@ -62,20 +62,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!app_check_rate_limit('admin_wallet_fund', 10, 600)) {
             $error = 'Too many funding attempts. Try again later.';
         } else {
-            $result = wallet_admin_credit(
-                $pdo,
-                (int) ($_POST['user_id'] ?? 0),
-                (float) ($_POST['amount'] ?? 0),
-                (int) ($admin['id'] ?? 0),
-                (string) ($_POST['note'] ?? '')
-            );
-            if (!$result['success']) {
-                $error = (string) ($result['error'] ?? 'Wallet funding failed.');
+            $fundUser = (int) ($_POST['user_id'] ?? 0);
+            $fundAmount = (float) ($_POST['amount'] ?? 0);
+            $fundNote = (string) ($_POST['note'] ?? '');
+            if (wallet_dual_control_required($pdo, $fundAmount)) {
+                $requestId = wallet_queue_credit_approval($pdo, $fundUser, $fundAmount, (int) ($admin['id'] ?? 0), $fundNote);
+                $message = 'Credit of NGN ' . number_format($fundAmount, 2) . ' queued for Super Admin approval (request #' . $requestId . '). No funds moved yet.';
             } else {
-                $message = 'Wallet funded successfully.';
+                $result = wallet_admin_credit(
+                    $pdo,
+                    $fundUser,
+                    $fundAmount,
+                    (int) ($admin['id'] ?? 0),
+                    $fundNote
+                );
+                if (!$result['success']) {
+                    $error = (string) ($result['error'] ?? 'Wallet funding failed.');
+                } else {
+                    $message = 'Wallet funded successfully.';
+                }
             }
         }
-        if ($message !== '') {
+        if ($message !== '' && $error === '') {
             header("Location: ?msg=funded");
             exit;
         }

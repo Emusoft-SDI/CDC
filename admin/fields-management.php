@@ -157,11 +157,11 @@ foreach ($farms as $farm) {
     if ($farm['latitude'] !== null && $farm['longitude'] !== null) {
         $mapItems[] = [
             'id' => (int) $farm['id'],
-            'name' => (string) $farm['farm_name'],
-            'grower' => (string) $farm['grower_name'],
+            'name' => e((string) $farm['farm_name']),
+            'grower' => e((string) $farm['grower_name']),
             'lat' => (float) $farm['latitude'],
             'lng' => (float) $farm['longitude'],
-            'status' => (string) $farm['verification_status'],
+            'status' => e((string) $farm['verification_status']),
         ];
     }
 }
@@ -264,7 +264,7 @@ foreach ($farms as $farm) {
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-  const farmItems = <?= json_encode($mapItems, JSON_UNESCAPED_SLASHES) ?>;
+  const farmItems = <?= json_encode($mapItems, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?: '[]' ?>;
   const map = L.map('fieldsMap').setView([9.0820, 8.6753], 6);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map);
   farmItems.forEach((farm) => {

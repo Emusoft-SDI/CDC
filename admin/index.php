@@ -6,6 +6,7 @@ require_once __DIR__ . '/../lib/academy.php';
 require_once __DIR__ . '/../lib/marketplace.php';
 require_once __DIR__ . '/../lib/support.php';
 require_once __DIR__ . '/../lib/monnify.php';
+require_once __DIR__ . '/../coordination/_coordination.php';
 
 session_start();
 $pdo = db();
@@ -13,6 +14,8 @@ admin_ensure_schema($pdo);
 academy_ensure_schema($pdo);
 marketplace_ensure_schema($pdo);
 support_ensure_schema($pdo);
+enrollment_ensure_schema($pdo);
+coord_ensure_schema($pdo);
 
 admin_handle_logout_request('login.php');
 if (!admin_session_is_authenticated($pdo)) {
@@ -173,6 +176,10 @@ $activeListings = hub_count($pdo, 'marketplace_listings', "approval_status = 'ap
 $activeCourses = hub_count($pdo, 'webinars', "status = 'active'");
 $settlementsPending = hub_count($pdo, 'marketplace_orders', "payment_status = 'paid' AND settled_at IS NULL");
 $reportsGenerated = hub_count($pdo, 'audit_log');
+$activeCoordinators = hub_count($pdo, 'user_role_assignments', "status = 'active' AND role_key IN ('national_coordinator','regional_coordinator','state_coordinator','lga_coordinator','district_coordinator','village_coordinator')");
+$pendingCoordinatorApps = hub_count($pdo, 'enrollment_applications', "status = 'pending' AND applicant_type = 'coordinator'");
+$coveredStates = hub_count($pdo, 'user_role_assignments', "role_key = 'state_coordinator' AND status = 'active' AND scope_type = 'state' AND COALESCE(scope_value, '') <> ''");
+$totalStates = hub_count($pdo, 'nigeria_states');
 $backupCount = hub_count($pdo, 'dr_backups');
 $latestBackupStatus = 'No backups yet';
 if (app_table_exists($pdo, 'dr_backups')) {
@@ -222,6 +229,7 @@ $quickCommands = [
     ['label' => 'Export Registry', 'href' => 'admin.php?export=1', 'super_only' => true],
     ['label' => 'Generate Reports', 'href' => 'reports.php?page=exports', 'feature' => 'reports'],
     ['label' => 'Review Approvals', 'href' => '../super-admin/index.php?view=approvals', 'super_only' => true],
+    ['label' => 'Manage Coordinators', 'href' => 'coordinators.php', 'feature' => 'user_management'],
 ];
 $profileLinks = [
     ['label' => 'My Profile', 'href' => 'profile.php?workspace=' . rawurlencode($workspaceProfileKey), 'icon' => 'fa-user', 'feature' => 'profile'],
@@ -413,6 +421,22 @@ $workspaceCatalog = [
             ['Integrations', '../super-admin/index.php?view=integrations'],
             ['Audit Log', '../super-admin/index.php?view=audit'],
             ['Backup & Recovery', 'backups.php'],
+        ],
+    ],
+    [
+        'key' => 'coordinators',
+        'title' => 'Coordinators',
+        'icon' => 'fa-users-crown',
+        'feature' => 'user_management',
+        'href' => 'coordinators.php',
+        'text' => 'Coordinator management, tier coverage, enrollment pipeline, and scope oversight.',
+        'metrics' => [['Active Coordinators', number_format($activeCoordinators)], ['Pending Applications', number_format($pendingCoordinatorApps)], ['States Covered', $coveredStates . '/' . $totalStates]],
+        'tone' => 'blue',
+        'status' => $pendingCoordinatorApps > 0 ? 'Attention' : 'Operational',
+        'sections' => [
+            ['Management', 'coordinators.php'],
+            ['Coverage Report', 'reports/?page=coordinator_coverage'],
+            ['Enrollment Applications', 'coordinator-applications.php'],
         ],
     ],
 ];

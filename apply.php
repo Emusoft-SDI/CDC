@@ -22,22 +22,43 @@ $pdo = db();
 app_ensure_core_schema($pdo);
 
 $applicationType = strtolower((string) ($_GET['type'] ?? 'farmer'));
+
+// Route the ?type= parameter to the correct registration-wizard board.
+// farmer/outgrower are grower variants; coordinator and cooperative are
+// their own enrollment boards with an operations-approval step.
+$boardSlug = match ($applicationType) {
+    'coordinator' => 'coordinator',
+    'cooperative' => 'cooperative',
+    default => 'grower',
+};
+$board = registration_wizard_board($boardSlug) ?: registration_wizard_board('grower');
+$boardSlug = (string) ($board['slug'] ?? $boardSlug);
+
 $applicationTypeLabel = match ($applicationType) {
     'outgrower' => 'Commercial Coconut Outgrowers Registration',
-    'cooperative' => 'Coconut Farmers Cooperative Registration',
-    default => 'Coconut Grower Registration',
+    default => (string) ($board['label'] ?? 'Coconut Grower Registration'),
 };
-$seedMemberType = match ($applicationType) {
-    'cooperative' => 'cooperative',
-    'corporate' => 'corporate',
-    default => 'individual',
+// The grower board seeds a member_type; enrollment boards do not.
+$seedMemberType = 'individual';
+
+$isGrower = $boardSlug === 'grower';
+$isCoordinator = $boardSlug === 'coordinator';
+$isCooperative = $boardSlug === 'cooperative';
+
+$boardLead = match ($boardSlug) {
+    'coordinator' => 'Four details to begin. Confirm your email, then tell us the enclave you will coordinate.',
+    'cooperative' => 'Four details to begin. Confirm your email, then tell us about your cooperative.',
+    default => 'Four details to begin. Confirm your email, then complete the rest step by step &mdash; stopping whenever you need to and picking up exactly where you left off.',
 };
 
 $error = '';
-if (isset($_GET['social'])) {
+// Social sign-on creates a grower account, so it is only offered on the
+// grower board; coordinators and cooperatives enroll through the wizard
+// and are activated by operations.
+if ($isGrower && isset($_GET['social'])) {
     app_oauth_begin((string) $_GET['social'], 'grower', 'dashboard/index.php');
 }
-if (isset($_GET['oauth_callback'])) {
+if ($isGrower && isset($_GET['oauth_callback'])) {
     try {
         $oauthUser = app_oauth_finish($pdo, (string) $_GET['oauth_callback'], 'grower');
         $otpStart = otp_begin_email_login_challenge($pdo, $oauthUser, 'dashboard/index.php');
@@ -50,13 +71,13 @@ if (isset($_GET['oauth_callback'])) {
         $error = $e->getMessage();
     }
 }
-if (isset($_GET['oauth_error'])) {
+if ($isGrower && isset($_GET['oauth_error'])) {
     $error = app_oauth_missing_credentials_message((string) ($_GET['provider'] ?? 'google'));
 }
 
 $logo = app_primary_logo_url();
 $stepPreview = [];
-foreach (registration_wizard_steps((array) registration_wizard_board('grower')) as $step) {
+foreach (registration_wizard_steps($board) as $step) {
     $stepPreview[] = (string) $step['title'];
 }
 ?>
@@ -110,6 +131,13 @@ foreach (registration_wizard_steps((array) registration_wizard_board('grower')) 
     .guide-card{position:sticky;top:100px}
     .mini-help{display:flex;gap:12px;align-items:center;border:1px solid #cbe8cd;border-radius:10px;background:#fff;padding:14px;margin-bottom:14px}
     .mini-help i{color:var(--green);font-size:1.3rem}
+    .stake-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:0 0 26px}
+    .stake-card{display:block;border:1px solid var(--line);border-radius:12px;background:#fff;padding:18px;text-align:left;transition:border-color .15s,box-shadow .15s}
+    .stake-card:hover{border-color:#7ccf94;box-shadow:0 8px 22px rgba(6,69,31,.08)}
+    .stake-card.is-active{border-color:var(--green);box-shadow:0 0 0 3px #dff3e5;background:var(--soft)}
+    .stake-card i{color:var(--green);font-size:1.5rem;display:block;margin-bottom:10px}
+    .stake-card strong{display:block;color:var(--green);font-size:1.02rem;margin-bottom:6px}
+    .stake-card span{color:#475467;font-weight:600;font-size:.9rem;line-height:1.5;display:block}
     .guide-section{border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:10px;overflow:hidden}
     .guide-section summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 15px;font-weight:800;color:#1f2937}
     .guide-section summary::-webkit-details-marker{display:none}
@@ -148,7 +176,7 @@ foreach (registration_wizard_steps((array) registration_wizard_board('grower')) 
 <section class="hero">
   <div>
     <h1><?= e($applicationTypeLabel) ?></h1>
-    <p>Four details to begin. Confirm your email, then complete the rest step by step &mdash; stopping whenever you need to and picking up exactly where you left off.</p>
+    <p><?= $boardLead ?></p>
   </div>
 </section>
 
@@ -157,16 +185,38 @@ foreach (registration_wizard_steps((array) registration_wizard_board('grower')) 
     <section class="form">
       <?php if ($error): ?><div class="alert err"><?= e($error) ?></div><?php endif; ?>
 
-      <h2>Start your registration</h2>
-      <p class="lead">We will email you a 6-digit code to confirm your address. After that you work through the six steps at your own pace.</p>
+      <div class="stake-grid" role="list">
+        <a class="stake-card<?= $isGrower ? ' is-active' : '' ?>" href="apply.php?type=grower" role="listitem">
+          <i class="fas fa-seedling" aria-hidden="true"></i>
+          <strong>Grower</strong>
+          <span>Register as an individual coconut grower or commercial outgrower.</span>
+        </a>
+        <a class="stake-card<?= $isCoordinator ? ' is-active' : '' ?>" href="apply.php?type=coordinator" role="listitem">
+          <i class="fas fa-user-tie" aria-hidden="true"></i>
+          <strong>Coordinator</strong>
+          <span>Head a village, district, LGA or state enclave and run the coordination workspace.</span>
+        </a>
+        <a class="stake-card<?= $isCooperative ? ' is-active' : '' ?>" href="apply.php?type=cooperative" role="listitem">
+          <i class="fas fa-users" aria-hidden="true"></i>
+          <strong>Cooperative</strong>
+          <span>Partner with NATCODEV as a registered cooperative and onboard members.</span>
+        </a>
+      </div>
 
-      <?= app_social_buttons('grower', 'dashboard/index.php') ?>
+      <h2>Start your registration</h2>
+      <p class="lead">We will email you a 6-digit code to confirm your address. After that you work through the steps at your own pace.</p>
+
+      <?php if ($isGrower): ?>
+        <?= app_social_buttons('grower', 'dashboard/index.php') ?>
+      <?php endif; ?>
 
       <form method="post" action="register-wizard.php">
         <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-        <input type="hidden" name="board" value="grower">
+        <input type="hidden" name="board" value="<?= e($boardSlug) ?>">
         <input type="hidden" name="action" value="start">
-        <input type="hidden" name="member_type" value="<?= e($seedMemberType) ?>">
+        <?php if ($isGrower): ?>
+          <input type="hidden" name="member_type" value="<?= e($seedMemberType) ?>">
+        <?php endif; ?>
         <div class="grid2">
           <div class="wide"><label for="ap-name">Full Name *<input id="ap-name" name="name" required autocomplete="name" placeholder="Enter your full name"></label></div>
           <label for="ap-phone">Phone Number *<input id="ap-phone" name="phone" type="tel" required autocomplete="tel" placeholder="08012345678"></label>
@@ -187,7 +237,7 @@ foreach (registration_wizard_steps((array) registration_wizard_board('grower')) 
       <p class="lead" style="margin-bottom:14px">Enter the email you used and we will send a fresh code, then return you to the step you stopped at.</p>
       <form method="post" action="register-wizard.php">
         <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-        <input type="hidden" name="board" value="grower">
+        <input type="hidden" name="board" value="<?= e($boardSlug) ?>">
         <input type="hidden" name="action" value="resume">
         <div class="grid2">
           <div class="wide"><label for="ap-resume">Email you registered with<input id="ap-resume" name="email" type="email" required placeholder="you@example.com"></label></div>
@@ -197,7 +247,7 @@ foreach (registration_wizard_steps((array) registration_wizard_board('grower')) 
 
       <hr class="divider">
 
-      <h3>What the six steps cover</h3>
+      <h3>What the steps cover</h3>
       <p class="lead" style="margin-bottom:14px">Each step saves as you finish it. Close the page at any point and come back later.</p>
       <ol class="steps-preview">
         <?php foreach ($stepPreview as $title): ?>
@@ -212,22 +262,44 @@ foreach (registration_wizard_steps((array) registration_wizard_board('grower')) 
         <p class="hint" style="margin-bottom:16px">Useful details are here when you need them, while the form stays clear.</p>
         <div class="mini-help"><i class="fas fa-headset"></i><span><strong>Need help?</strong><br><a style="color:var(--green);font-weight:800" href="support/index.php?category=account">Contact support</a></span></div>
         <details class="guide-section" open>
-          <summary>Why register?</summary>
+          <summary><?= $isCoordinator ? 'Why coordinate?' : ($isCooperative ? 'Why partner?' : 'Why register?') ?></summary>
           <div class="guide-body">
             <ul class="guide-list">
-              <li><i class="fas fa-award"></i><span>Verified grower certificate after review.</span></li>
-              <li><i class="fas fa-chart-line"></i><span>Farm dashboard for records and performance.</span></li>
-              <li><i class="fas fa-cart-shopping"></i><span>Marketplace, academy, wallet, and support access.</span></li>
+              <?php if ($isCoordinator): ?>
+                <li><i class="fas fa-sitemap"></i><span>Run the coordination workspace for your enclave.</span></li>
+                <li><i class="fas fa-users"></i><span>Manage farmer registrations and field activity.</span></li>
+                <li><i class="fas fa-chart-line"></i><span>Drive impact across your village, district, LGA or state.</span></li>
+              <?php elseif ($isCooperative): ?>
+                <li><i class="fas fa-users"></i><span>Onboard members as login-capable accounts.</span></li>
+                <li><i class="fas fa-box-open"></i><span>Collective production, cost optimization and market engagement.</span></li>
+                <li><i class="fas fa-hand-holding-usd"></i><span>Reduced inputs, off-take arrangements and access to credit.</span></li>
+              <?php else: ?>
+                <li><i class="fas fa-award"></i><span>Verified grower certificate after review.</span></li>
+                <li><i class="fas fa-chart-line"></i><span>Farm dashboard for records and performance.</span></li>
+                <li><i class="fas fa-cart-shopping"></i><span>Marketplace, academy, wallet, and support access.</span></li>
+              <?php endif; ?>
             </ul>
           </div>
         </details>
         <details class="guide-section">
-          <summary>Required documents</summary>
+          <summary><?= ($isCoordinator || $isCooperative) ? 'What operations needs' : 'Required documents' ?></summary>
           <div class="guide-body">
-            <div class="doc-row"><span><i class="fas fa-id-card"></i> Valid ID Card</span><span class="badge">Required</span></div>
-            <div class="doc-row"><span><i class="fas fa-camera"></i> Farm Evidence</span><span class="badge">Required</span></div>
-            <div class="doc-row"><span><i class="fas fa-users"></i> Cooperative Membership</span><span class="badge">Optional</span></div>
-            <p style="margin:10px 0 0">Uploads can be completed after your dashboard is created.</p>
+            <?php if ($isCoordinator): ?>
+              <div class="doc-row"><span><i class="fas fa-layer-group"></i> Coordination Tier</span><span class="badge">Required</span></div>
+              <div class="doc-row"><span><i class="fas fa-map-marker-alt"></i> State, LGA, District &amp; Village</span><span class="badge">Required</span></div>
+              <div class="doc-row"><span><i class="fas fa-phone"></i> Accurate Contact Details</span><span class="badge">Required</span></div>
+              <p style="margin:10px 0 0">Operations reviews and approves every application before your account is activated.</p>
+            <?php elseif ($isCooperative): ?>
+              <div class="doc-row"><span><i class="fas fa-landmark"></i> Cooperative Name</span><span class="badge">Required</span></div>
+              <div class="doc-row"><span><i class="fas fa-file-signature"></i> CAC Registration Number</span><span class="badge">Required</span></div>
+              <div class="doc-row"><span><i class="fas fa-users"></i> Number of Members</span><span class="badge">Required</span></div>
+              <p style="margin:10px 0 0">Operations reviews and approves every partnership before the account is activated.</p>
+            <?php else: ?>
+              <div class="doc-row"><span><i class="fas fa-id-card"></i> Valid ID Card</span><span class="badge">Required</span></div>
+              <div class="doc-row"><span><i class="fas fa-camera"></i> Farm Evidence</span><span class="badge">Required</span></div>
+              <div class="doc-row"><span><i class="fas fa-users"></i> Cooperative Membership</span><span class="badge">Optional</span></div>
+              <p style="margin:10px 0 0">Uploads can be completed after your dashboard is created.</p>
+            <?php endif; ?>
           </div>
         </details>
         <details class="guide-section">

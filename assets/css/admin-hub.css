@@ -278,12 +278,13 @@ body.admin-submitting .admin-action-overlay,body.admin-submitting .admin-working
 .nc-topbar-page .rev-shell,
 .nc-topbar-page .ops-shell,
 .nc-topbar-page .set-shell,
-.nc-topbar-page .rep-shell{display:contents}
+.nc-topbar-page .rep-shell,
+.nc-topbar-page .rp-shell{display:contents}
 .admin-main.nc-topbar-content{padding:0}
 .admin-main.nc-topbar-content > .nc-breadcrumbs{grid-column:2;grid-row:2;margin:0;padding:16px 24px 0;background:var(--bg)}
 
 /* Sections that bring their own rail switch to the 2-column grid. */
-.nc-topbar-page:has(.fin-side, .support-rail, .acad-rail, .registry-rail, .mx-side, .rev-side, .ops-side, .set-rail, .rep-rail){display:grid;grid-template-columns:275px minmax(0,1fr);grid-template-rows:auto auto 1fr;min-height:100vh;align-items:start}
+.nc-topbar-page:has(.fin-side, .support-rail, .acad-rail, .registry-rail, .mx-side, .rev-side, .ops-side, .set-rail, .rep-rail, .rp-side){display:grid;grid-template-columns:275px minmax(0,1fr);grid-template-rows:auto auto 1fr;min-height:100vh;align-items:start}
 .nc-topbar-page > .nc-topbar-body > .nc-top{grid-column:2;grid-row:1}
 
 /* Sub-master rails — master tokens, full height from the very top. */
@@ -295,10 +296,11 @@ body.admin-submitting .admin-action-overlay,body.admin-submitting .admin-working
 .nc-topbar-page .rev-side,
 .nc-topbar-page .ops-side,
 .nc-topbar-page .set-rail,
-.nc-topbar-page .rep-rail{grid-column:1;grid-row:1 / span 3;align-self:stretch;min-height:100vh;position:sticky;top:0;overflow:auto;border:0;border-radius:0;box-shadow:none;margin:0;background:linear-gradient(180deg,var(--deep),#00301c);color:#fff;padding:24px 18px}
+.nc-topbar-page .rep-rail,
+.nc-topbar-page .rp-side{grid-column:1;grid-row:1 / span 3;align-self:stretch;min-height:100vh;position:sticky;top:0;overflow:auto;border:0;border-radius:0;box-shadow:none;margin:0;background:linear-gradient(180deg,var(--deep),#00301c);color:#fff;padding:24px 18px}
 .nc-topbar-page .fin-side a,.nc-topbar-page .support-rail a,.nc-topbar-page .acad-rail a,
 .nc-topbar-page .registry-rail a,.nc-topbar-page .mx-side a,.nc-topbar-page .rev-side a,
-.nc-topbar-page .ops-side a,.nc-topbar-page .set-rail a,.nc-topbar-page .rep-rail a{color:#d8eee2;text-decoration:none;padding:11px 12px;border-radius:10px;font-weight:800}
+.nc-topbar-page .ops-side a,.nc-topbar-page .set-rail a,.nc-topbar-page .rep-rail a,.nc-topbar-page .rp-side a{color:#d8eee2;text-decoration:none;padding:11px 12px;border-radius:10px;font-weight:800}
 .nc-topbar-page .fin-side a.active,.nc-topbar-page .fin-side a:hover,
 .nc-topbar-page .support-rail a.active,.nc-topbar-page .support-rail a:hover,
 .nc-topbar-page .acad-rail a.active,.nc-topbar-page .acad-rail a:hover,
@@ -307,16 +309,17 @@ body.admin-submitting .admin-action-overlay,body.admin-submitting .admin-working
 .nc-topbar-page .rev-side a.active,.nc-topbar-page .rev-side a:hover,
 .nc-topbar-page .ops-side a.active,.nc-topbar-page .ops-side a:hover,
 .nc-topbar-page .set-rail a.active,.nc-topbar-page .set-rail a:hover,
-.nc-topbar-page .rep-rail a.active,.nc-topbar-page .rep-rail a:hover{background:var(--green);color:#fff;text-decoration:none}
+.nc-topbar-page .rep-rail a.active,.nc-topbar-page .rep-rail a:hover,
+.nc-topbar-page .rp-side a.active,.nc-topbar-page .rp-side a:hover{background:var(--green);color:#fff;text-decoration:none}
 .nc-topbar-page .fin-side a,
 .nc-topbar-page .registry-rail a,.nc-topbar-page .mx-side a,.nc-topbar-page .rev-side a,
-.nc-topbar-page .ops-side a,.nc-topbar-page .set-rail a,.nc-topbar-page .rep-rail a{display:flex;align-items:center;gap:10px;justify-content:flex-start}
+.nc-topbar-page .ops-side a,.nc-topbar-page .set-rail a,.nc-topbar-page .rep-rail a,.nc-topbar-page .rp-side a{display:flex;align-items:center;gap:10px;justify-content:flex-start}
 .nc-topbar-page .fin-side a i,.nc-topbar-page .support-rail a i,.nc-topbar-page .acad-rail a i,
 .nc-topbar-page .registry-rail a i,.nc-topbar-page .mx-side a i,.nc-topbar-page .rev-side a i,
-.nc-topbar-page .ops-side a i,.nc-topbar-page .set-rail a i,.nc-topbar-page .rep-rail a i{width:20px;text-align:center;flex:none;font-size:.95rem}
+.nc-topbar-page .ops-side a i,.nc-topbar-page .set-rail a i,.nc-topbar-page .rep-rail a i,.nc-topbar-page .rp-side a i{width:20px;text-align:center;flex:none;font-size:.95rem}
 .nc-topbar-page .support-rail-nav a,.nc-topbar-page .acad-nav a,
 .nc-topbar-page .registry-rail a,.nc-topbar-page .mx-side a,.nc-topbar-page .rev-side a,
-.nc-topbar-page .ops-side a,.nc-topbar-page .set-rail a,.nc-topbar-page .rep-rail a{display:flex;align-items:center;gap:10px}
+.nc-topbar-page .ops-side a,.nc-topbar-page .set-rail a,.nc-topbar-page .rep-rail a,.nc-topbar-page .rp-side a{display:flex;align-items:center;gap:10px}
 
 /* Content columns. */
 .nc-topbar-page .fin-main,
@@ -327,7 +330,8 @@ body.admin-submitting .admin-action-overlay,body.admin-submitting .admin-working
 .nc-topbar-page .rev-main,
 .nc-topbar-page .ops-main,
 .nc-topbar-page .set-main,
-.nc-topbar-page .rep-main{grid-column:2;grid-row:3;min-width:0;padding:24px}
+.nc-topbar-page .rep-main,
+.nc-topbar-page .rp-main{grid-column:2;grid-row:3;min-width:0;padding:24px}
 
 /* Sub-master cards adopt the master card/collapse look. */
 .nc-topbar-page .card{border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
@@ -337,13 +341,13 @@ body.admin-submitting .admin-action-overlay,body.admin-submitting .admin-working
 .nc-topbar-page .fin-bar{background:linear-gradient(180deg,var(--green),#9bd6ae)}
 
 @media(max-width:1024px){
-  .nc-topbar-page:has(.fin-side, .support-rail, .acad-rail, .registry-rail, .mx-side, .rev-side, .ops-side, .set-rail, .rep-rail){grid-template-columns:1fr;grid-template-rows:auto}
+  .nc-topbar-page:has(.fin-side, .support-rail, .acad-rail, .registry-rail, .mx-side, .rev-side, .ops-side, .set-rail, .rep-rail, .rp-side){grid-template-columns:1fr;grid-template-rows:auto}
   .nc-topbar-page > .nc-topbar-body > .nc-top{grid-column:1;grid-row:auto}
   .admin-main.nc-topbar-content > .nc-breadcrumbs{grid-column:1;grid-row:auto}
   .nc-topbar-page .fin-side,.nc-topbar-page .support-rail,.nc-topbar-page .acad-rail,
   .nc-topbar-page .registry-rail,.nc-topbar-page .mx-side,.nc-topbar-page .rev-side,
-  .nc-topbar-page .ops-side,.nc-topbar-page .set-rail,.nc-topbar-page .rep-rail{grid-column:1;grid-row:auto;position:relative;min-height:auto;height:auto;overflow:visible}
+  .nc-topbar-page .ops-side,.nc-topbar-page .set-rail,.nc-topbar-page .rep-rail,.nc-topbar-page .rp-side{grid-column:1;grid-row:auto;position:relative;min-height:auto;height:auto;overflow:visible}
   .nc-topbar-page .fin-main,.nc-topbar-page .support-main,.nc-topbar-page .acad-content,
   .nc-topbar-page .registry-content,.nc-topbar-page .mx-main,.nc-topbar-page .rev-main,
-  .nc-topbar-page .ops-main,.nc-topbar-page .set-main,.nc-topbar-page .rep-main{grid-column:1;grid-row:auto;padding:16px}
+  .nc-topbar-page .ops-main,.nc-topbar-page .set-main,.nc-topbar-page .rep-main,.nc-topbar-page .rp-main{grid-column:1;grid-row:auto;padding:16px}
 }

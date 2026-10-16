@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" width="100%" height="100%">
+  <defs>
+    <linearGradient id="nurseryBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#064E3B"/>
+      <stop offset="100%" stop-color="#022C22"/>
+    </linearGradient>
+    <linearGradient id="leafGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="amberGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+    <filter id="nurseryShadow" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="6" stdDeviation="5" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <rect width="960" height="480" rx="16" fill="url(#nurseryBg)"/>
+
+  <!-- Title Header -->
+  <text x="480" y="44" text-anchor="middle" fill="#34D399" font-family="Arial, sans-serif" font-weight="900" font-size="13" letter-spacing="2">NATCODEV AGRONOMY INFOGRAPHIC</text>
+  <text x="480" y="76" text-anchor="middle" fill="#FFFFFF" font-family="Georgia, serif" font-weight="bold" font-size="24">Coconut Nursery &amp; Seedling Quality Standards</text>
+  <text x="480" y="100" text-anchor="middle" fill="#A7F3D0" font-family="Arial, sans-serif" font-size="13">Selection, germination bed management, polybag potting, and strict culling for 95%+ field survival</text>
+
+  <!-- Flow Arrow -->
+  <path d="M 120 220 L 840 220" stroke="#059669" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- STEP 1: Mother Palm & Nut Selection -->
+  <g transform="translate(40, 135)" filter="url(#nurseryShadow)">
+    <rect width="165" height="265" rx="10" fill="#FFFFFF" stroke="#6EE7B7" stroke-width="2"/>
+    <circle cx="82" cy="45" r="28" fill="#ECFDF5" stroke="#059669" stroke-width="2"/>
+    <text x="82" y="54" text-anchor="middle" font-size="22">🥥</text>
+    <rect x="15" y="86" width="135" height="22" rx="11" fill="#047857"/>
+    <text x="82" y="101" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-weight="bold" font-size="10">STEP 1: SELECTION</text>
+    <text x="82" y="128" text-anchor="middle" fill="#064E3B" font-family="Arial, sans-serif" font-weight="bold" font-size="13">Mother Palm &amp; Nut</text>
+    <text x="14" y="152" fill="#334155" font-family="Arial, sans-serif" font-size="10.5">
+      <tspan x="14" dy="0">• 15–40 yr high-yield palm</tspan>
+      <tspan x="14" dy="16">• Fully mature brown nut</tspan>
+      <tspan x="14" dy="16">• Water sloshing audible</tspan>
+      <tspan x="14" dy="16">• Rest 2–4 wks in shade</tspan>
+    </text>
+    <rect x="14" y="228" width="137" height="22" rx="4" fill="#D1FAE5"/>
+    <text x="82" y="243" text-anchor="middle" fill="#065F46" font-family="Arial, sans-serif" font-weight="bold" font-size="9.5">High Vigour Source</text>
+  </g>
+
+  <!-- STEP 2: Pre-nursery / Germination Bed -->
+  <g transform="translate(225, 135)" filter="url(#nurseryShadow)">
+    <rect width="165" height="265" rx="10" fill="#FFFFFF" stroke="#6EE7B7" stroke-width="2"/>
+    <circle cx="82" cy="45" r="28" fill="#ECFDF5" stroke="#059669" stroke-width="2"/>
+    <text x="82" y="54" text-anchor="middle" font-size="22">🏖️</text>
+    <rect x="15" y="86" width="135" height="22" rx="11" fill="#047857"/>
+    <text x="82" y="101" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-weight="bold" font-size="10">STEP 2: PRE-NURSERY</text>
+    <text x="82" y="128" text-anchor="middle" fill="#064E3B" font-family="Arial, sans-serif" font-weight="bold" font-size="13">Sand Germination</text>
+    <text x="14" y="152" fill="#334155" font-family="Arial, sans-serif" font-size="10.5">
+      <tspan x="14" dy="0">• Coarse river sand bed</tspan>
+      <tspan x="14" dy="16">• Lay nut horizontal/flat</tspan>
+      <tspan x="14" dy="16">• Bury 2/3, eye visible</tspan>
+      <tspan x="14" dy="16">• Water twice daily</tspan>
+    </text>
+    <rect x="14" y="228" width="137" height="22" rx="4" fill="#D1FAE5"/>
+    <text x="82" y="243" text-anchor="middle" fill="#065F46" font-family="Arial, sans-serif" font-weight="bold" font-size="9.5">Sprouts in 8–12 Wks</text>
+  </g>
+
+  <!-- STEP 3: Polybag Potting -->
+  <g transform="translate(410, 135)" filter="url(#nurseryShadow)">
+    <rect width="165" height="265" rx="10" fill="#FFFFFF" stroke="#6EE7B7" stroke-width="2"/>
+    <circle cx="82" cy="45" r="28" fill="#ECFDF5" stroke="#059669" stroke-width="2"/>
+    <text x="82" y="54" text-anchor="middle" font-size="22">🌱</text>
+    <rect x="15" y="86" width="135" height="22" rx="11" fill="#047857"/>
+    <text x="82" y="101" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-weight="bold" font-size="10">STEP 3: POTTING</text>
+    <text x="82" y="128" text-anchor="middle" fill="#064E3B" font-family="Arial, sans-serif" font-weight="bold" font-size="13">Polybag Growth</text>
+    <text x="14" y="152" fill="#334155" font-family="Arial, sans-serif" font-size="10.5">
+      <tspan x="14" dy="0">• 40x40cm black polybag</tspan>
+      <tspan x="14" dy="16">• 2:1:1 topsoil, compost, sand</tspan>
+      <tspan x="14" dy="16">• Spacing 60cm triangular</tspan>
+      <tspan x="14" dy="16">• Mulch surface against heat</tspan>
+    </text>
+    <rect x="14" y="228" width="137" height="22" rx="4" fill="#D1FAE5"/>
+    <text x="82" y="243" text-anchor="middle" fill="#065F46" font-family="Arial, sans-serif" font-weight="bold" font-size="9.5">Growth for 5–7 Mos</text>
+  </g>
+
+  <!-- STEP 4: Strict Culling -->
+  <g transform="translate(595, 135)" filter="url(#nurseryShadow)">
+    <rect width="165" height="265" rx="10" fill="#FFF5F5" stroke="#FCA5A5" stroke-width="2"/>
+    <circle cx="82" cy="45" r="28" fill="#FEE2E2" stroke="#EF4444" stroke-width="2"/>
+    <text x="82" y="54" text-anchor="middle" font-size="22">✂️</text>
+    <rect x="15" y="86" width="135" height="22" rx="11" fill="#DC2626"/>
+    <text x="82" y="101" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-weight="bold" font-size="10">STEP 4: CULLING</text>
+    <text x="82" y="128" text-anchor="middle" fill="#991B1B" font-family="Arial, sans-serif" font-weight="bold" font-size="13">Quality Culling (15%)</text>
+    <text x="14" y="152" fill="#7F1D1D" font-family="Arial, sans-serif" font-size="10.5">
+      <tspan x="14" dy="0">❌ Slow/late germinators</tspan>
+      <tspan x="14" dy="16">❌ Thin, spindly stems</tspan>
+      <tspan x="14" dy="16">❌ Deformed or fused leaves</tspan>
+      <tspan x="14" dy="16">❌ Pest-infested shoots</tspan>
+    </text>
+    <rect x="14" y="228" width="137" height="22" rx="4" fill="#FEE2E2"/>
+    <text x="82" y="243" text-anchor="middle" fill="#B91C1C" font-family="Arial, sans-serif" font-weight="bold" font-size="9.5">Cull 15–20% of Batch</text>
+  </g>
+
+  <!-- STEP 5: Field Transplanting -->
+  <g transform="translate(775, 135)" filter="url(#nurseryShadow)">
+    <rect width="150" height="265" rx="10" fill="#FFFFFF" stroke="#34D399" stroke-width="2"/>
+    <circle cx="75" cy="45" r="28" fill="#ECFDF5" stroke="#059669" stroke-width="2"/>
+    <text x="75" y="54" text-anchor="middle" font-size="22">🌴</text>
+    <rect x="10" y="86" width="130" height="22" rx="11" fill="#059669"/>
+    <text x="75" y="101" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-weight="bold" font-size="10">STEP 5: FIELD READY</text>
+    <text x="75" y="128" text-anchor="middle" fill="#064E3B" font-family="Arial, sans-serif" font-weight="bold" font-size="13">Transplanting</text>
+    <text x="12" y="152" fill="#334155" font-family="Arial, sans-serif" font-size="10.5">
+      <tspan x="12" dy="0">• 4–6 broad fronds</tspan>
+      <tspan x="12" dy="16">• Thick collar girth &gt;10cm</tspan>
+      <tspan x="12" dy="16">• Deep dark green colour</tspan>
+      <tspan x="12" dy="16">• Plant early rainy season</tspan>
+    </text>
+    <rect x="12" y="228" width="126" height="22" rx="4" fill="#D1FAE5"/>
+    <text x="75" y="243" text-anchor="middle" fill="#065F46" font-family="Arial, sans-serif" font-weight="bold" font-size="9.5">Ready for Orchard</text>
+  </g>
+
+  <!-- Bottom Agronomic Summary -->
+  <text x="480" y="445" text-anchor="middle" fill="#6EE7B7" font-family="Arial, sans-serif" font-size="12">⚠️ Remember: Never plant un-culled coconut seedlings in commercial orchards. Culling the bottom 15–20% guarantees 40+ years of high yield.</text>
+</svg>

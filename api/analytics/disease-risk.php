@@ -6,7 +6,7 @@ require_once __DIR__ . '/../../lib/analytics/engine.php';
 
 session_start();
 $pdo = db();
-$user = require_user_role($pdo, ['grower', 'field_agent', 'admin']);
+$user = require_user_role($pdo, ['grower', 'field_agent', 'agronomist', 'extensionist', 'farm_hand', 'admin']);
 
 $farmId = filter_input(INPUT_GET, 'farm_id', FILTER_VALIDATE_INT);
 if (!$farmId) {

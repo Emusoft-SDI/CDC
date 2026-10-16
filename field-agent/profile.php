@@ -35,7 +35,7 @@ fa_header(fa_role_label(fa_role_key($user)) . ' Profile', 'Manage your field ide
   <?php workspace_account_render_profile_forms($user, 'field', 'Account Profile', 'Change Password'); ?>
   <article class="fa-card fa-panel span-12">
     <div class="fa-panel-head"><h2>Workspace Exit</h2><span class="badge good">NATCODEV parent site</span></div>
-    <p><a class="btn" href="<?= e(fa_role_home(fa_role_key($user))) ?>"><i data-lucide="layout-dashboard"></i> Back to Workspace</a> <a class="btn secondary" href="../index.php"><i data-lucide="home"></i> NATCODEV Home</a> <a class="btn secondary" href="logout.php"><i data-lucide="log-out"></i> Logout</a></p>
+    <p><a class="btn" href="<?= e(fa_role_home(fa_role_key($user))) ?>"><i data-lucide="layout-dashboard"></i> Back to Workspace</a> <a class="btn secondary" href="../index.php"><i data-lucide="home"></i> NATCODEV Home</a> <a class="btn secondary" href="logout.php?_csrf=<?= e(csrf_token()) ?>"><i data-lucide="log-out"></i> Logout</a></p>
   </article>
 </section>
 <?php fa_footer(); ?>

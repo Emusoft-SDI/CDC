@@ -5,7 +5,7 @@ require_once __DIR__ . '/../../config.php';
 
 session_start();
 $pdo = db();
-$user = require_user_role($pdo, ['grower', 'field_agent', 'admin']);
+$user = require_user_role($pdo, ['grower', 'field_agent', 'agronomist', 'extensionist', 'farm_hand', 'admin']);
 
 $farmId = filter_var($_POST['farm_id'] ?? null, FILTER_VALIDATE_INT);
 $imageryType = $_POST['imagery_type'] ?? 'satellite';

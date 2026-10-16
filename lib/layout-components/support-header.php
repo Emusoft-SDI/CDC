@@ -56,7 +56,7 @@ $currentView = (string) ($_GET['view'] ?? 'new-ticket');
                 <small>View purchases & delivery status</small>
               </div>
             </a>
-            <a href="../logout.php" class="dropdown-item text-danger" role="menuitem">
+            <a href="../logout.php?_csrf=<?= e(csrf_token()) ?>" class="dropdown-item text-danger" role="menuitem">
               <i class="fas fa-sign-out-alt"></i>
               <div><strong>Sign Out</strong></div>
             </a>

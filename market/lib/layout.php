@@ -38,13 +38,20 @@ function market_icon(string $name): string
     return $icons[$name] ?? '&bull;';
 }
 
-function market_header(string $title, string $active = 'marketplace', ?PDO $pdo = null): void
+function market_header(string $title, string $active = 'marketplace', ?PDO $pdo = null, array $extraCrumbs = [], string $bodyClass = ''): void
 {
     $pdo = $pdo ?: market_boot();
     $user = market_user($pdo);
     $logo = market_asset_logo();
     $q = trim((string) ($_GET['q'] ?? ''));
+    $crumbMap = [
+        ['marketplace', 'Shop', 'index.php'],
+        ['stores', 'Sellers', 'stores.php'],
+        ['featured', 'Deals', 'featured.php'],
+        ['orders', 'Orders', 'orders.php'],
+    ];
     $cartCount = market_cart_count();
+    $savedCount = $user ? market_saved_count($pdo, $user) : 0;
     $initials = $user ? market_initials((string) ($user['name'] ?? 'User')) : 'NT';
     $userRoles = $user ? market_user_role_keys($pdo, $user) : [];
     $hasBuyerAccess = $user ? (bool) array_intersect(['buyer', 'consumer', 'user'], $userRoles) : false;
@@ -89,7 +96,7 @@ function market_header(string $title, string $active = 'marketplace', ?PDO $pdo 
     <?= market_css() ?>
   </style>
 </head>
-<body>
+<body<?= $bodyClass !== '' ? ' class="'.e($bodyClass).'"' : '' ?>>
   <header class="header">
     <div class="header-container">
       <a href="index.php" class="logo">
@@ -111,6 +118,7 @@ function market_header(string $title, string $active = 'marketplace', ?PDO $pdo 
       <div class="header-actions">
         <a class="notification-btn" href="index.php#market-search" aria-label="Search"><i class="fas fa-search"></i></a>
         <a class="notification-btn" href="cart.php" aria-label="Cart"><i class="fas fa-shopping-cart"></i><?php if ($cartCount > 0): ?><span class="badge"><?= $cartCount ?></span><?php endif; ?></a>
+        <a class="notification-btn" href="cart.php#saved" aria-label="Saved for later"><i class="far fa-heart"></i><?php if ($savedCount > 0): ?><span class="badge" style="background:var(--warning);color:#1f2937"><?= $savedCount ?></span><?php endif; ?></a>
         <?php if ($hasBuyerAccess): ?>
           <a class="mk-auth primary buyer-dashboard" href="../buyer/index.php">Buyer Dashboard</a>
         <?php else: ?>
@@ -121,6 +129,16 @@ function market_header(string $title, string $active = 'marketplace', ?PDO $pdo 
     </div>
   </header>
   <main>
+<?php
+    $crumbTrail = auto_breadcrumbs($crumbMap, $active, 'Marketplace', 'index.php');
+    foreach ($extraCrumbs as $crumb) {
+        $crumbLabel = (string) ($crumb['label'] ?? '');
+        if ($crumbLabel !== '') {
+            $crumbTrail[] = ['label' => $crumbLabel, 'href' => (string) ($crumb['href'] ?? '')];
+        }
+    }
+    echo page_breadcrumbs($crumbTrail, 'NATCODEV', '../index.php');
+?>
 
 <?php
 }

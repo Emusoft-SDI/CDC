@@ -97,6 +97,7 @@ function super_admin_control_settings(?PDO $pdo = null): array
         'security_require_2fa_admins' => '0',
         'access_investor_dashboard_enabled' => '0',
         'access_user_export_enabled' => '1',
+        'enrollment_auto_approve' => '0',
     ];
 
     if (!$pdo instanceof PDO) {
@@ -137,6 +138,7 @@ function super_admin_module_catalog(): array
         'resource_allocation' => ['entry' => '../admin/resource-allocation.php', 'surface' => 'National/State', 'owner' => 'Program Operations', 'purpose' => 'Input inventory, farmer allocation, distribution status, and effectiveness tracking.', 'setup' => 'Define inventory units, resource categories, and beneficiary reporting.'],
         'communications' => ['entry' => '../admin/communications.php', 'surface' => 'National/State/Admin', 'owner' => 'Communications', 'purpose' => 'Statewide and national broadcasts, weather alerts, training announcements, and stakeholder messaging.', 'setup' => 'Define channel routing, approval rules, and priority alert policy.'],
         'wallet' => ['entry' => '../dashboard/wallet.php', 'surface' => 'Grower dashboard', 'owner' => 'Finance', 'purpose' => 'Wallet balance and transaction history.', 'setup' => 'Review payment provider settings and transaction audit.'],
+        'revenue' => ['entry' => '../admin/revenue/index.php', 'surface' => 'Admin console', 'owner' => 'Finance', 'purpose' => 'Platform revenue ledger, marketplace fees, monetization plans, promotions, and provider fees.', 'setup' => 'Review revenue rules, ledger reconciliation, and fee policies.'],
         'training' => ['entry' => '../dashboard/webinars.php', 'surface' => 'Dashboard/Admin', 'owner' => 'Training Team', 'purpose' => 'Training sessions, webinars, onboarding, and certification learning.', 'setup' => 'Maintain curriculum, certification requirements, and paid/free training policy.'],
         'healthcare' => ['entry' => '../dashboard/healthcare.php', 'surface' => 'Grower dashboard', 'owner' => 'Services Team', 'purpose' => 'Health-related grower services when enabled.', 'setup' => 'Define partner/service availability before public rollout.'],
         'pricing' => ['entry' => '../dashboard/pricing.php', 'surface' => 'Grower dashboard', 'owner' => 'Commercial Team', 'purpose' => 'Plans, pricing, upgrades, and premium service visibility.', 'setup' => 'Confirm available plans, payment rules, and messaging.'],
@@ -149,6 +151,7 @@ function super_admin_module_catalog(): array
         'user_management' => ['entry' => '../admin/users.php', 'surface' => 'Admin console', 'owner' => 'User Operations', 'purpose' => 'Standard user and staff account management.', 'setup' => 'Use Super Admin User Governance for privileged root access.'],
         'imports' => ['entry' => '../admin/import-users.php', 'surface' => 'Admin console', 'owner' => 'Data Operations', 'purpose' => 'Bulk import, engagement, and legacy grower onboarding.', 'setup' => 'Validate CSV structure, confirmation messaging, and duplicate handling.'],
         'settings' => ['entry' => '../admin/settings.php', 'surface' => 'Admin console', 'owner' => 'Technical Operations', 'purpose' => 'Operational settings for integrations and platform behavior.', 'setup' => 'Keep environment-sensitive secrets out of browser-visible pages.'],
+        'backups' => ['entry' => 'index.php?view=disaster', 'surface' => 'Super Admin', 'owner' => 'Technical Operations', 'purpose' => 'Backup schedules, disaster recovery policy, site nodes, and backup/sync evidence.', 'setup' => 'Confirm backup retention, restore drills, and node sync health.'],
         'audit' => ['entry' => 'index.php?view=controls', 'surface' => 'Super Admin', 'owner' => 'Governance', 'purpose' => 'Privileged activity trail and governance evidence.', 'setup' => 'Review audit records regularly and investigate privileged changes.'],
         'integrations' => ['entry' => '../admin/monitoring.php', 'surface' => 'Admin console', 'owner' => 'Technical Operations', 'purpose' => 'External systems such as mail, SMS, WhatsApp, payment, maps, and weather.', 'setup' => 'Confirm provider credentials, transport modes, and failure logs.'],
     ];
@@ -163,6 +166,7 @@ function super_admin_module_catalog(): array
             'purpose' => 'Platform module.',
             'setup' => 'Define module owner, entry point, and operating rules.',
             'mode' => 'active',
+            'enabled' => '1',
         ], $modules[$feature] ?? [], ['label' => $label]);
     }
 
@@ -174,9 +178,10 @@ function super_admin_module_settings(PDO $pdo): array
     $settings = [];
     foreach (super_admin_module_catalog() as $feature => $module) {
         $settings[$feature] = [
-            'mode' => admin_setting($pdo, 'module_' . $feature . '_mode', (string) $module['mode']),
+            'mode'  => admin_setting($pdo, 'module_' . $feature . '_mode', (string) $module['mode']),
             'owner' => admin_setting($pdo, 'module_' . $feature . '_owner', (string) $module['owner']),
             'notes' => admin_setting($pdo, 'module_' . $feature . '_notes', (string) $module['setup']),
+            'enabled'  => admin_setting($pdo, 'module_' . $feature . '_enabled', (string) $module['enabled']),
         ];
     }
     return $settings;

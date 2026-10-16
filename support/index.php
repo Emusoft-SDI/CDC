@@ -208,6 +208,11 @@ $upgradePaths = [
     if (!in_array($view, $allowed, true)) {
         $view = 'new-ticket';
     }
+    $supportTrail = [['label' => 'Support Desk', 'href' => 'index.php'], ['label' => ucwords(str_replace('-', ' ', (string) $view))]];
+    if ($view === 'lookup' && !empty($_GET['ticket'])) {
+        $supportTrail[] = ['label' => 'Ticket ' . preg_replace('/[^A-Za-z0-9\-]/', '', (string) $_GET['ticket'])];
+    }
+    echo page_breadcrumbs($supportTrail, 'NATCODEV', '../index.php');
     require __DIR__ . '/modules/' . $view . '.php';
     ?>
     </section>

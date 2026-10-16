@@ -50,8 +50,22 @@ if ($reference === '' || $amount <= 0 || $userId <= 0) {
     json_response(['success' => true, 'ignored' => true, 'reason' => 'Missing wallet funding metadata']);
 }
 
+// Only credit a pre-registered pending funding request, and only for the
+// amount that was requested. This blocks underpayment and unknown references.
+$pendingStmt = $pdo->prepare("SELECT id, user_id, amount FROM wallet_transactions WHERE reference = ? AND status = 'pending' LIMIT 1");
+$pendingStmt->execute([$reference]);
+$pending = $pendingStmt->fetch();
+if (!$pending || (int) $pending['user_id'] !== $userId) {
+    error_log('Flutterwave webhook ignored: no pending wallet funding for reference ' . $reference);
+    json_response(['success' => true, 'ignored' => true, 'reason' => 'No pending wallet funding for this reference']);
+}
+if ($amount + 0.01 < (float) $pending['amount']) {
+    error_log('Underpaid Flutterwave webhook ignored for ' . $reference . ': paid=' . $amount . ', expected=' . $pending['amount']);
+    json_response(['success' => true, 'ignored' => true, 'reason' => 'Wallet funding amount is incomplete']);
+}
+
 try {
-    $credit = wallet_credit_once($pdo, $userId, round($amount, 2), $reference, 'Wallet funding via Flutterwave', 'flutterwave', (string) ($data['id'] ?? $reference), $payload);
+    $credit = wallet_credit_once($pdo, $userId, (float) $pending['amount'], 'Wallet funding via Flutterwave', $reference, 'flutterwave', (string) ($data['id'] ?? $reference), $payload);
     json_response(['success' => true, 'credit' => $credit]);
 } catch (Throwable $e) {
     error_log('Flutterwave webhook processing failed: ' . $e->getMessage());

@@ -1,11 +1,9 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../config.php';
-
-session_start();
-$pdo = db();
-$user = require_user_role($pdo, ['field_agent', 'admin']);
+require_once __DIR__ . '/_field.php';
+$pdo = fa_pdo();
+$user = fa_require_user($pdo);
 ?>
 <!DOCTYPE html>
 <html lang="en">

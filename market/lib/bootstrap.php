@@ -184,10 +184,10 @@ function market_user_dashboard_links(PDO $pdo, array $user, string $current = ''
         $add('seller', 'Seller Central', '../market/seller-central.php', 'store');
     }
     if ($has(['provider', 'input_provider', 'service_provider'])) {
-        $add('provider', 'Provider Console', '../provider/dashboard.php', 'briefcase-business');
+        $add('provider', 'Provider Console', '../provider/dashboard.php', 'briefcase');
     }
     if ($has(['grower', 'farmer'])) {
-        $add('grower', 'Grower Dashboard', '../dashboard/index.php', 'sprout');
+        $add('grower', 'Grower Dashboard', '../dashboard/index.php', 'seedling');
     }
     if ($has(['learner', 'student'])) {
         $add('academy', 'Learner Dashboard', '../academy/dashboard.php', 'graduation-cap');
@@ -196,10 +196,10 @@ function market_user_dashboard_links(PDO $pdo, array $user, string $current = ''
         $add('field', 'Field Workspace', '../field-agent/index.php', 'clipboard-check');
     }
     if ($has(['admin', 'super_admin', 'national_coordinator', 'state_coordinator'])) {
-        $add('admin', 'Admin Workspace', '../admin/index.php', 'shield-check');
+        $add('admin', 'Admin Workspace', '../admin/index.php', 'shield-halved');
     }
     if (!$links) {
-        $add('marketplace', 'Marketplace', '../market/index.php', 'shopping-bag');
+        $add('marketplace', 'Marketplace', '../market/index.php', 'bag-shopping');
     }
     return array_values($links);
 }

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/_market.php';
+require_once __DIR__ . '/../lib/landing-templates.php';
 
 $pdo = market_boot();
 $user = market_user($pdo);
@@ -107,7 +108,8 @@ foreach ($categories as $cat) {
     }
 }
 $activeLabel = $categoryName !== '' ? $categoryName : ($listingType !== '' ? marketplace_status_label($listingType) : ($q !== '' ? 'Search results' : 'All listings'));
-market_header('NATCODEV Marketplace', 'marketplace', $pdo);
+$marketTemplate = landing_template($pdo, 'market');
+market_header('NATCODEV Marketplace', 'marketplace', $pdo, [], 'market-template-' . $marketTemplate);
 ?>
 <style>
   .mv-page{background:linear-gradient(135deg,#f4f9f1 0%,#fff 44%,#eef8f4 100%);min-height:100vh}
@@ -183,198 +185,15 @@ market_header('NATCODEV Marketplace', 'marketplace', $pdo);
   .mv-cta h2{margin:0 0 6px}.mv-cta p{margin:0;color:#dff5e8}.mv-cta a{background:#fff;color:#063f20;border-radius:9px;padding:12px 16px;font-weight:950}
   @media(max-width:1180px){.mv-hero,.mv-layout{grid-template-columns:1fr}.mv-filter{position:relative;top:auto}.mv-grid,.mv-vendors{grid-template-columns:repeat(2,minmax(0,1fr))}}
   @media(max-width:760px){.mv-wrap{padding:16px}.mv-search{grid-template-columns:1fr}.mv-shop-paths,.mv-grid,.mv-vendors,.mv-cta{grid-template-columns:1fr}.mv-hero-main{min-height:360px;padding:24px}}
+  .market-template-b .mv-hero-main{min-height:380px}
+  .market-template-b .mv-shop-paths{gap:18px}
+  .market-template-b .mv-shop-path{min-height:140px;padding:20px}
+  .market-template-b .mv-pick-list{max-height:200px}
+  .market-template-b .mv-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
+  .market-template-b .mv-vendors{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+  @media(max-width:1180px){.market-template-b .mv-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media(max-width:760px){.market-template-b .mv-grid{grid-template-columns:1fr}}
 </style>
 
-<div class="mv-page">
-  <div class="mv-wrap">
-    <section class="mv-hero">
-      <div class="mv-hero-main">
-        <div class="mv-kicker">NATCODEV Multi-Vendor Marketplace</div>
-        <h1>Find what your farm needs and buy from trusted coconut vendors.</h1>
-        <p>Shop seedlings, inputs, tools, farm services, logistics, processing support, and marketplace sellers built around the NATCODEV coconut value chain.</p>
-        <form class="mv-search" action="index.php#results" method="get">
-          <input name="q" value="<?= e($q) ?>" placeholder="Search seedlings, inputs, tools, logistics, services..." aria-label="Search marketplace">
-          <select name="listing_type" aria-label="Listing type">
-            <option value="">All types</option>
-            <?php foreach (marketplace_listing_types() as $value => $label): ?>
-              <option value="<?= e($value) ?>" <?= $listingType === $value ? 'selected' : '' ?>><?= e($label) ?></option>
-            <?php endforeach; ?>
-          </select>
-          <button type="submit"><i class="fas fa-search"></i> Search</button>
-        </form>
-      </div>
-      <aside class="mv-hero-side">
-        <div class="mv-shop-paths">
-          <?php foreach ($shopPaths as $path): ?>
-            <a class="mv-shop-path" href="<?= e($path['href']) ?>">
-              <i class="fas <?= e($path['icon']) ?>"></i>
-              <strong><?= e($path['title']) ?></strong>
-              <span><?= e($path['text']) ?></span>
-            </a>
-          <?php endforeach; ?>
-        </div>
-        <div class="mv-featured-panel">
-          <div class="mv-panel-head"><h2>Start with these picks</h2><a href="featured.php">Shop featured</a></div>
-          <div class="mv-pick-list">
-            <?php foreach (array_slice($heroListings, 0, 4) as $item): ?>
-              <a class="mv-pick" href="product.php?id=<?= (int) $item['id'] ?>">
-                <img src="<?= e(market_listing_image_url($item)) ?>" alt="<?= e((string) $item['title']) ?>">
-                <div><strong><?= e((string) $item['title']) ?></strong><span><?= e(marketplace_money((float) $item['price'])) ?></span></div>
-              </a>
-            <?php endforeach; ?>
-            <?php if (!$heroListings): ?><div class="mv-empty">Featured products will appear here after vendor approval.</div><?php endif; ?>
-          </div>
-        </div>
-      </aside>
-    </section>
-
-    <nav class="mv-strip" aria-label="Marketplace categories">
-      <a class="mv-chip <?= $categoryId === 0 ? 'active' : '' ?>" href="index.php#results"><i class="fas fa-border-all"></i> All categories</a>
-      <?php foreach (array_slice($populatedCategories, 0, 12) as $cat): ?>
-        <a class="mv-chip <?= $categoryId === (int) $cat['id'] ? 'active' : '' ?>" href="index.php?category_id=<?= (int) $cat['id'] ?>#results">
-          <i class="fas fa-leaf"></i> <?= e((string) $cat['name']) ?> (<?= number_format((int) $cat['listing_count']) ?>)
-        </a>
-      <?php endforeach; ?>
-    </nav>
-
-    <div class="mv-layout">
-      <aside class="mv-filter">
-        <h2>Refine results</h2>
-        <form method="get" action="index.php#results" style="display:grid;gap:14px">
-          <div class="mv-field"><label for="q">Keyword</label><input id="q" name="q" value="<?= e($q) ?>" placeholder="Product, seller, service"></div>
-          <div class="mv-field">
-            <label for="category_id">Category</label>
-            <select id="category_id" name="category_id">
-              <option value="">All categories</option>
-              <?php foreach ($populatedCategories as $cat): ?><option value="<?= (int) $cat['id'] ?>" <?= $categoryId === (int) $cat['id'] ? 'selected' : '' ?>><?= e((string) $cat['name']) ?> (<?= number_format((int) $cat['listing_count']) ?>)</option><?php endforeach; ?>
-            </select>
-          </div>
-          <div class="mv-field">
-            <label for="listing_type">Type</label>
-            <select id="listing_type" name="listing_type">
-              <option value="">Products and services</option>
-              <?php foreach (marketplace_listing_types() as $value => $label): ?><option value="<?= e($value) ?>" <?= $listingType === $value ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?>
-            </select>
-          </div>
-          <div class="mv-field">
-            <label for="state">Location</label>
-            <select id="state" name="state">
-              <option value="">All Nigeria</option>
-              <?php foreach ($states as $state): ?><option value="<?= e((string) $state['state_name']) ?>" <?= strcasecmp($stateFilter, (string) $state['state_name']) === 0 ? 'selected' : '' ?>><?= e((string) $state['state_name']) ?></option><?php endforeach; ?>
-            </select>
-          </div>
-          <button type="submit">Apply filters</button>
-          <a class="ghost" href="index.php#results">Reset</a>
-        </form>
-        <div style="border-top:1px solid #edf2ec;padding-top:14px;display:grid;gap:10px;color:#475467;font-weight:800">
-          <span><i class="fas fa-shield-halved" style="color:#08753a"></i> Admin moderated vendors</span>
-          <span><i class="fas fa-wallet" style="color:#08753a"></i> Wallet-aware settlement</span>
-          <span><i class="fas fa-award" style="color:#08753a"></i> Verified seller badges</span>
-        </div>
-      </aside>
-
-      <main class="mv-content">
-        <div id="results" style="scroll-margin-top:96px"></div>
-        <section class="mv-section">
-          <div class="mv-section-title">
-            <div><h2><?= e($activeLabel) ?></h2><p><?= number_format(count($listings)) ?> visible result(s). Products and services are ordered by featured status and freshness.</p></div>
-            <a class="mv-btn light" href="seller-central.php"><i class="fas fa-store"></i> Sell on NATCODEV</a>
-          </div>
-          <?php if ($listings): ?>
-            <div class="mv-grid">
-              <?php foreach ($listings as $item): ?>
-                <article class="mv-card">
-                  <a class="mv-img" href="product.php?id=<?= (int) $item['id'] ?>">
-                    <img src="<?= e(market_listing_image_url($item)) ?>" alt="<?= e((string) $item['title']) ?>">
-                    <span class="mv-type"><?= e(marketplace_status_label((string) $item['listing_type'])) ?></span>
-                  </a>
-                  <div class="mv-card-body">
-                    <h3><a href="product.php?id=<?= (int) $item['id'] ?>"><?= e((string) $item['title']) ?></a></h3>
-                    <div class="mv-meta"><?= e((string) ($item['category_name'] ?: $item['store_name'])) ?></div>
-                    <div class="mv-price"><?= e(marketplace_money((float) $item['price'])) ?> <small>/ <?= e((string) ($item['unit'] ?: $item['price_unit'] ?: 'unit')) ?></small></div>
-                    <div class="mv-meta"><i class="fas fa-store"></i> <?= e((string) $item['store_name']) ?><br><i class="fas fa-location-dot"></i> <?= e((string) ($item['location_label'] ?: $item['seller_location'] ?: 'Nigeria')) ?></div>
-                    <div class="mv-actions">
-                      <a class="mv-btn" href="product.php?id=<?= (int) $item['id'] ?>">View details</a>
-                      <form method="post">
-                        <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-                        <input type="hidden" name="action" value="add_to_cart">
-                        <input type="hidden" name="listing_id" value="<?= (int) $item['id'] ?>">
-                        <input type="hidden" name="quantity" value="1">
-                        <button class="mv-btn light" type="submit" aria-label="Add <?= e((string) $item['title']) ?> to cart"><i class="fas fa-cart-plus"></i></button>
-                      </form>
-                    </div>
-                  </div>
-                </article>
-              <?php endforeach; ?>
-            </div>
-          <?php else: ?>
-            <div class="mv-empty">No approved listing matches this filter yet. Try a broader search or check the seller directory.</div>
-          <?php endif; ?>
-        </section>
-
-        <?php if ($featuredSellers): ?>
-        <section class="mv-section">
-          <div class="mv-section-title">
-            <div><h2>Featured vendors and items</h2><p>Promoted sellers with approved products ready for buyers to open.</p></div>
-            <a class="mv-btn light" href="stores.php">Seller directory</a>
-          </div>
-          <div class="mv-vendors">
-            <?php foreach ($featuredSellers as $seller): ?>
-              <div class="mv-vendor">
-                <div class="mv-vendor-top">
-                  <div class="mv-avatar"><?= e(market_initials((string) $seller['store_name'])) ?></div>
-                  <div style="min-width:0"><a href="store.php?seller=<?= e((string) $seller['slug']) ?>"><strong><?= e((string) $seller['store_name']) ?></strong></a><span><?= e((string) ($seller['location_label'] ?: $seller['coverage_area'] ?: 'Nigeria coverage')) ?></span></div>
-                </div>
-                <span class="mv-badge"><?= e(marketplace_status_label((string) $seller['seller_type'])) ?><?= (string) $seller['verification_status'] === 'verified' ? ' / Verified' : '' ?></span>
-                <div class="mv-vendor-items">
-                  <?php foreach (($sellerListingMap[(int) $seller['id']] ?? []) as $sellerItem): ?>
-                    <a class="mv-vendor-item" href="product.php?id=<?= (int) $sellerItem['id'] ?>">
-                      <img src="<?= e(market_listing_image_url($sellerItem)) ?>" alt="<?= e((string) $sellerItem['title']) ?>">
-                      <span><b><?= e((string) $sellerItem['title']) ?></b><small><?= e(marketplace_money((float) $sellerItem['price'])) ?></small></span>
-                    </a>
-                  <?php endforeach; ?>
-                  <?php if (empty($sellerListingMap[(int) $seller['id']])): ?>
-                    <span style="color:#667085;font-weight:800">Items are pending approval.</span>
-                  <?php endif; ?>
-                </div>
-                <a class="mv-btn light" href="store.php?seller=<?= e((string) $seller['slug']) ?>">Shop vendor</a>
-              </div>
-            <?php endforeach; ?>
-          </div>
-        </section>
-        <?php endif; ?>
-
-        <?php if ($serviceListings): ?>
-        <section class="mv-section">
-          <div class="mv-section-title">
-            <div><h2>Service providers</h2><p>Field operations, logistics, processing, advisory, and farm service support.</p></div>
-            <a class="mv-btn light" href="index.php?listing_type=service">View services</a>
-          </div>
-          <div class="mv-grid">
-            <?php foreach (array_slice($serviceListings, 0, 4) as $item): ?>
-              <article class="mv-card">
-                <a class="mv-img" href="product.php?id=<?= (int) $item['id'] ?>"><img src="<?= e(market_listing_image_url($item)) ?>" alt="<?= e((string) $item['title']) ?>"><span class="mv-type">Service</span></a>
-                <div class="mv-card-body">
-                  <h3><a href="product.php?id=<?= (int) $item['id'] ?>"><?= e((string) $item['title']) ?></a></h3>
-                  <div class="mv-meta"><?= e((string) ($item['summary'] ?: $item['store_name'])) ?></div>
-                  <div class="mv-price"><?= e(marketplace_money((float) $item['price'])) ?></div>
-                  <a class="mv-btn light" href="store.php?seller=<?= e((string) $item['seller_slug']) ?>">Open vendor</a>
-                </div>
-              </article>
-            <?php endforeach; ?>
-          </div>
-        </section>
-        <?php endif; ?>
-
-        <section class="mv-cta">
-          <div>
-            <h2>Grow your store inside NATCODEV Marketplace</h2>
-            <p>Providers, growers, sellers, processors, and service teams can list products, receive orders, and manage settlements through the platform wallet.</p>
-          </div>
-          <a href="seller-central.php"><i class="fas fa-arrow-right"></i> Open Seller Central</a>
-        </section>
-      </main>
-    </div>
-  </div>
-</div>
+<?php require __DIR__ . '/../templates/market-' . $marketTemplate . '.php'; ?>
 <?php market_footer(); ?>

@@ -45,81 +45,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!verify_csrf($_POST['_csrf'] ?? null)) {
         $error = 'Security session expired. Please refresh the page.';
     } else {
-        $businessName = trim((string) ($_POST['company_name'] ?? ''));
-    $fullName = trim((string) ($_POST['contact_person'] ?? ''));
-    $email = filter_var(trim((string) ($_POST['email'] ?? '')), FILTER_VALIDATE_EMAIL);
-    $phone = trim((string) ($_POST['phone'] ?? ''));
-    $password = (string) ($_POST['password'] ?? '');
-    $providerIntent = trim((string) ($_POST['provider_intent'] ?? ''));
-    $allowedIntents = array_keys($providerIntents);
-
-    if ($businessName === '' || $fullName === '' || !$email || $phone === '' || strlen($password) < 6) {
-        $error = 'Business name, contact person, valid email, phone, and a 6-character password are required.';
-    } elseif (!in_array($providerIntent, $allowedIntents, true)) {
-        $error = 'Select the provider pathway that best describes your entry point.';
-    } else {
+        // Every public sign-up goes through the shared registration wizard:
+        // the account is created as needs_confirmation and the provider
+        // registry row is written by the wizard once the email OTP is verified.
         try {
-            $pdo->beginTransaction();
-            $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ? LIMIT 1");
-            $stmt->execute([(string) $email]);
-            $userId = (int) ($stmt->fetchColumn() ?: 0);
-            if ($userId > 0) {
-                throw new RuntimeException('email_exists');
-            } else {
-                app_ensure_user_verification_schema($pdo);
-                $stmt = $pdo->prepare("INSERT INTO users (name, email, password, phone, role, platform_role, account_status) VALUES (?, ?, ?, ?, 'provider', 'provider', 'needs_confirmation')");
-                $stmt->execute([$fullName, (string) $email, password_hash($password, PASSWORD_DEFAULT), $phone]);
-                $userId = (int) $pdo->lastInsertId();
+            app_ensure_user_verification_schema($pdo);
+            $result = registration_wizard_begin($pdo, 'provider', $_POST);
+            if (!empty($result['ok'])) {
+                redirect_to('../verify-otp.php');
             }
-
-            $token = strtoupper(bin2hex(random_bytes(5)));
-            $providerType = $providerIntent === 'Input Provider' ? 'input' : 'service';
-            $stmt = $pdo->prepare("
-                INSERT INTO provider_registry
-                    (user_id, provider_type, company_name, company_description, contact_person, email, phone, coverage_scope, states_served,
-                     status, primary_category, service_categories, input_categories, bank_name, account_name, account_number,
-                     dashboard_token, state_ids, lga_ids, business_registration_number, tax_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'state', ?, 'pending_review', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-            $stmt->execute([
-                $userId,
-                $providerType,
-                $businessName,
-                '',
-                $fullName,
-                (string) $email,
-                $phone,
-                '',
-                $providerIntent,
-                $providerIntent,
-                '',
-                '',
-                '',
-                '',
-                $token,
-                '',
-                '',
-                '',
-                '',
-            ]);
-            if ($pdo->inTransaction()) {
-                $pdo->commit();
-                app_send_user_verification($pdo, $userId, 'NATCODEV Provider');
-                $message = 'Provider workspace created. Check your email and verify before signing in. Provider review remains pending until administrators approve it.';
-            }
+            $error = (string) $result['message'];
         } catch (Throwable $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            if ($e->getMessage() === 'email_exists') {
-                $error = 'An account already exists with this email. Please sign in first, then complete or request provider access from your provider workspace.';
-            } else {
-                error_log('Provider registration error: ' . $e->getMessage());
-                $error = 'Provider registration could not be completed right now.';
-            }
+            error_log('Provider registration error: ' . $e->getMessage());
+            $error = 'Provider registration could not be completed right now.';
         }
     }
-}
 }
 ?>
 <!DOCTYPE html>

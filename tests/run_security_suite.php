@@ -24,7 +24,10 @@ require_once __DIR__ . '/test_admin_user_suite.php';
 require_once __DIR__ . '/test_super_admin_suite.php';
 require_once __DIR__ . '/test_stakeholder_journeys_suite.php';
 require_once __DIR__ . '/test_academy_learner_suite.php';
+require_once __DIR__ . '/test_academy_landing_suite.php';
 require_once __DIR__ . '/test_marketplace_user_suite.php';
+require_once __DIR__ . '/test_marketplace_settlement_suite.php';
+require_once __DIR__ . '/test_marketplace_refund_suite.php';
 require_once __DIR__ . '/test_governance_suite.php';
 require_once __DIR__ . '/test_admin_platform_suite.php';
 
@@ -45,7 +48,10 @@ run_admin_user_tests();
 run_super_admin_tests();
 run_all_stakeholder_journeys_tests();
 run_academy_learner_tests();
+run_academy_landing_tests();
 run_marketplace_user_tests();
+run_marketplace_settlement_tests();
+run_marketplace_refund_tests();
 run_governance_tests();
 run_admin_platform_tests();
 

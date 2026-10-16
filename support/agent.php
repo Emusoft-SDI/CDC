@@ -4,6 +4,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../lib/support.php';
 require_once __DIR__ . '/../lib/user-workspaces.php';
+require_once __DIR__ . '/../lib/marketplace.php';
+require_once __DIR__ . '/../lib/marketplace-refunds.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
@@ -11,6 +13,8 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 
 $pdo = db();
 support_ensure_schema($pdo);
+marketplace_ensure_schema($pdo);
+market_refund_ensure_schema($pdo);
 $user = current_user($pdo);
 if (!$user || !app_user_has_any_role($pdo, $user, ['support_agent', 'admin', 'super_admin'])) {
     redirect_to('../login.php?next=' . urlencode('support/agent.php'));
@@ -79,6 +83,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $nextStatus = 'escalated';
                 $internalNote = $internalNote !== '' ? $internalNote : 'Support agent escalated this ticket for operator review.';
             }
+            if ($action === 'refund_checkout') {
+                $refCheckout = trim((string) ($_POST['checkout_ref'] ?? ''));
+                $refReason = trim((string) ($_POST['refund_reason'] ?? ''));
+                if ($refCheckout === '') {
+                    throw new RuntimeException('Enter the checkout reference to refund.');
+                }
+                if ($refReason === '') {
+                    throw new RuntimeException('A refund reason is required before a refund can be queued.');
+                }
+                $amountStmt = $pdo->prepare("SELECT COALESCE(SUM(total_amount),0) + COALESCE(MAX(delivery_fee),0) + COALESCE(MAX(service_fee),0) FROM marketplace_orders WHERE checkout_ref = ? AND payment_status = 'paid'");
+                $amountStmt->execute([$refCheckout]);
+                $refundTotal = (float) $amountStmt->fetchColumn();
+                if ($refundTotal <= 0) {
+                    throw new RuntimeException('This checkout has no paid orders to refund.');
+                }
+                // Support agents never move money directly: every desk-initiated
+                // refund queues for Super Admin approval through the shared handler.
+                $approvalRequestId = market_queue_refund_approval($pdo, $refCheckout, $refundTotal, $agentId, $refReason);
+                support_add_message($pdo, (int) $ticket['id'], 'Marketplace refund of NGN ' . number_format($refundTotal, 2) . ' for checkout ' . $refCheckout . ' queued for Super Admin approval (request #' . $approvalRequestId . '). No funds moved yet.', $user, true, 'internal', (string) ($user['name'] ?? 'Support Agent'), 'support_agent');
+                redirect_to('agent.php?ticket_id=' . (int) $ticket['id'] . '&refund_queued=1');
+            }
             if ($reply !== '') {
                 $msgId = support_add_message($pdo, (int) $ticket['id'], $reply, $user, true, 'public', (string) ($user['name'] ?? 'Support Agent'), 'support_agent');
                 if (!empty($_FILES['attachments']) || !empty($_FILES['attachment'])) {
@@ -100,6 +125,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 if (isset($_GET['saved'])) {
     $message = 'Ticket update saved.';
+}
+if (isset($_GET['refund_queued'])) {
+    $message = 'Refund queued for Super Admin money approval. No funds moved yet.';
 }
 
 $assigned = sa_rows($pdo, "SELECT * FROM support_tickets WHERE assigned_admin_id = ? AND status NOT IN ('resolved','closed','rejected') ORDER BY FIELD(priority, 'high','medium','low'), FIELD(status, 'escalated','open','in_progress','waiting_on_user'), last_activity_at DESC, id DESC LIMIT 100", [$agentId]);
@@ -137,12 +165,19 @@ $logo = app_primary_logo_url();
       <a href="profile.php#account"><i class="fa-solid fa-lock"></i> Account</a>
       <a href="../support/index.php"><i class="fa-solid fa-life-ring"></i> Public Support</a>
       <a href="../index.php"><i class="fa-solid fa-house"></i> NATCODEV Home</a>
-      <a href="../logout.php?next=support%2Fagent.php"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
+      <a href="../logout.php?next=support%2Fagent.php&amp;_csrf=<?= e(csrf_token()) ?>"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
     </nav>
   </aside>
   <main class="main">
-    <header class="top"><span class="chip"><i class="fa-solid fa-headset"></i> Assigned support work only</span><span class="chip"><?= e(date('M j, Y h:i A')) ?></span><a class="chip" href="profile.php">Profile</a><a class="chip" href="profile.php#account">Account</a><a class="chip" href="../logout.php?next=support%2Fagent.php">Logout</a></header>
+    <header class="top"><span class="chip"><i class="fa-solid fa-headset"></i> Assigned support work only</span><span class="chip"><?= e(date('M j, Y h:i A')) ?></span><a class="chip" href="profile.php">Profile</a><a class="chip" href="profile.php#account">Account</a><a class="chip" href="../logout.php?next=support%2Fagent.php&amp;_csrf=<?= e(csrf_token()) ?>">Logout</a></header>
     <section class="content">
+      <?php
+      $agentTrail = [['label' => 'Support Desk', 'href' => 'agent.php'], ['label' => 'My Tickets', 'href' => 'agent.php']];
+      if ($selectedId > 0) {
+          $agentTrail[] = ['label' => 'Ticket #' . $selectedId];
+      }
+      echo page_breadcrumbs($agentTrail, 'NATCODEV', '../index.php');
+      ?>
       <div class="hero"><div><h1>Support Agent Desk</h1><p>Handle tickets assigned to you, reply to customers, resolve simple issues, or escalate to operators.</p></div><a class="btn light" href="../login.php?next=support%2Fagent.php">Switch Account</a></div>
       <?php if ($message): ?><div class="alert ok"><?= e($message) ?></div><?php endif; ?>
       <?php if ($error): ?><div class="alert bad"><?= e($error) ?></div><?php endif; ?>
@@ -162,7 +197,12 @@ $logo = app_primary_logo_url();
               <label style="font-size:.82rem;color:#475569;">Attach File(s)<input type="file" name="attachments[]" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx" style="font-size:.82rem;"></label>
               <label>Internal Note<textarea name="internal_note" placeholder="Internal note for operators or future agents..."></textarea></label>
               <label>Status<select name="status"><option value="in_progress">In Progress</option><option value="waiting_on_user">Waiting On User</option><option value="resolved">Resolved</option><option value="escalated">Escalated</option></select></label>
-              <div class="actions"><button class="btn" name="action" value="reply">Save Update</button><button class="btn danger" id="escalate" name="action" value="escalate">Escalate To Operator</button></div>
+              <div style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px;">
+                <label>Initiate Marketplace Refund<br><small style="color:#475569;">Checkout reference (MKT-CHK-...). The refund is queued for Super Admin money approval through the shared refund handler — no funds move from the support desk.</small></label>
+                <input type="text" name="checkout_ref" placeholder="MKT-CHK-..." style="width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;margin-top:6px;">
+                <textarea name="refund_reason" placeholder="Refund reason (required)" style="width:100%;min-height:70px;padding:9px;border:1px solid var(--line);border-radius:8px;margin-top:6px;"></textarea>
+              </div>
+              <div class="actions"><button class="btn" name="action" value="reply">Save Update</button><button class="btn" name="action" value="refund_checkout">Queue Marketplace Refund</button><button class="btn danger" id="escalate" name="action" value="escalate">Escalate To Operator</button></div>
             </form>
           <?php else: ?>
             <div class="empty">Select an assigned ticket to begin. Support agents cannot create teams, change settings, or browse unrelated admin queues.</div>

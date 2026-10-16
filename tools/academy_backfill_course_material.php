@@ -43,7 +43,7 @@ $out('Mode     : ' . ($apply ? 'APPLY (will write rows and files)' : 'DRY RUN (n
 $out(str_repeat('-', 78));
 
 $rows = $pdo->query("
-    SELECT w.id, w.title,
+    SELECT w.id, w.title, w.is_free,
         (SELECT COUNT(*) FROM academy_lessons l WHERE l.webinar_id = w.id AND l.status = 'active') lessons,
         (SELECT COUNT(*) FROM academy_materials m WHERE m.webinar_id = w.id AND m.status = 'active') materials,
         (SELECT COUNT(*) FROM academy_assessments a WHERE a.webinar_id = w.id AND a.status = 'active') assessments,
@@ -53,17 +53,20 @@ $rows = $pdo->query("
 ")->fetchAll();
 
 if ($rows) {
-    printf("%-5s %-46s %-7s %-9s %-6s %-6s\n", 'ID', 'Course', 'Lessons', 'Material', 'Assess', 'Quest');
+    printf("%-5s %-46s %-7s %-9s %-6s %-6s %-4s\n", 'ID', 'Course', 'Lessons', 'Material', 'Assess', 'Quest', 'Min');
     foreach ($rows as $row) {
+        $minQ = (int) ($row['is_free'] ?? 0) === 1 ? 10 : 25;
+        $isOk = ((int) $row['lessons'] >= 3 && (int) $row['materials'] >= 2 && (int) $row['assessments'] >= 1 && (int) $row['questions'] >= $minQ);
         printf(
-            "%-5d %-46s %-7d %-9d %-6d %-6d %s\n",
+            "%-5d %-46s %-7d %-9d %-6d %-6d %-4d %s\n",
             (int) $row['id'],
             substr((string) $row['title'], 0, 46),
             (int) $row['lessons'],
             (int) $row['materials'],
             (int) $row['assessments'],
             (int) $row['questions'],
-            ((int) $row['lessons'] >= 3 && (int) $row['materials'] >= 2 && (int) $row['assessments'] >= 1 && (int) $row['questions'] >= 1) ? 'OK' : 'INCOMPLETE'
+            $minQ,
+            $isOk ? 'OK' : 'INCOMPLETE'
         );
     }
 }

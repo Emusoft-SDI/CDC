@@ -6,6 +6,7 @@ require_once __DIR__ . '/../lib/disaster-recovery.php';
 require_once __DIR__ . '/../lib/otp-delivery.php';
 require_once __DIR__ . '/../lib/workspace-account.php';
 require_once __DIR__ . '/../lib/super-admin-console.php';
+require_once __DIR__ . '/../lib/wallet-dual-control.php';
 
 const SUPER_ADMIN_SCHEMA_VERSION = '20261005-1';
 
@@ -24,7 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'logou
     $error = 'Invalid security token.';
 }
 
-if (isset($_GET['logout'])) {
+if (isset($_GET['logout']) && verify_csrf((string) ($_GET['_csrf'] ?? ''))) {
     super_admin_logout();
 }
 
@@ -35,16 +36,22 @@ if (empty($_SESSION['super_admin_authenticated']) && $_SERVER['REQUEST_METHOD'] 
         $error = 'Too many Super Admin login attempts. Please try again in 15 minutes.';
     } elseif (super_admin_password_is_valid((string) ($_POST['password'] ?? ''))) {
         unset($_SESSION['super_admin_authenticated'], $_SESSION['super_admin_user_id'], $_SESSION['super_admin_login_audited']);
-        $stmt = $pdo->query("SELECT id, name, email, password, role, platform_role, account_status, email_verified_at FROM users WHERE is_super_admin = 1 AND account_status = 'active' AND email <> '' AND email_verified_at IS NOT NULL ORDER BY id LIMIT 1");
-        $superUser = $stmt ? $stmt->fetch() : null;
-        if (is_array($superUser)) {
-            $otpStart = otp_begin_email_login_challenge($pdo, $superUser, 'super-admin/index.php');
-            if ($otpStart['ok']) {
-                redirect_to('../verify-otp.php');
-            }
-            $error = (string) $otpStart['message'];
+        $accountEmail = filter_var(trim((string) ($_POST['account_email'] ?? '')), FILTER_VALIDATE_EMAIL);
+        if ($accountEmail === false || $accountEmail === '') {
+            $error = 'Enter the email address of the super admin account you are signing into.';
         } else {
-            $error = 'Create an active, email-verified user-backed super admin account before entering the Super Admin console.';
+            $stmt = $pdo->prepare("SELECT id, name, email, password, role, platform_role, account_status, email_verified_at FROM users WHERE email = ? AND is_super_admin = 1 AND account_status = 'active' AND email <> '' AND email_verified_at IS NOT NULL LIMIT 1");
+            $stmt->execute([$accountEmail]);
+            $superUser = $stmt->fetch();
+            if (is_array($superUser)) {
+                $otpStart = otp_begin_email_login_challenge($pdo, $superUser, 'super-admin/index.php');
+                if ($otpStart['ok']) {
+                    redirect_to('../verify-otp.php');
+                }
+                $error = (string) $otpStart['message'];
+            } else {
+                $error = 'No active, email-verified super admin account exists for that email address.';
+            }
         }
     } else {
         $error = 'Invalid super administrator password.';
@@ -72,22 +79,6 @@ if (!super_admin_is_authorized($pdo)) {
 if (empty($_SESSION['super_admin_login_audited'])) {
     super_admin_audit($pdo, 'super_admin_login', 'Super admin console login.');
     $_SESSION['super_admin_login_audited'] = true;
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'export_users') {
-    if (!verify_csrf($_POST['_csrf'] ?? null)) {
-        http_response_code(403);
-        exit('Invalid security token.');
-    }
-    super_admin_export_users($pdo);
-}
-
-if (($_GET['export'] ?? '') === 'users') {
-    super_admin_export_users($pdo);
-}
-
-if (($_GET['export'] ?? '') === 'audit') {
-    super_admin_export_audit_log($pdo);
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array((string) ($_POST['action'] ?? ''), ['login', 'logout'], true)) {
@@ -134,6 +125,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array((string) ($_POST['action'
                 $message = 'Deleted record restored from the recycle bin.';
             } elseif ($action === 'review_certificate_revocation') {
                 $message = super_admin_review_certificate_revocation($pdo);
+            } elseif ($action === 'review_certificate_request') {
+                $message = super_admin_review_certificate_request($pdo);
+            } elseif ($action === 'save_wallet_controls') {
+                super_admin_save_wallet_controls($pdo);
+                $message = 'Wallet dual-control policy saved.';
+            } elseif ($action === 'save_wallet_automation_policy') {
+                require_once __DIR__ . '/../lib/wallet-withdrawals.php';
+                $currentUser = current_user($pdo) ?: ['id' => (int) ($_SESSION['super_admin_user_id'] ?? 0)];
+                $currentUser['is_super_admin'] = 1;
+                wallet_save_withdrawal_policy($pdo, $_POST, $currentUser);
+                super_admin_audit($pdo, 'wallet_automation_policy_saved', 'Super Admin updated withdrawal automation rules, pre-flight buffer, global daily cap, charges, and circuit breaker settings.');
+                $message = 'Withdrawal automation, pre-flight buffer, global daily cap, fee schedule, and circuit breaker settings saved.';
+            } elseif ($action === 'reset_circuit_breaker') {
+                require_once __DIR__ . '/../lib/circuit-breaker.php';
+                $provider = trim((string) ($_POST['provider'] ?? ''));
+                $adminId = (int) ($_SESSION['super_admin_user_id'] ?? 0);
+                if ($provider === '__all__') {
+                    circuit_breaker_reset_all($pdo, $adminId);
+                    $message = 'All payment gateway circuit breakers have been reset to CLOSED.';
+                } elseif ($provider !== '') {
+                    circuit_breaker_reset($pdo, $provider, $adminId);
+                    $message = 'Circuit breaker for [' . htmlspecialchars(ucwords($provider)) . '] reset to CLOSED.';
+                } else {
+                    throw new RuntimeException('Invalid gateway provider specified.');
+                }
+            } elseif ($action === 'review_wallet_credit') {
+                $message = wallet_review_credit_approval($pdo);
+            } elseif ($action === 'review_withdrawal_approval') {
+                $message = wallet_review_withdrawal_approval($pdo);
+            } elseif ($action === 'review_payout_approval') {
+                $message = wallet_review_payout_approval($pdo);
             } elseif ($action === 'save_access_controls') {
                 super_admin_save_access_controls($pdo, $roles);
                 $message = 'Role access control matrix saved.';
@@ -149,6 +171,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array((string) ($_POST['action'
             } elseif ($action === 'toggle_announcement') {
                 super_admin_toggle_announcement($pdo);
                 $message = 'Announcement status updated.';
+            } elseif ($action === 'update_announcement') {
+                super_admin_update_announcement($pdo, $roles);
+                $message = 'Announcement updated.';
+            } elseif ($action === 'delete_announcement') {
+                super_admin_delete_announcement($pdo);
+                $message = 'Announcement deleted.';
+            } elseif ($action === 'academy_approve_reco') {
+                require_once __DIR__ . '/../lib/academy/sponsorship-admin.php';
+                academy_admin_recommendation_update_status($pdo, (int) $_POST['id'], 'approved', (int) ($_SESSION['super_admin_user_id'] ?? 0));
+                $message = 'Recommendation approved.';
+            } elseif ($action === 'academy_reject_reco') {
+                require_once __DIR__ . '/../lib/academy/sponsorship-admin.php';
+                academy_admin_recommendation_update_status($pdo, (int) $_POST['id'], 'rejected', (int) ($_SESSION['super_admin_user_id'] ?? 0));
+                $message = 'Recommendation rejected.';
             } elseif ($action === 'save_dr_settings') {
                 super_admin_save_dr_settings($pdo);
                 $message = 'Disaster recovery and multisite policy saved.';
@@ -166,6 +202,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array((string) ($_POST['action'
                 dr_queue_sync_event($pdo, 'health_ping', ['queued_by' => 'super_admin', 'queued_at' => date('c')], trim((string) ($_POST['target_node'] ?? '')) ?: null);
                 super_admin_audit($pdo, 'sync_ping_queued', 'Queued multisite health ping.');
                 $message = 'Health ping queued for multisite sync.';
+            } elseif ($action === 'export_users') {
+                super_admin_export_users($pdo);
+            } elseif ($action === 'export_audit') {
+                super_admin_export_audit_log($pdo);
+            } elseif ($action === 'cooperative_suspend' || $action === 'cooperative_reactivate') {
+                $cooperativeId = (int) ($_POST['cooperative_id'] ?? 0);
+                $cooperative = cooperative_find($pdo, $cooperativeId);
+                if ($cooperative === null) {
+                    throw new RuntimeException('Cooperative not found.');
+                }
+                $nextStatus = $action === 'cooperative_suspend' ? 'suspended' : 'active';
+                $previousStatus = (string) ($cooperative['status'] ?: 'pending');
+                $pdo->prepare('UPDATE cooperatives SET status = ? WHERE id = ?')->execute([$nextStatus, $cooperativeId]);
+                if (function_exists('admin_audit_event')) {
+                    admin_audit_event(
+                        $pdo,
+                        $action === 'cooperative_suspend' ? 'cooperative_suspended' : 'cooperative_reactivated',
+                        'cooperative',
+                        $cooperativeId,
+                        ['status' => $previousStatus],
+                        ['status' => $nextStatus],
+                        'success',
+                        ($action === 'cooperative_suspend' ? 'Suspended' : 'Reactivated') . ' cooperative ' . (string) ($cooperative['name'] ?: '#' . $cooperativeId)
+                    );
+                }
+                $message = 'Cooperative ' . ($action === 'cooperative_suspend' ? 'suspended.' : 'reactivated.');
             }
         } catch (Throwable $e) {
             $error = $e->getMessage();
@@ -196,7 +258,7 @@ super_admin_page_start($pageMeta['title'], $pageMeta['description'], $view);
 
 <?php
 define('NATCODEV_SUPER_ADMIN', true);
-if (in_array($view, ['disaster', 'profile', 'overview', 'users', 'controls', 'finance'], true)) {
+if (in_array($view, ['disaster', 'profile', 'overview', 'users', 'controls', 'finance', 'cooperatives'], true)) {
     require __DIR__ . '/modules/' . $view . '.php';
 }
 ?>

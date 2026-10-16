@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/monnify.php';
 require_once __DIR__ . '/wallet-withdrawals.php';
+require_once __DIR__ . '/wallet-dual-control.php';
 
 function wallet_ensure_schema(PDO $pdo): void
 {
+    wallet_ensure_entity_schema($pdo);
     static $done = false;
     if ($done) {
         return;
@@ -24,6 +26,7 @@ function wallet_ensure_schema(PDO $pdo): void
         'reserved_provider_payload' => "LONGTEXT NULL",
         'hold_balance' => "DECIMAL(12,2) NOT NULL DEFAULT 0",
         'status' => "VARCHAR(40) NOT NULL DEFAULT 'active'",
+        'last_activity_at' => "DATETIME NULL",
     ] as $column => $definition) {
         app_add_column_if_missing($pdo, 'wallets', $column, $definition);
     }
@@ -95,10 +98,23 @@ function wallet_get_or_create(PDO $pdo, int $userId): array
     return $stmt->fetch() ?: [];
 }
 
-function wallet_credit_once(PDO $pdo, int $userId, float $amount, string $reference, string $description, string $provider, ?string $providerReference, array $payload): array
+function wallet_credit_once(PDO $pdo, int $userId, float $amount, string $arg4, string $arg5, string $provider, ?string $providerReference, array $payload): array
 {
     wallet_ensure_schema($pdo);
-    $pdo->beginTransaction();
+
+    // Support both ($reference, $description) and ($description, $reference)
+    if (str_contains($arg4, ' ') && !str_contains($arg5, ' ')) {
+        $reference = trim($arg5);
+        $description = trim($arg4);
+    } else {
+        $reference = trim($arg4);
+        $description = trim($arg5);
+    }
+
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) {
+        $pdo->beginTransaction();
+    }
     try {
         $wallet = wallet_get_or_create($pdo, $userId);
         $lock = $pdo->prepare("SELECT * FROM wallets WHERE id = ? FOR UPDATE");
@@ -112,7 +128,7 @@ function wallet_credit_once(PDO $pdo, int $userId, float $amount, string $refere
             if ($pdo->inTransaction()) {
                 $pdo->commit();
             }
-            return ['success' => true, 'duplicate' => true];
+            return ['success' => true, 'duplicate' => true, 'credited' => false, 'balance' => (float) ($wallet['balance'] ?? 0)];
         }
 
         $before = (float) $wallet['balance'];
@@ -143,15 +159,91 @@ function wallet_credit_once(PDO $pdo, int $userId, float $amount, string $refere
             ]);
         }
         $pdo->prepare("UPDATE wallets SET balance = ? WHERE id = ?")->execute([$after, (int) $wallet['id']]);
-        if ($pdo->inTransaction()) {
+        if ($ownsTransaction && $pdo->inTransaction()) {
             $pdo->commit();
         }
-        return ['success' => true, 'duplicate' => false, 'balance' => $after];
+        return ['success' => true, 'duplicate' => false, 'credited' => true, 'balance' => $after];
     } catch (Throwable $e) {
-        if ($pdo->inTransaction()) {
+        if ($ownsTransaction && $pdo->inTransaction()) {
             $pdo->rollBack();
         }
         throw $e;
+    }
+}
+
+/**
+ * Reverse a wallet balance (operator-initiated debit).
+ *
+ * Mirror of wallet_admin_credit for corrections: it moves
+ * money out of the available balance inside a transaction with
+ * a row lock, writes a paired wallet_transactions row, and is
+ * audited. The available balance is never driven negative.
+ *
+ * @return array{success: bool, duplicate?: bool, balance?: float, reference?: string, user?: array, error?: string}
+ */
+function wallet_admin_debit(PDO $pdo, int $userId, float $amount, int $adminId, string $reason = ''): array
+{
+    if ($userId <= 0) {
+        return ['success' => false, 'error' => 'Select a valid wallet owner.'];
+    }
+    if (!is_finite($amount) || $amount <= 0 || $amount > 1000000000) {
+        return ['success' => false, 'error' => 'Enter a valid amount between NGN 0.01 and NGN 1,000,000,000.'];
+    }
+    $stmt = $pdo->prepare('SELECT id, name, email FROM users WHERE id = ? LIMIT 1');
+    $stmt->execute([$userId]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$user) {
+        return ['success' => false, 'error' => 'Wallet owner was not found.'];
+    }
+
+    $reference = 'ADMIN-DEBIT-' . date('YmdHis') . '-' . $userId . '-' . strtoupper(bin2hex(random_bytes(3)));
+    $description = 'Admin wallet debit' . ($reason !== '' ? ': ' . mb_substr($reason, 0, 300) : '');
+    try {
+        $ownsTransaction = !$pdo->inTransaction();
+        if ($ownsTransaction) {
+            $pdo->beginTransaction();
+        }
+        $wallet = wallet_get_or_create($pdo, $userId);
+        $lock = $pdo->prepare('SELECT * FROM wallets WHERE id = ? FOR UPDATE');
+        $lock->execute([(int) $wallet['id']]);
+        $wallet = $lock->fetch();
+        $before = (float) $wallet['balance'];
+        if ($before + 0.01 < $amount) {
+            if ($ownsTransaction && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            return ['success' => false, 'error' => 'Insufficient wallet balance for this debit.'];
+        }
+        $after = round($before - $amount, 2);
+        $pdo->prepare('UPDATE wallets SET balance = ?, last_activity_at = NOW() WHERE id = ?')
+            ->execute([$after, (int) $wallet['id']]);
+        $pdo->prepare("
+            INSERT INTO wallet_transactions
+                (wallet_id, user_id, amount, type, direction, description, reference, provider, provider_reference, provider_payload, status, balance_before, balance_after, completed_at)
+            VALUES (?, ?, ?, 'debit', 'outflow', ?, ?, 'admin_manual', NULL, ?, 'completed', ?, ?, NOW())
+        ")->execute([
+            (int) $wallet['id'],
+            $userId,
+            $amount,
+            $description,
+            $reference,
+            json_encode(['admin_id' => $adminId, 'reason' => mb_substr($reason, 0, 500)], JSON_UNESCAPED_SLASHES),
+            $before,
+            $after,
+        ]);
+        if ($ownsTransaction && $pdo->inTransaction()) {
+            $pdo->commit();
+        }
+        if (function_exists('admin_audit')) {
+            admin_audit($pdo, 'wallet_admin_debit', 'Admin #' . $adminId . ' debited user #' . $userId . ' with NGN ' . number_format($amount, 2) . ' (ref ' . $reference . ').');
+        }
+        return ['success' => true, 'duplicate' => false, 'balance' => $after, 'reference' => $reference, 'user' => $user];
+    } catch (Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        error_log('Admin wallet debit failed: ' . $e->getMessage());
+        return ['success' => false, 'error' => 'Wallet debit could not be completed safely.'];
     }
 }
 

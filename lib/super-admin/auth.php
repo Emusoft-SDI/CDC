@@ -114,6 +114,9 @@ function super_admin_auth_role(string $platformRole): string
     if ($platformRole === 'investor') {
         return 'investor';
     }
+    if ($platformRole === 'cooperative_admin') {
+        return 'admin';
+    }
     if (in_array($platformRole, ['grower', 'seller', 'buyer', 'provider', 'learner'], true)) {
         return 'grower';
     }

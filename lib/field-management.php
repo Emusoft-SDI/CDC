@@ -83,6 +83,9 @@ function fm_ensure_schema(PDO $pdo): void
         app_add_column_if_missing($pdo, 'grower_farms', $column, $definition);
     }
     app_add_column_if_missing($pdo, 'grower_farms', 'deleted_at', "DATETIME NULL");
+    // Lazy district/village capture for grower farms (matches applications table)
+    app_add_column_if_missing($pdo, 'grower_farms', 'district', "VARCHAR(160) NULL");
+    app_add_column_if_missing($pdo, 'grower_farms', 'village', "VARCHAR(160) NULL");
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS farm_verifications (

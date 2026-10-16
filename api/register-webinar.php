@@ -153,7 +153,7 @@ function webinar_initialize_direct_payment(PDO $pdo, array $user, array $webinar
     $pdo->prepare("
         INSERT INTO wallet_transactions
             (wallet_id, user_id, amount, type, direction, description, reference, provider, provider_reference, provider_payload, status)
-        VALUES (?, ?, ?, 'debit', 'outflow', ?, ?, 'monnify_training', ?, ?, 'pending')
+        VALUES (?, ?, ?, 'debit', 'outflow', ?, ?, 'monnify_external', ?, ?, 'pending')
     ")->execute([
         (int) $wallet['id'],
         (int) $user['id'],
@@ -173,7 +173,7 @@ function webinar_verify_direct_payment(PDO $pdo, array $user, string $reference)
     $stmt = $pdo->prepare("
         SELECT *
         FROM wallet_transactions
-        WHERE user_id = ? AND reference = ? AND provider = 'monnify_training'
+        WHERE user_id = ? AND reference = ? AND provider = 'monnify_external'
         LIMIT 1
     ");
     $stmt->execute([(int) $user['id'], $reference]);

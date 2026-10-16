@@ -11,8 +11,7 @@ admin_ensure_schema($pdo);
 fm_ensure_schema($pdo);
 admin_require($pdo);
 if (!admin_current_user_is_super_admin($pdo)) {
-    http_response_code(403);
-    exit('Forbidden: Only Super Admin can access the root users and roles console.');
+    app_render_error_page(403, 'Only Super Admin can access the root users and roles console.');
 }
 
 $message = '';
@@ -20,8 +19,10 @@ $error = '';
 $roles = [
     'grower' => 'Grower',
     'field_agent' => 'Field Agent',
+    'farm_hand' => 'Farm Hand',
     'agronomist' => 'Agronomist',
     'extensionist' => 'Agric Extensionist',
+    'support_agent' => 'Support Agent',
     'admin' => 'Admin',
 ];
 
@@ -352,9 +353,11 @@ function admin_onboard_uploaded_users(PDO $pdo, array $rows, string $defaultRole
             continue;
         }
 
-        if ($password === '' || strlen($password) < 8) {
-            $password = strtoupper(bin2hex(random_bytes(4)));
-        }
+        // A password counts as supplied only when it meets the old
+        // 8-character minimum; blank or too-short rows fall through to
+        // the claim-link flow instead of being issued a generated
+        // plain-text password.
+        $passwordSupplied = $password !== '' && strlen($password) >= 8;
 
         [$storedRole, $isAgronomist, $isExtensionist, $specialty] = admin_role_to_storage($selectedRole);
         $applicationId = $selectedRole === 'grower'
@@ -409,7 +412,11 @@ function admin_onboard_uploaded_users(PDO $pdo, array $rows, string $defaultRole
             $phone !== '' ? $phone : null,
             $address !== '' ? $address : null,
             $applicationId,
-            password_hash($password, PASSWORD_DEFAULT),
+            // When a password was supplied it is hashed and emailed as
+            // before; otherwise only an opaque placeholder hash is stored
+            // and the staff member activates the account through a claim
+            // link.
+            password_hash($passwordSupplied ? $password : bin2hex(random_bytes(16)), PASSWORD_DEFAULT),
             $storedRole,
             $isAgronomist,
             $isExtensionist,
@@ -421,12 +428,23 @@ function admin_onboard_uploaded_users(PDO $pdo, array $rows, string $defaultRole
             admin_upsert_staff_profile($pdo, $userId, $selectedRole, $profileData);
         }
 
-        if ($sendNotifications) {
-            $fallback = "Hello {name}, your NATCODEV {$roles[$selectedRole]} account has been created. Login: {login_url}. Temporary password: {temporary_password}";
-            natcodev_notify_user($pdo, $userId, 'bulk_user_onboarded', 'Your NATCODEV account is ready', [
-                'role' => $roles[$selectedRole],
-                'temporary_password' => $password,
-            ], $fallback);
+        if ($passwordSupplied) {
+            if ($sendNotifications) {
+                $fallback = "Hello {name}, your NATCODEV {$roles[$selectedRole]} account has been created. Login: {login_url}. Temporary password: {temporary_password}";
+                natcodev_notify_user($pdo, $userId, 'bulk_user_onboarded', 'Your NATCODEV account is ready', [
+                    'role' => $roles[$selectedRole],
+                    'temporary_password' => $password,
+                ], $fallback);
+            }
+        } else {
+            // Claim path: no password was supplied, so the claim link is
+            // the only activation path and no plain-text password is
+            // ever emailed. Claim-email failures are surfaced in the
+            // summary's error list rather than swallowed.
+            $claim = staff_account_claim_begin($pdo, $userId);
+            if (!$claim['ok']) {
+                $summary['errors'][] = "Row {$line}: staff account created, but the claim email could not be delivered.";
+            }
         }
 
         $summary['created']++;
@@ -445,15 +463,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $name = trim((string) ($_POST['name'] ?? ''));
             $email = strtolower(trim((string) ($_POST['email'] ?? '')));
             $phone = trim((string) ($_POST['phone'] ?? ''));
-            $password = (string) ($_POST['password'] ?? '');
+            $password = trim((string) ($_POST['password'] ?? ''));
             $selectedRole = (string) ($_POST['role'] ?? '');
             $license = trim((string) ($_POST['agronomist_license'] ?? ''));
 
-            if ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($password) < 8 || !isset($roles[$selectedRole]) || $selectedRole === 'grower') {
-                $error = 'Provide name, valid email, password of at least 8 characters, and a staff role.';
+            // Password is optional: validate only name/email/role (same approach
+            // as super_admin_create_user()). When a password is supplied it is
+            // hashed and emailed as before; when left blank the staff member
+            // activates the account through the claim link issued by
+            // staff_account_claim_begin().
+            if ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL) || !isset($roles[$selectedRole]) || $selectedRole === 'grower') {
+                $error = 'Provide name, valid email, and a staff role.';
             } else {
                 [$storedRole, $isAgronomist, $isExtensionist, $specialty] = admin_role_to_storage($selectedRole);
                 try {
+                    // When the admin supplies a password it is emailed as before;
+                    // when the field is left blank only an opaque placeholder
+                    // hash is stored.
+                    $initialPassword = $password !== '' ? $password : bin2hex(random_bytes(16));
                     $stmt = $pdo->prepare("
                         INSERT INTO users (name, email, phone, application_id, password, role, is_agronomist, is_extensionist, agronomist_license, staff_specialty)
                         VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
@@ -462,7 +489,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $name,
                         $email,
                         $phone !== '' ? $phone : null,
-                        password_hash($password, PASSWORD_DEFAULT),
+                        password_hash($initialPassword, PASSWORD_DEFAULT),
                         $storedRole,
                         $isAgronomist,
                         $isExtensionist,
@@ -473,13 +500,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     admin_upsert_staff_profile($pdo, $newUserId, $selectedRole, [
                         'license_number' => $license !== '' ? $license : null,
                     ]);
-                    natcodev_notify_user($pdo, $newUserId, 'bulk_user_onboarded', 'Your NATCODEV staff account is ready', [
-                        'role' => $roles[$selectedRole],
-                        'temporary_password' => $password,
-                        'login_url' => app_base_url() . '/login.php',
-                        'field_agent_url' => app_base_url() . '/field-agent/',
-                    ], "Hello {name}, your NATCODEV {$roles[$selectedRole]} account has been created. Login: {login_url}. Temporary password: {temporary_password}. Field agent console: {field_agent_url}");
-                    $message = $roles[$selectedRole] . ' user created and onboarding message sent.';
+                    if ($password !== '') {
+                        natcodev_notify_user($pdo, $newUserId, 'bulk_user_onboarded', 'Your NATCODEV staff account is ready', [
+                            'role' => $roles[$selectedRole],
+                            'temporary_password' => $password,
+                            'login_url' => app_base_url() . '/login.php',
+                            'field_agent_url' => app_base_url() . '/field-agent/',
+                        ], "Hello {name}, your NATCODEV {$roles[$selectedRole]} account has been created. Login: {login_url}. Temporary password: {temporary_password}. Field agent console: {field_agent_url}");
+                        $message = $roles[$selectedRole] . ' user created and temporary password emailed.';
+                    } else {
+                        // Claim path: no password was supplied, so the claim link
+                        // is the only activation path and no plain-text password
+                        // is ever emailed.
+                        $claim = staff_account_claim_begin($pdo, $newUserId);
+                        $message = $claim['ok']
+                            ? $roles[$selectedRole] . ' user created and claim link sent.'
+                            : $roles[$selectedRole] . ' user created, but the claim email could not be delivered.';
+                    }
                 } catch (PDOException $e) {
                     if ($e->getCode() === '23000') {
                         $error = 'A user with that email already exists.';
@@ -654,18 +691,21 @@ admin_page_start('Users', [
         <label class="field"><span>Name</span><input type="text" name="name" required></label>
         <label class="field"><span>Email</span><input type="email" name="email" required></label>
         <label class="field"><span>Phone</span><input type="text" name="phone"></label>
-        <label class="field"><span>Temporary Password</span>
+        <label class="field"><span>Temporary Password (optional)</span>
           <span class="password-field" style="display:block">
-            <input id="staff_temp_password" type="password" name="password" minlength="8" required>
+            <input id="staff_temp_password" type="password" name="password" minlength="8">
             <button class="password-toggle" type="button" data-target="staff_temp_password" aria-pressed="false">Show</button>
           </span>
+          <small class="meta">Leave blank to email the staff member a secure 14-day claim link instead of a temporary password.</small>
         </label>
         <label class="field"><span>Staff Role</span>
           <select name="role" required>
             <option value="">Select role</option>
             <option value="field_agent">Field Agent</option>
+            <option value="farm_hand">Farm Hand</option>
             <option value="agronomist">Agronomist</option>
             <option value="extensionist">Agric Extensionist</option>
+            <option value="support_agent">Support Agent</option>
             <option value="admin">Admin</option>
           </select>
         </label>

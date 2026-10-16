@@ -27,6 +27,11 @@ declare(strict_types=1);
  * store row) is written by registration_wizard_finalize() when the last step is saved.
  */
 
+// Seller subscription plans live in the revenue module: the wizard offers a
+// plan at sign-up and records the choice (plus its subscription row) at
+// finalize, so the definitions are needed here.
+require_once __DIR__ . '/platform-revenue.php';
+
 if (!function_exists('registration_wizard_boards')) {
     /**
      * Every registration board and the steps it walks through.
@@ -75,6 +80,8 @@ if (!function_exists('registration_wizard_boards')) {
                         'fields' => [
                             ['name' => 'state', 'label' => 'State', 'type' => 'select', 'required' => true, 'source' => 'states'],
                             ['name' => 'lga_id', 'label' => 'LGA', 'type' => 'select', 'required' => true, 'source' => 'lgas'],
+                            ['name' => 'district', 'label' => 'District / Ward', 'type' => 'text', 'placeholder' => 'e.g. District 1, Ward A'],
+                            ['name' => 'village', 'label' => 'Community / Village', 'type' => 'text', 'placeholder' => 'e.g. Ago Iwoye Village'],
                             ['name' => 'street_address', 'label' => 'Nearest Landmark / Address', 'type' => 'text'],
                             ['name' => 'land_ownership_status', 'label' => 'Land Ownership', 'type' => 'select',
                                 'options' => ['owned' => 'Owned', 'family' => 'Family Land', 'leased' => 'Leased / Rented', 'community' => 'Community Allocated', 'other' => 'Other']],
@@ -227,6 +234,15 @@ if (!function_exists('registration_wizard_boards')) {
                         'intro' => 'Confirm and your store is created.',
                         'review' => true,
                         'fields' => [
+                            [
+                                'name' => 'subscription_plan',
+                                'label' => 'Subscription Plan',
+                                'type' => 'select',
+                                'required' => true,
+                                'source' => 'seller_plans',
+                                'default' => 'seller_starter',
+                                'hint' => 'Starter is free. Growth and Enterprise are billed annually from your seller wallet.',
+                            ],
                             ['name' => 'terms_accepted', 'label' => 'I accept the Terms of Service, Privacy Policy and marketplace rules.', 'type' => 'checkbox', 'required' => true],
                         ],
                     ],
@@ -345,6 +361,103 @@ if (!function_exists('registration_wizard_boards')) {
                         'review' => true,
                         'fields' => [
                             ['name' => 'terms_accepted', 'label' => 'I accept the Terms of Service and Privacy Policy.', 'type' => 'checkbox', 'required' => true],
+                        ],
+                    ],
+                ],
+            ],
+
+            'coordinator' => [
+                'label' => 'Coordinator Enrollment',
+                'short' => 'Coordinator',
+                'entry' => 'apply.php?type=coordinator',
+                'dashboard' => 'coordination/',
+                'role' => 'admin',
+                'platform_role' => 'state_coordinator',
+                'steps' => [
+                    [
+                        'key' => 'personal',
+                        'title' => 'Your Details',
+                        'intro' => 'Who you are and how we reach you.',
+                        'fields' => [
+                            ['name' => 'name', 'label' => 'Full Name', 'type' => 'text', 'required' => true],
+                            ['name' => 'phone', 'label' => 'Phone Number', 'type' => 'tel', 'required' => true],
+                            ['name' => 'whatsapp', 'label' => 'WhatsApp Number', 'type' => 'tel'],
+                            ['name' => 'alternate_phone', 'label' => 'Alternate Phone', 'type' => 'tel'],
+                            ['name' => 'alternate_email', 'label' => 'Alternate Email', 'type' => 'email'],
+                        ],
+                    ],
+                    [
+                        'key' => 'enclave',
+                        'title' => 'Your Coordination Enclave',
+                        'intro' => 'The tier you head, and the exact enclave you will coordinate. Operations reviews and approves every application before your account is activated.',
+                        'fields' => [
+                            ['name' => 'coordinator_tier', 'label' => 'Coordinator Tier', 'type' => 'select', 'required' => true,
+                                'options' => [
+                                    'village_coordinator' => 'Village Head (Village Coordinator)',
+                                    'district_coordinator' => 'District / Ward Head (District Coordinator)',
+                                    'lga_coordinator' => 'LGA Head (LGA Coordinator)',
+                                    'state_coordinator' => 'State Coordinator',
+                                    'regional_coordinator' => 'Regional Coordinator',
+                                ]],
+                            ['name' => 'state', 'label' => 'State', 'type' => 'select', 'required' => true, 'source' => 'states'],
+                            ['name' => 'lga', 'label' => 'LGA', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g. Ijebu North'],
+                            ['name' => 'district', 'label' => 'District / Ward', 'type' => 'text', 'placeholder' => 'e.g. District 1'],
+                            ['name' => 'village', 'label' => 'Community / Village', 'type' => 'text', 'placeholder' => 'e.g. Ago Iwoye'],
+                            ['name' => 'reason', 'label' => 'Why do you want to coordinate this enclave?', 'type' => 'textarea'],
+                        ],
+                    ],
+                    [
+                        'key' => 'confirm',
+                        'title' => 'Review & Submit',
+                        'intro' => 'Confirm and your application goes to operations for approval.',
+                        'review' => true,
+                        'fields' => [
+                            ['name' => 'terms_accepted', 'label' => 'I confirm the information given is accurate and I accept the Terms of Service and Privacy Policy.', 'type' => 'checkbox', 'required' => true],
+                        ],
+                    ],
+                ],
+            ],
+
+            'cooperative' => [
+                'label' => 'Cooperative Partnership',
+                'short' => 'Cooperative',
+                'entry' => 'apply.php?type=cooperative',
+                'dashboard' => 'cooperatives/',
+                'role' => 'grower',
+                'platform_role' => 'cooperative_admin',
+                'steps' => [
+                    [
+                        'key' => 'personal',
+                        'title' => 'Contact Person',
+                        'intro' => 'The person who will administer the cooperative on NATCODEV.',
+                        'fields' => [
+                            ['name' => 'name', 'label' => 'Full Name', 'type' => 'text', 'required' => true],
+                            ['name' => 'phone', 'label' => 'Phone Number', 'type' => 'tel', 'required' => true],
+                            ['name' => 'whatsapp', 'label' => 'WhatsApp Number', 'type' => 'tel'],
+                            ['name' => 'alternate_phone', 'label' => 'Alternate Phone', 'type' => 'tel'],
+                            ['name' => 'alternate_email', 'label' => 'Alternate Email', 'type' => 'email'],
+                        ],
+                    ],
+                    [
+                        'key' => 'cooperative',
+                        'title' => 'Your Cooperative',
+                        'intro' => 'The registered cooperative that will partner with NATCODEV. Operations reviews and approves every partnership before the account is activated.',
+                        'fields' => [
+                            ['name' => 'cooperative_name', 'label' => 'Cooperative Name', 'type' => 'text', 'required' => true],
+                            ['name' => 'cooperative_registration_number', 'label' => 'Cooperative Registration Number (CAC)', 'type' => 'text', 'required' => true],
+                            ['name' => 'cooperative_members_count', 'label' => 'Number of Members', 'type' => 'number', 'required' => true, 'min' => '1'],
+                            ['name' => 'state', 'label' => 'State', 'type' => 'select', 'required' => true, 'source' => 'states'],
+                            ['name' => 'lga', 'label' => 'LGA', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g. Ijebu North'],
+                            ['name' => 'address', 'label' => 'Cooperative Address', 'type' => 'text'],
+                        ],
+                    ],
+                    [
+                        'key' => 'confirm',
+                        'title' => 'Review & Submit',
+                        'intro' => 'Confirm and your partnership application goes to operations for approval.',
+                        'review' => true,
+                        'fields' => [
+                            ['name' => 'terms_accepted', 'label' => 'I confirm the information given is accurate and I accept the Terms of Service and Privacy Policy.', 'type' => 'checkbox', 'required' => true],
                         ],
                     ],
                 ],
@@ -664,12 +777,63 @@ if (!function_exists('registration_wizard_validate_step')) {
                 if (isset($field['options']) && is_array($field['options']) && !array_key_exists($raw, $field['options'])) {
                     $errors[] = $label . ' has an invalid selection.';
                 }
+                if (!isset($field['options']) && (string) ($field['source'] ?? '') === 'seller_plans' && !array_key_exists($raw, registration_wizard_seller_plan_options())) {
+                    $errors[] = $label . ' has an invalid selection.';
+                }
             }
 
             $values[$name] = $raw;
         }
 
         return ['values' => $values, 'errors' => $errors];
+    }
+}
+
+/* ---------------------------------------------------------------- seller plans */
+
+if (!function_exists('registration_wizard_seller_plan_options')) {
+    /**
+     * Plan choices for the sign-up selector, keyed by plan key.
+     *
+     * @return array<string, string> plan key => option label
+     */
+    function registration_wizard_seller_plan_options(): array
+    {
+        $options = [];
+        foreach (revenue_default_seller_plans() as $plan) {
+            $options[(string) $plan['plan_key']] = registration_wizard_seller_plan_label($plan);
+        }
+
+        return $options;
+    }
+}
+
+if (!function_exists('registration_wizard_seller_plan_label')) {
+    /** A one-line description of a plan for the selector and the review step. */
+    function registration_wizard_seller_plan_label(array $plan): string
+    {
+        $monthly = (float) ($plan['monthly_fee'] ?? 0);
+        $annual = (float) ($plan['annual_fee'] ?? 0);
+        $fee = ($annual <= 0 && $monthly <= 0)
+            ? 'Free'
+            : 'NGN ' . number_format($monthly, 0) . '/mo or NGN ' . number_format($annual, 0) . '/yr';
+        $limit = (int) ($plan['product_limit'] ?? 0);
+
+        return sprintf('%s — %s · %s listings', (string) ($plan['title'] ?? ''), $fee, number_format($limit));
+    }
+}
+
+if (!function_exists('registration_wizard_seller_plan_title')) {
+    /** The display title for a plan key, or the key itself when unknown. */
+    function registration_wizard_seller_plan_title(string $planKey): string
+    {
+        foreach (revenue_default_seller_plans() as $plan) {
+            if ((string) $plan['plan_key'] === $planKey) {
+                return (string) $plan['title'];
+            }
+        }
+
+        return $planKey;
     }
 }
 
@@ -720,6 +884,10 @@ if (!function_exists('registration_wizard_fields_html')) {
             $type = (string) ($field['type'] ?? 'text');
             $label = (string) ($field['label'] ?? $name);
             $value = (string) ($values[$name] ?? '');
+            if ($value === '' && array_key_exists('default', $field)) {
+                // Preselect the field default (the starter plan) on a fresh draft.
+                $value = (string) $field['default'];
+            }
             $required = !empty($field['required']);
             $id = $prefix . '-' . $name;
             $visible = registration_wizard_field_visible($field, $values);
@@ -742,6 +910,10 @@ if (!function_exists('registration_wizard_fields_html')) {
             }
 
             $html .= '<label for="' . e($id) . '">' . e($label) . ($required ? ' <span class="rw-req">*</span>' : '') . '</label>';
+
+            if (!empty($field['hint'])) {
+                $html .= '<span class="rw-hint">' . e((string) $field['hint']) . '</span>';
+            }
 
             if ($type === 'select') {
                 $source = (string) ($field['source'] ?? '');
@@ -780,6 +952,14 @@ if (!function_exists('registration_wizard_fields_html')) {
                         if ($lgaName !== '') {
                             $html .= '<option value="' . e($value) . '" selected>' . e($lgaName) . '</option>';
                         }
+                    }
+                } elseif ($source === 'seller_plans') {
+                    // Subscription plans come from the revenue module so the seeded
+                    // plan list stays the single source of truth. Always offers a
+                    // value (the default is preselected), so no empty placeholder.
+                    foreach (registration_wizard_seller_plan_options() as $planValue => $planLabel) {
+                        $selected = (string) $planValue === $value ? ' selected' : '';
+                        $html .= '<option value="' . e((string) $planValue) . '"' . $selected . '>' . e($planLabel) . '</option>';
                     }
                 } else {
                     $html .= '<option value="">Select&hellip;</option>';
@@ -857,6 +1037,9 @@ if (!function_exists('registration_wizard_review_html')) {
                 $value = (string) ($values[$field['name']] ?? '');
                 if ($value === '') {
                     continue;
+                }
+                if ((string) ($field['source'] ?? '') === 'seller_plans') {
+                    $value = registration_wizard_seller_plan_title($value);
                 }
                 $rows .= '<div class="rw-review__row"><dt>' . e((string) $field['label']) . '</dt><dd>' . e($value) . '</dd></div>';
             }
@@ -951,6 +1134,36 @@ if (!function_exists('registration_wizard_finalize')) {
         // MySQL DDL commits implicitly and would otherwise end it mid-write.
         $extraColumns = registration_wizard_prepare_other_columns($pdo, $boardSlug, $values);
 
+        // Seller registration also writes a subscription record, so the revenue
+        // tables, the wallet, and the marketplace_sellers.subscription_plan column
+        // must all exist before the transaction starts, for the same DDL reason.
+        $sellerSubscription = [];
+        if ($boardSlug === 'seller') {
+            if (!function_exists('wallet_ensure_schema')) {
+                require_once __DIR__ . '/wallet.php';
+            }
+            if (!app_column_exists($pdo, 'marketplace_sellers', 'subscription_plan')) {
+                app_add_column_if_missing($pdo, 'marketplace_sellers', 'subscription_plan', "VARCHAR(40) NOT NULL DEFAULT 'seller_starter'");
+            }
+            revenue_ensure_schema($pdo);
+            wallet_ensure_schema($pdo);
+        }
+
+        // Enrollment boards write enrollment applications;
+        // grower rows can carry the self-declared
+        // district/village enclave columns. Both must
+        // exist before the transaction starts, for the
+        // same DDL reason.
+        if (in_array($boardSlug, ['coordinator', 'cooperative'], true)) {
+            enrollment_ensure_schema($pdo);
+        }
+        if (!app_column_exists($pdo, 'applications', 'district')) {
+            app_add_column_if_missing($pdo, 'applications', 'district', 'VARCHAR(160) NULL');
+        }
+        if (!app_column_exists($pdo, 'applications', 'village')) {
+            app_add_column_if_missing($pdo, 'applications', 'village', 'VARCHAR(160) NULL');
+        }
+
         // One transaction: activating the account and writing the board-specific row
         // must succeed or fail together. Otherwise a failure here would leave someone
         // with an active account and a half-built application.
@@ -961,19 +1174,37 @@ if (!function_exists('registration_wizard_finalize')) {
                 $pdo->beginTransaction();
             }
 
-            // The OTP proved control of the mailbox, so this is also the point where
-            // the account stops being needs_confirmation.
-            $pdo->prepare("UPDATE users SET name = COALESCE(NULLIF(?, ''), name), phone = COALESCE(NULLIF(?, ''), phone),
-                    role = ?, platform_role = ?, account_status = 'active', email_verified_at = NOW(), phone_verified = 1,
-                    terms_accepted = 1, terms_accepted_at = NOW()
-                WHERE id = ?")
-                ->execute([
-                    (string) ($values['name'] ?? ''),
-                    (string) ($values['phone'] ?? ''),
-                    (string) $board['role'],
-                    (string) $board['platform_role'],
-                    $userId,
-                ]);
+            // Enrollment boards (coordinator, cooperative)
+            // stay unactivated until operations approves
+            // the application; enrollment_application_approve()
+            // activates the account, assigns the scoped
+            // role, and emails the claim link.
+            $enrollmentBoard = in_array($boardSlug, ['coordinator', 'cooperative'], true);
+            if ($enrollmentBoard) {
+                $pdo->prepare("UPDATE users SET name = COALESCE(NULLIF(?, ''), name), phone = COALESCE(NULLIF(?, ''), phone),
+                        role = ?, platform_role = ?, email_verified_at = NOW(), phone_verified = 1,
+                        terms_accepted = 1, terms_accepted_at = NOW()
+                    WHERE id = ?")
+                    ->execute([
+                        (string) ($values['name'] ?? ''),
+                        (string) ($values['phone'] ?? ''),
+                        (string) $board['role'],
+                        (string) ($values['coordinator_tier'] ?: $board['platform_role']),
+                        $userId,
+                    ]);
+            } else {
+                $pdo->prepare("UPDATE users SET name = COALESCE(NULLIF(?, ''), name), phone = COALESCE(NULLIF(?, ''), phone),
+                        role = ?, platform_role = ?, account_status = 'active', email_verified_at = NOW(), phone_verified = 1,
+                        terms_accepted = 1, terms_accepted_at = NOW()
+                    WHERE id = ?")
+                    ->execute([
+                        (string) ($values['name'] ?? ''),
+                        (string) ($values['phone'] ?? ''),
+                        (string) $board['role'],
+                        (string) $board['platform_role'],
+                        $userId,
+                    ]);
+            }
 
             if (($values['state'] ?? '') !== '') {
                 $pdo->prepare('UPDATE users SET location = ? WHERE id = ?')->execute([(string) $values['state'], $userId]);
@@ -1006,9 +1237,13 @@ if (!function_exists('registration_wizard_finalize')) {
             if ($boardSlug === 'grower') {
                 registration_wizard_finalize_grower($pdo, $draft, $values, $userId, $extraColumns);
             } elseif ($boardSlug === 'seller') {
-                registration_wizard_finalize_seller($pdo, $values, $userId, $email, $extraColumns);
+                $sellerSubscription = registration_wizard_finalize_seller($pdo, $values, $userId, $email, $extraColumns);
             } elseif ($boardSlug === 'provider') {
                 registration_wizard_finalize_provider($pdo, $values, $userId, $email, $extraColumns);
+            } elseif ($boardSlug === 'buyer') {
+                registration_wizard_finalize_buyer($pdo, $userId);
+            } elseif ($boardSlug === 'coordinator' || $boardSlug === 'cooperative') {
+                registration_wizard_finalize_enrollment($pdo, $boardSlug, $values, $userId, $email);
             }
 
             $pdo->prepare("UPDATE registration_drafts SET status = 'submitted', otp_verified = 1, submitted_at = NOW(),
@@ -1019,7 +1254,17 @@ if (!function_exists('registration_wizard_finalize')) {
                 $pdo->commit();
             }
 
-            return ['ok' => true, 'message' => 'Registration complete.'];
+            $result = ['ok' => true, 'message' => 'Registration complete.'];
+            if (!empty($sellerSubscription['fund_wallet'])) {
+                // A paid plan the wallet could not cover: the subscription is
+                // recorded as pending_payment and the redirect carries a
+                // fund-wallet flag so Seller Central can show the funding CTA.
+                $result['fund_wallet'] = true;
+                $result['message'] = 'Registration complete. Your '
+                    . (string) ($sellerSubscription['plan_title'] ?? 'seller') . ' subscription is awaiting payment.';
+            }
+
+            return $result;
         } catch (Throwable $e) {
             if ($ownsTransaction && $pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -1028,6 +1273,28 @@ if (!function_exists('registration_wizard_finalize')) {
 
             return ['ok' => false, 'message' => 'We could not finish your registration. Please try again or contact support.'];
         }
+    }
+}
+
+if (!function_exists('registration_wizard_finalize_buyer')) {
+    /**
+     * Give a wizard-completed buyer their buyer_profiles row.
+     *
+     * The admin buyer lists read buyer_profiles, so without one a
+     * wizard-registered buyer is invisible there until they save a
+     * profile. This creates the same minimal row (user_id plus the
+     * default buyer_type) that buyer_activate_access() creates for the
+     * old self-activation flow; the unique key on user_id makes it a
+     * no-op touch when a row already exists.
+     */
+    function registration_wizard_finalize_buyer(PDO $pdo, int $userId): void
+    {
+        if (!app_table_exists($pdo, 'buyer_profiles')) {
+            return;
+        }
+        $pdo->prepare("INSERT INTO buyer_profiles (user_id, buyer_type) VALUES (?, 'individual')
+            ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP")
+            ->execute([$userId]);
     }
 }
 
@@ -1051,6 +1318,7 @@ if (!function_exists('registration_wizard_finalize_grower')) {
             'business_registration_number', 'representative_name', 'cooperative_name',
             'cooperative_registration_number', 'cooperative_members_count', 'state', 'state_id', 'lga_id',
             'street_address', 'land_ownership_status', 'land_title_details', 'climate_zone', 'farm_size',
+            'district', 'village',
             'estimated_tree_count', 'coconut_variety', 'production_stage', 'annual_yield_estimate',
             'current_farm_activities', 'intercrops', 'livestock_integration', 'farming_practices',
             'soil_type', 'water_source', 'irrigation_method', 'major_challenges', 'support_needs',
@@ -1110,16 +1378,187 @@ if (!function_exists('registration_wizard_finalize_grower')) {
     }
 }
 
-if (!function_exists('registration_wizard_finalize_seller')) {
-    function registration_wizard_finalize_seller(PDO $pdo, array $values, int $userId, string $email, array $extraColumns = []): void
+if (!function_exists('registration_wizard_finalize_enrollment')) {
+    /**
+     * Commit a coordinator or cooperative enrollment application.
+     *
+     * When `enrollment_auto_approve` is set in settings, applications are
+     * immediately activated (user gets role assignment + claim link) and
+     * ops does not need to review them. Otherwise the app lands as
+     * `pending` for operations approval in the admin console.
+     */
+    function registration_wizard_finalize_enrollment(PDO $pdo, string $boardSlug, array $values, int $userId, string $email): void
     {
+        enrollment_ensure_schema($pdo);
+        $applicantType = $boardSlug === 'coordinator' ? 'coordinator' : 'cooperative';
+        $autoApprove = trim((string) admin_setting($pdo, 'enrollment_auto_approve', '0')) === '1';
+
+        // Re-submitting an application updates the
+        // pending/approved row instead of duplicating it.
+        $existing = $pdo->prepare("SELECT id, status FROM enrollment_applications WHERE email = ? AND applicant_type = ? ORDER BY id DESC LIMIT 1");
+        $existing->execute([$email, $applicantType]);
+        $existingRow = $existing->fetch();
+        $existingId = (int) ($existingRow['id'] ?: 0);
+        $existingStatus = (string) ($existingRow['status'] ?? '');
+
+        if ($applicantType === 'coordinator') {
+            $tier = strtolower((string) ($values['coordinator_tier'] ?? 'state_coordinator'));
+            $validTiers = ['regional_coordinator', 'state_coordinator', 'lga_coordinator', 'district_coordinator', 'village_coordinator'];
+            if (!in_array($tier, $validTiers, true)) {
+                $tier = 'state_coordinator';
+            }
+            $columns = 'applicant_type, platform_role, name, email, phone, state, lga, district, village, reason, user_id';
+            $params = [$applicantType, $tier, (string) ($values['name'] ?? ''), $email, (string) ($values['phone'] ?? '') ?: null, (string) ($values['state'] ?? '') ?: null, (string) ($values['lga'] ?? '') ?: null, (string) ($values['district'] ?? '') ?: null, (string) ($values['village'] ?? '') ?: null, (string) ($values['reason'] ?? '') ?: null, $userId];
+        } else {
+            $columns = 'applicant_type, name, email, phone, state, lga, cooperative_name, cooperative_registration_number, cooperative_members_count, user_id';
+            $params = [$applicantType, (string) ($values['name'] ?? ''), $email, (string) ($values['phone'] ?? '') ?: null, (string) ($values['state'] ?? '') ?: null, (string) ($values['lga'] ?? '') ?: null, (string) ($values['cooperative_name'] ?? '') ?: null, (string) ($values['cooperative_registration_number'] ?? '') ?: null, is_numeric((string) ($values['cooperative_members_count'] ?? '')) ? (int) $values['cooperative_members_count'] : null, $userId];
+        }
+
+        // Determine final status based on auto-approve setting.
+        $finalStatus = $autoApprove ? 'approved' : 'pending';
+
+        if ($existingId > 0 && ($existingStatus !== 'approved' || !$autoApprove)) {
+            // Only update if the previous status was not already approved via auto-approve.
+            $sets = [];
+            foreach (explode(', ', $columns) as $column) {
+                if (in_array($column, ['applicant_type', 'user_id'], true)) {
+                    continue;
+                }
+                $sets[] = "{$column} = ?";
+            }
+            $updateParams = [];
+            foreach (explode(', ', $columns) as $index => $column) {
+                if (in_array($column, ['applicant_type', 'user_id'], true)) {
+                    continue;
+                }
+                $updateParams[] = $params[$index];
+            }
+            $updateParams[] = $existingId;
+            $pdo->prepare("UPDATE enrollment_applications SET " . implode(', ', $sets) . ", status = ? WHERE id = ?")->execute([...$updateParams, $finalStatus, $existingId]);
+            $applicationRow = [
+                'id' => $existingId,
+                'applicant_type' => $params[0],
+                'email' => $params[3] ?? '',
+                'platform_role' => $params[1] ?? '',
+                'state' => $params[5] ?? '',
+                'lga' => $params[6] ?? '',
+                'district' => $params[7] ?? '',
+                'village' => $params[8] ?? '',
+                'cooperative_name' => isset($params[7]) ? $params[7] : '',
+                'cooperative_registration_number' => isset($params[8]) ? $params[8] : '',
+            ];
+        } elseif (!$autoApprove || $existingStatus === 'approved') {
+            // For new apps under auto-approve, insert and activate directly.
+            // For re-submits where auto-approve was just toggled ON and old status is 'approved', skip re-insert.
+            if ($autoApprove && $existingStatus === 'approved') {
+                return; // Already auto-approved; nothing to do.
+            }
+            $paramsWithStatus = [...$params, $finalStatus];
+            $pdo->prepare("INSERT INTO enrollment_applications ({$columns}, status) VALUES (" . implode(', ', array_fill(0, count($paramsWithStatus), '?')) . ")")->execute($paramsWithStatus);
+            $insertedId = (int) $pdo->lastInsertId();
+
+            $applicationRow = [
+                'id' => $insertedId,
+                'applicant_type' => $params[0],
+                'email' => $params[3] ?? '',
+                'platform_role' => $params[1] ?? '',
+                'state' => $params[5] ?? '',
+                'lga' => $params[6] ?? '',
+                'district' => $params[7] ?? '',
+                'village' => $params[8] ?? '',
+                'cooperative_name' => isset($params[7]) ? $params[7] : '',
+                'cooperative_registration_number' => isset($params[8]) ? $params[8] : '',
+            ];
+        } else {
+            // Existing pending row but auto-approve just turned ON — promote to approved & activate.
+            $pdo->prepare("UPDATE enrollment_applications SET status = ? WHERE id = ?")->execute(['approved', $existingId]);
+            $applicationRow = [
+                'id' => $existingId,
+                'applicant_type' => $existingRow['applicant_type'] ?? '',
+                'email' => $email,
+                'platform_role' => $params[1] ?? '',
+                'state' => $params[5] ?? '',
+                'lga' => $params[6] ?? '',
+                'district' => $params[7] ?? '',
+                'village' => $params[8] ?? '',
+                'cooperative_name' => isset($params[7]) ? $params[7] : '',
+                'cooperative_registration_number' => isset($params[8]) ? $params[8] : '',
+            ];
+            // Activate the previously-pending application.
+            if ($autoApprove && function_exists('enrollment_activate_user')) {
+                $result = enrollment_activate_user($pdo, $applicationRow);
+                error_log('Enrollment auto-activation: ' . $result['message']);
+            }
+        }
+
+        // Auto-approve path: immediately activate the user.
+        if ($autoApprove && !empty($applicationRow['id'])) {
+            if (function_exists('enrollment_activate_user')) {
+                $result = enrollment_activate_user($pdo, $applicationRow);
+                error_log('Enrollment auto-activation: ' . $result['message']);
+            }
+        }
+
+        if (function_exists('admin_audit_event')) {
+            $action = $autoApprove ? 'enrollment_application_auto_approved' : 'enrollment_application_submitted';
+            $subject = $applicationRow['id'] ?: (int) $pdo->lastInsertId();
+            admin_audit_event($pdo, $action, 'enrollment_application', $subject, null, ['applicant_type' => $applicantType, 'user_id' => $userId, 'auto_approve' => $autoApprove], 'ok', $applicantType . ' enrollment ' . ($autoApprove ? 'auto-approved' : 'submitted') . ' by ' . $email);
+        }
+    }
+}
+
+if (!function_exists('registration_wizard_finalize_seller')) {
+    /**
+     * Commit the seller store row and its subscription record.
+     *
+     * The chosen plan is stored on the seller row, and a seller_subscriptions
+     * row is created with a one-year term. The Starter plan is free and active
+     * immediately; paid plans are debited from the seller's wallet when it
+     * covers the annual fee, otherwise they are recorded as pending_payment and
+     * the caller is told to send the seller to fund their wallet. Renewal is
+     * manual — there is no recurring billing.
+     *
+     * @return array{plan_key: string, plan_title: string, amount_due: float, fund_wallet: bool}
+     */
+    function registration_wizard_finalize_seller(PDO $pdo, array $values, int $userId, string $email, array $extraColumns = []): array
+    {
+        $result = [
+            'plan_key' => 'seller_starter',
+            'plan_title' => 'Seller Starter',
+            'amount_due' => 0.0,
+            'fund_wallet' => false,
+        ];
         if (!app_table_exists($pdo, 'marketplace_sellers')) {
-            return;
+            return $result;
+        }
+        // Lazy migration: the plan column is created on first use, guarded the
+        // same way as every other column this module introduces. In the wizard
+        // flow it already exists (created before the transaction); this keeps
+        // direct callers of this function working too.
+        if (!app_column_exists($pdo, 'marketplace_sellers', 'subscription_plan')) {
+            app_add_column_if_missing($pdo, 'marketplace_sellers', 'subscription_plan', "VARCHAR(40) NOT NULL DEFAULT 'seller_starter'");
         }
         $storeName = (string) ($values['store_name'] ?? '');
         if ($storeName === '') {
-            return;
+            return $result;
         }
+
+        // Resolve the choice against the seeded plan list, falling back to the
+        // free Starter plan for anything unrecognised.
+        $chosenPlan = strtolower(trim((string) ($values['subscription_plan'] ?? '')));
+        $plan = null;
+        foreach (revenue_default_seller_plans() as $candidate) {
+            if ((string) $candidate['plan_key'] === $chosenPlan) {
+                $plan = $candidate;
+                break;
+            }
+        }
+        if ($plan === null) {
+            $plan = revenue_default_seller_plans()[0];
+        }
+        $result['plan_key'] = (string) $plan['plan_key'];
+        $result['plan_title'] = (string) $plan['title'];
+
         $sellerOtherUsable = !empty($extraColumns['seller_type_other']);
         $slugBase = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', '-', $storeName), '-'));
         $slug = $slugBase !== '' ? $slugBase . '-' . substr(sha1((string) $userId), 0, 6) : 'store-' . $userId;
@@ -1137,6 +1576,7 @@ if (!function_exists('registration_wizard_finalize_seller')) {
             'fulfillment_options' => (string) ($values['fulfillment_options'] ?? ''),
             'seller_type' => (string) ($values['seller_type'] ?? 'grower'),
             'seller_type_other' => (string) ($values['seller_type_other'] ?? ''),
+            'subscription_plan' => (string) $plan['plan_key'],
             'approval_status' => 'pending',
             'verification_status' => 'pending',
         ];
@@ -1160,7 +1600,9 @@ if (!function_exists('registration_wizard_finalize_seller')) {
             $params[] = $existing;
             $pdo->prepare('UPDATE marketplace_sellers SET ' . implode(', ', $set) . ', updated_at = NOW() WHERE id = ?')->execute($params);
 
-            return;
+            registration_wizard_finalize_seller_subscription($pdo, $existing, $userId, $plan, $result);
+
+            return $result;
         }
 
         $insertColumns = ['user_id'];
@@ -1178,6 +1620,115 @@ if (!function_exists('registration_wizard_finalize_seller')) {
         }
         $pdo->prepare('INSERT INTO marketplace_sellers (' . implode(', ', $insertColumns) . ') VALUES (' . implode(', ', $placeholders) . ')')
             ->execute($params);
+
+        registration_wizard_finalize_seller_subscription($pdo, (int) $pdo->lastInsertId(), $userId, $plan, $result);
+
+        return $result;
+    }
+}
+
+if (!function_exists('registration_wizard_finalize_seller_subscription')) {
+    /**
+     * Create (or refresh) the seller's one-year subscription record.
+     *
+     * Runs inside the finalize transaction, so the wallet debit and the
+     * subscription row commit or roll back together. A free plan is active
+     * at once; a paid plan is active only when the wallet covered the annual
+     * fee (SELECT ... FOR UPDATE balance check, then a wallet_transactions
+     * debit with provider='seller_subscription'), and pending_payment
+     * otherwise so the seller can fund the wallet and complete payment.
+     */
+    function registration_wizard_finalize_seller_subscription(PDO $pdo, int $sellerId, int $userId, array $plan, array &$result): void
+    {
+        revenue_ensure_schema($pdo);
+        $annualFee = round((float) ($plan['annual_fee'] ?? 0), 2);
+
+        $planStmt = $pdo->prepare('SELECT id FROM seller_subscription_plans WHERE plan_key = ? LIMIT 1');
+        $planStmt->execute([(string) $plan['plan_key']]);
+        $planId = (int) $planStmt->fetchColumn();
+        if ($planId <= 0) {
+            // The seeded plan row is missing: point the subscription at the
+            // starter plan so it still resolves to a workable limit.
+            $planStmt->execute(['seller_starter']);
+            $planId = (int) $planStmt->fetchColumn();
+        }
+        if ($planId <= 0) {
+            return;
+        }
+
+        // Idempotent re-finalize: keep one row per seller/plan and refresh it
+        // instead of stacking duplicates.
+        $subStmt = $pdo->prepare("
+            SELECT id, status FROM seller_subscriptions
+            WHERE seller_id = ? AND plan_id = ? AND status IN ('active', 'pending_payment')
+            ORDER BY id DESC LIMIT 1
+        ");
+        $subStmt->execute([$sellerId, $planId]);
+        $existingSub = $subStmt->fetch();
+        if ($existingSub && (string) $existingSub['status'] === 'active') {
+            return; // Already paid for this term: nothing to charge or fund.
+        }
+
+        $reference = 'SUB-' . $sellerId . '-' . date('ymdHis') . '-' . strtoupper(bin2hex(random_bytes(3)));
+        $charged = $annualFee <= 0;
+        if (!$charged) {
+            if (!function_exists('wallet_get_or_create')) {
+                require_once __DIR__ . '/wallet.php';
+            }
+            $wallet = wallet_get_or_create($pdo, $userId);
+            // Lock the wallet row so two concurrent finalizes cannot spend the
+            // same balance twice.
+            $lock = $pdo->prepare('SELECT balance FROM wallets WHERE id = ? FOR UPDATE');
+            $lock->execute([(int) $wallet['id']]);
+            $balance = (float) ($lock->fetchColumn() ?? 0);
+
+            if ($balance >= $annualFee) {
+                $before = $balance;
+                $after = round($balance - $annualFee, 2);
+                $pdo->prepare('UPDATE wallets SET balance = ? WHERE id = ?')
+                    ->execute([$after, (int) $wallet['id']]);
+                $pdo->prepare("
+                    INSERT INTO wallet_transactions
+                        (wallet_id, user_id, amount, type, direction, description, reference, provider, status, balance_before, balance_after, completed_at)
+                    VALUES (?, ?, ?, 'debit', 'outflow', ?, ?, 'seller_subscription', 'completed', ?, ?, NOW())
+                ")->execute([
+                    (int) $wallet['id'],
+                    $userId,
+                    $annualFee,
+                    'Seller subscription: ' . (string) $plan['title'] . ' (annual)',
+                    $reference,
+                    $before,
+                    $after,
+                ]);
+                $charged = true;
+            }
+        }
+
+        $status = $charged ? 'active' : 'pending_payment';
+        $amountPaid = $charged ? $annualFee : 0.0;
+
+        if ($existingSub) {
+            $pdo->prepare("
+                UPDATE seller_subscriptions
+                SET status = ?, billing_cycle = 'annual', amount_paid = ?, started_at = NOW(),
+                    expires_at = DATE_ADD(NOW(), INTERVAL 1 YEAR), payment_reference = ?
+                WHERE id = ?
+            ")->execute([$status, $amountPaid, $reference, (int) $existingSub['id']]);
+        } else {
+            $pdo->prepare("
+                INSERT INTO seller_subscriptions
+                    (seller_id, user_id, plan_id, status, billing_cycle, amount_paid, started_at, expires_at, payment_reference)
+                VALUES (?, ?, ?, ?, 'annual', ?, NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR), ?)
+            ")->execute([$sellerId, $userId, $planId, $status, $amountPaid, $reference]);
+        }
+
+        if (!$charged) {
+            // The wallet does not cover the fee yet: the subscription is
+            // recorded as pending_payment and the finalize redirect carries a
+            // fund-wallet flag so Seller Central shows the funding CTA.
+            $result['amount_due'] = $annualFee;
+            $result['fund_wallet'] = true;
+        }
     }
 }
 
@@ -1254,6 +1805,118 @@ if (!function_exists('registration_wizard_finalize_provider')) {
         }
         $pdo->prepare('INSERT INTO provider_registry (' . implode(', ', $insertColumns) . ') VALUES (' . implode(', ', $placeholders) . ')')
             ->execute($params);
+    }
+}
+
+/* -------------------------------------------------------------------- begin */
+
+if (!function_exists('registration_wizard_begin')) {
+    /**
+     * Begin a registration from a board's entry form.
+     *
+     * Shared by register-wizard.php and every board's own registration
+     * page, so all public sign-ups validate, rate-limit, and store data
+     * the same way: the account is created (or an earlier unverified
+     * attempt with the same email is reused) as needs_confirmation, the
+     * first wizard step is seeded in registration_drafts, and the email
+     * OTP is sent. The caller redirects the user to verify-otp.php.
+     *
+     * @param array<string,mixed> $input the posted entry-form values
+     * @return array{ok: bool, userId: int, errors: array<int,string>, message: string}
+     */
+    function registration_wizard_begin(PDO $pdo, string $boardSlug, array $input): array
+    {
+        $errors = [];
+        $userId = 0;
+
+        $boardSlug = strtolower((string) preg_replace('/[^a-z0-9_]/i', '', $boardSlug));
+        $board = registration_wizard_board($boardSlug);
+        if (!$board) {
+            return ['ok' => false, 'userId' => $userId, 'errors' => ['Unknown registration board.'], 'message' => 'Unknown registration board.'];
+        }
+        $steps = registration_wizard_steps($board);
+
+        $name = trim((string) ($input['name'] ?? ''));
+        $email = (string) filter_var(trim((string) ($input['email'] ?? '')), FILTER_VALIDATE_EMAIL);
+        $phone = trim((string) ($input['phone'] ?? ''));
+        $password = (string) ($input['password'] ?? '');
+
+        $digits = (string) preg_replace('/\D+/', '', $phone);
+        if ($name === '') {
+            $errors[] = 'Enter your full name.';
+        }
+        if ($email === '') {
+            $errors[] = 'Enter a valid email address.';
+        }
+        if (strlen($digits) < 10 || strlen($digits) > 15) {
+            $errors[] = 'Enter a valid phone number.';
+        }
+        if (strlen($password) < 8) {
+            $errors[] = 'Choose a password of at least 8 characters.';
+        }
+        if (!app_check_rate_limit('registration_start', 6, 900)) {
+            $errors[] = 'Too many registration attempts. Please try again in a few minutes.';
+        }
+
+        if ($errors) {
+            return ['ok' => false, 'userId' => $userId, 'errors' => $errors, 'message' => (string) ($errors[0] ?? '')];
+        }
+
+        $stmt = $pdo->prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1');
+        $stmt->execute([$email]);
+        $user = $stmt->fetch() ?: null;
+
+        if ($user && (string) $user['account_status'] === 'active' && !empty($user['email_verified_at'])) {
+            $errors[] = 'That email is already registered. Please sign in instead, or use a different email.';
+        } elseif (($phoneOwner = registration_wizard_phone_owner($pdo, $phone, $user ? (int) $user['id'] : 0)) !== null) {
+            // Phone is not unique in the users table, so without this two
+            // accounts could share a number and SMS about either one would go
+            // to a single handset.
+            $errors[] = registration_wizard_phone_conflict_message($phoneOwner);
+        } else {
+            if ($user) {
+                // Unverified account from an earlier attempt: reuse it rather
+                // than creating a duplicate the unique index would reject.
+                $userId = (int) $user['id'];
+                $pdo->prepare('UPDATE users SET name = ?, phone = ?, password = ?, role = ?, platform_role = ?, account_status = \'needs_confirmation\' WHERE id = ?')
+                    ->execute([$name, $phone, password_hash($password, PASSWORD_DEFAULT), (string) $board['role'], (string) $board['platform_role'], $userId]);
+            } else {
+                $pdo->prepare('INSERT INTO users (name, email, password, phone, role, platform_role, account_status) VALUES (?, ?, ?, ?, ?, ?, ?)')
+                    ->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $phone, (string) $board['role'], (string) $board['platform_role'], 'needs_confirmation']);
+                $userId = (int) $pdo->lastInsertId();
+            }
+
+            $existing = registration_wizard_find_by_email($pdo, $boardSlug, $email);
+            if ($existing) {
+                $pdo->prepare('UPDATE registration_drafts SET user_id = ?, phone = ?, updated_at = NOW() WHERE id = ?')
+                    ->execute([$userId, $phone, (int) $existing['id']]);
+            } else {
+                // Seed the first step with what the entry form already
+                // collected, plus the application type when the entry page
+                // passed one (apply.php?type=cooperative, for example).
+                $seed = ['name' => $name, 'phone' => $phone];
+                $memberType = strtolower(trim((string) ($input['member_type'] ?? '')));
+                if (in_array($memberType, ['individual', 'corporate', 'cooperative'], true)) {
+                    $seed['member_type'] = $memberType;
+                }
+                $pdo->prepare('INSERT INTO registration_drafts (board, user_id, email, phone, payload, current_step, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, 1, NOW(), NOW())')
+                    ->execute([$boardSlug, $userId, $email, $phone, json_encode([(string) $steps[0]['key'] => $seed])]);
+            }
+
+            // Pass the full user row (with phone) so the OTP can also be
+            // delivered over WhatsApp/SMS, not just by email.
+            $otpUserStmt = $pdo->prepare('SELECT * FROM users WHERE id = ? LIMIT 1');
+            $otpUserStmt->execute([$userId]);
+            $otpUser = $otpUserStmt->fetch() ?: ['id' => $userId, 'email' => $email, 'phone' => $phone];
+            $otp = registration_wizard_otp_begin($pdo, $boardSlug, $otpUser);
+            if (!empty($otp['ok'])) {
+                return ['ok' => true, 'userId' => $userId, 'errors' => [], 'message' => 'Verification code sent.'];
+            }
+            $errors[] = (string) $otp['message'];
+        }
+
+        return ['ok' => false, 'userId' => $userId, 'errors' => $errors, 'message' => (string) ($errors[0] ?? '')];
     }
 }
 

@@ -1,0 +1,65 @@
+───
+
+  How Coordinators Enter the System
+
+  There are 3 distinct pathways for a coordinator to join NATCODEV:
+
+  Pathway 1: Self-Registration (Wizard) — Public-facing
+
+  Entry: User visits apply.php or register-wizard.php?board=coordinator
+
+  Flow:
+
+  1. Personal step — Name, phone, WhatsApp, alt-phone, alt-email
+  2. Enclave step — Selects tier (village / district / LGA / state / regional), fills state, LGA text,
+  district text, village text, reason for applying
+  3. Confirm step — Reviews details, accepts terms
+  4. OTP verification → account created with account_status='needs_confirmation'
+  5. enrollment_applications row written with status='pending'
+  6. Ops approval required — Admin goes to admin/coordinator-applications.php, reviews, approves or rejects
+  7. On approve: User activated (account_status='active'), scoped user_role_assignments inserted
+  (role_key=tier, scope_type/scope_value from enclave), staff_profiles row created, claim link emailed via
+  staff_account_claim_begin()
+  8. User clicks claim link → sets password → logs in → routed to coordination/ workspace
+
+  This is for anyone who wants to become a coordinator head. No pre-existing account needed.
+
+  Pathway 2: Bulk CSV Import — Operations/Admin-driven
+
+  Entry: Super admin or existing coordinator uses admin/import-users.php
+
+  Flow:
+
+  1. Upload CSV with columns: name, email, phone, role, state, LGA, district, village, cooperative_name
+  2. Role column mapped to coordinator tier via substring matching (regional→regional_coordinator, etc.)
+  3. For each row: user_import_records created with batch_ref + status staff_onboarded
+  4. users row upserted with platform_role=tier, role='admin', placeholder hash
+  5. staff_profiles upserted with state/lga/district/village from CSV
+  6. user_role_assignments scoped row inserted (scope resolved from CSV data; for coordinator imports, the
+  admin_import_tier_scope() helper maps tier→column)
+  7. Claim link emailed to user
+  8. User clicks claim link → sets password → OTP → routed to coordination/ workspace
+
+  For operations team bulk-onboarding teams or when partners provide member lists.
+
+  Pathway 3: Registry Role Grant — Manual Oversight
+
+  Entry: Super admin navigates to super-admin/modules/users.php "Coordinators & Enclaves" panel, or
+  admin/registry/index.php grant_role form
+
+  Flow:
+
+  1. Admin selects user, picks new coordinator role from dropdown, specifies scope_type
+  (state/LGA/district/village) and scope_value
+  2. user_role_assignments row directly inserted via POST handler
+  3. Audit event logged via admin_audit_event()
+  4. If the user doesn't have an active account, they must first log in; the role assignment takes effect on
+   next login routing through platform_user_home() which routes based on platform_role
+
+  For ops assigning/reassigning enclaves after verifying someone manually.
+
+  ───
+
+  All three paths converge at the same point: the user gets a user_role_assignments row with their
+  coordinator tier and scope, then coord_scope_filter() ensures all their dashboard queries are scoped to
+  their enclave.

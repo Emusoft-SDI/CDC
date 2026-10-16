@@ -31,6 +31,16 @@ if (!current_user($pdo)) {
       <p class="muted">Expanded seller visibility, storefront tools, inventory intelligence, and stronger commercial reporting.</p>
       <span class="badge pending">Upgrade feature</span>
     </article>
+    <article class="card">
+      <h2>Healthcare Services</h2>
+      <p class="muted">Healthcare enrollment and support services for you and your workforce — a Premium plan benefit.</p>
+      <span class="badge pending">Premium benefit</span>
+    </article>
+    <article class="card">
+      <h2>Loans &amp; Cooperative Financing</h2>
+      <p class="muted">Farm input loans, grants, and savings through the Coconut Farmers Cooperative portal — a Premium plan benefit.</p>
+      <span class="badge pending">Premium benefit</span>
+    </article>
   </section>
   <section class="card" style="margin-top:16px;">
     <h2>Wallet-Ready Upgrade Flow</h2>

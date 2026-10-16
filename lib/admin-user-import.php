@@ -5,11 +5,36 @@ function admin_import_roles(): array
 {
     return [
         'grower' => 'Grower / Legacy Farmer',
+        'cooperative_member' => 'Cooperative Member',
+        'cooperative_admin' => 'Cooperative Admin',
+        'regional_coordinator' => 'Regional Coordinator',
+        'lga_coordinator' => 'LGA Coordinator',
+        'district_coordinator' => 'District Coordinator',
+        'village_coordinator' => 'Village Coordinator',
         'field_agent' => 'Field Agent',
         'agronomist' => 'Agronomist',
         'extensionist' => 'Agric Extensionist',
         'admin' => 'Admin',
     ];
+}
+
+/**
+ * The RBAC scope a coordinator import row
+ * carries: which user_role_assignments row
+ * (role_key, scope_type, scope_value) grants
+ * the imported coordinator their enclave.
+ *
+ * @return array{scope_type: string, scope_column: string}|null
+ */
+function admin_import_tier_scope(string $role): ?array
+{
+    return match ($role) {
+        'regional_coordinator', 'state_coordinator' => ['scope_type' => 'state', 'scope_column' => 'state'],
+        'lga_coordinator' => ['scope_type' => 'lga', 'scope_column' => 'lga'],
+        'district_coordinator' => ['scope_type' => 'district', 'scope_column' => 'district'],
+        'village_coordinator' => ['scope_type' => 'village', 'scope_column' => 'village'],
+        default => null,
+    };
 }
 
 function admin_import_role_storage(string $role): array
@@ -57,6 +82,15 @@ function admin_ensure_import_schema(PDO $pdo): void
     app_add_column_if_missing($pdo, 'user_import_records', 'engagement_channel', "VARCHAR(80) NULL");
     app_add_column_if_missing($pdo, 'user_import_records', 'engagement_deadline', "DATETIME NULL");
     app_add_column_if_missing($pdo, 'user_import_records', 'source_row', "INT NOT NULL DEFAULT 0");
+    app_add_column_if_missing($pdo, 'user_import_records', 'district', "VARCHAR(160) NULL");
+    app_add_column_if_missing($pdo, 'user_import_records', 'village', "VARCHAR(160) NULL");
+    app_add_column_if_missing($pdo, 'user_import_records', 'cooperative_name', "VARCHAR(255) NULL");
+    app_add_column_if_missing($pdo, 'user_import_records', 'cooperative_registration_number', "VARCHAR(160) NULL");
+    app_add_column_if_missing($pdo, 'user_import_records', 'scope_type', "VARCHAR(40) NULL");
+    app_add_column_if_missing($pdo, 'user_import_records', 'scope_value', "VARCHAR(160) NULL");
+    app_add_column_if_missing($pdo, 'applications', 'cooperative_id', "INT NULL");
+    app_add_column_if_missing($pdo, 'applications', 'district', "VARCHAR(160) NULL");
+    app_add_column_if_missing($pdo, 'applications', 'village', "VARCHAR(160) NULL");
     app_ensure_primary_auto_increment($pdo, 'user_import_records');
 }
 
@@ -98,6 +132,24 @@ function admin_import_role(string $role, string $defaultRole): string
     $role = strtolower(trim(str_replace(['-', '_'], ' ', $role)));
     if ($role === '') {
         return $defaultRole;
+    }
+    if ($role === 'cooperative admin' || str_contains($role, 'cooperative admin')) {
+        return 'cooperative_admin';
+    }
+    if (str_contains($role, 'regional')) {
+        return 'regional_coordinator';
+    }
+    if (str_contains($role, 'lga') || str_contains($role, 'local government')) {
+        return 'lga_coordinator';
+    }
+    if (str_contains($role, 'district')) {
+        return 'district_coordinator';
+    }
+    if (str_contains($role, 'village')) {
+        return 'village_coordinator';
+    }
+    if (str_contains($role, 'cooperative') || str_contains($role, 'member')) {
+        return 'cooperative_member';
     }
     if (str_contains($role, 'admin')) {
         return 'admin';
@@ -430,7 +482,7 @@ function admin_import_send_phone_engagement(array $record, string $token): bool
         || sendWhatsAppMessage((string) $record['phone_e164'], $message);
 }
 
-function admin_import_create_staff_user(PDO $pdo, array $record, string $password): int
+function admin_import_create_staff_user(PDO $pdo, array $record): int
 {
     [$storedRole, $isAgronomist, $isExtensionist, $specialty] = admin_import_role_storage($record['role']);
     $existing = $pdo->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
@@ -444,11 +496,21 @@ function admin_import_create_staff_user(PDO $pdo, array $record, string $passwor
             WHERE id = ?
         ")->execute([$record['name'], $record['phone'] ?: null, $record['address'] ?: null, $storedRole, $isAgronomist, $isExtensionist, $specialty, $userId]);
     } else {
+        // No plain-text temporary password: only an opaque placeholder
+        // hash is stored, and the staff member activates the account
+        // through the claim link issued by staff_account_claim_begin().
         $pdo->prepare("
             INSERT INTO users (name, email, phone, location, application_id, password, role, is_agronomist, is_extensionist, staff_specialty)
             VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
-        ")->execute([$record['name'], $record['email'], $record['phone'] ?: null, $record['address'] ?: null, password_hash($password, PASSWORD_DEFAULT), $storedRole, $isAgronomist, $isExtensionist, $specialty]);
+        ")->execute([$record['name'], $record['email'], $record['phone'] ?: null, $record['address'] ?: null, password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT), $storedRole, $isAgronomist, $isExtensionist, $specialty]);
         $userId = (int) $pdo->lastInsertId();
+    }
+
+    // Coordinator tiers and cooperative admins carry a
+    // platform role on top of the legacy auth role, so
+    // login routing and the workspace gate see them.
+    if (in_array($record['role'], ['regional_coordinator', 'lga_coordinator', 'district_coordinator', 'village_coordinator', 'cooperative_admin'], true)) {
+        $pdo->prepare('UPDATE users SET platform_role = ? WHERE id = ?')->execute([$record['role'], $userId]);
     }
 
     admin_upsert_staff_profile($pdo, $userId, $record['role'], [
@@ -472,8 +534,8 @@ function admin_import_process(PDO $pdo, string $path, string $filename, string $
     $summary = ['batch' => $batch, 'total' => count($rows), 'staff' => 0, 'pending' => 0, 'needs_contact' => 0, 'skipped' => 0, 'failed' => 0];
     $recordStmt = $pdo->prepare("
         INSERT INTO user_import_records
-            (batch_ref, source_file, source_row, name, email, alternate_email, phone, phone_e164, alternate_phone, role, address, farm_size, state, lga, status, status_note, application_id, user_id, engagement_token, engagement_channel, engagement_deadline)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (batch_ref, source_file, source_row, name, email, alternate_email, phone, phone_e164, alternate_phone, role, address, farm_size, state, lga, district, village, cooperative_name, cooperative_registration_number, scope_type, scope_value, status, status_note, application_id, user_id, engagement_token, engagement_channel, engagement_deadline)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     $importSoft = app_column_exists($pdo, 'user_import_records', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
     $existingImportRow = $pdo->prepare("
@@ -501,6 +563,10 @@ function admin_import_process(PDO $pdo, string $path, string $filename, string $
             'farm_size' => admin_import_decimal(admin_import_value($row, ['number of acres hectares', 'number of acres/hectares', 'farm size', 'acreage', 'hectares', 'acres'])),
             'state' => admin_import_value($row, ['state']),
             'lga' => admin_import_value($row, ['lga', 'local government', 'local government area']),
+            'district' => admin_import_value($row, ['district', 'district / ward', 'ward']),
+            'village' => admin_import_value($row, ['village', 'community', 'village / community']),
+            'cooperative_name' => admin_import_value($row, ['cooperative name', 'cooperative', 'organization name', 'organisation name']),
+            'cooperative_registration_number' => admin_import_value($row, ['cooperative registration number', 'registration number', 'cac number']),
             'qualification' => admin_import_value($row, ['qualification', 'highest qualification', 'education']),
             'training_program' => admin_import_value($row, ['training program', 'certification program', 'natcodev training']),
             'availability' => admin_import_value($row, ['availability']),
@@ -518,6 +584,8 @@ function admin_import_process(PDO $pdo, string $path, string $filename, string $
         $note = '';
         $applicationId = null;
         $userId = null;
+        $importScopeType = null;
+        $importScopeValue = null;
         $token = bin2hex(random_bytes(32));
 
         try {
@@ -529,7 +597,7 @@ function admin_import_process(PDO $pdo, string $path, string $filename, string $
                 $status = 'skipped';
                 $note = 'Unsupported role.';
                 $summary['skipped']++;
-            } elseif ($record['role'] === 'grower') {
+            } elseif (in_array($record['role'], ['grower', 'cooperative_member'], true)) {
                 if ($record['phone_e164'] !== '' && admin_import_phone_exists($pdo, $record['phone_e164'])) {
                     $status = 'skipped';
                     $note = 'Duplicate phone number already exists in applications or imports.';
@@ -537,10 +605,33 @@ function admin_import_process(PDO $pdo, string $path, string $filename, string $
                 } elseif (filter_var($record['email'], FILTER_VALIDATE_EMAIL)) {
                     $applicationId = admin_import_insert_application($pdo, $record, $token);
                     if ($applicationId !== null) {
+                        // Cooperative members are linked to their
+                        // cooperative at import, so the engagement
+                        // confirmation inherits the membership.
+                        if ($record['role'] === 'cooperative_member' && ($record['cooperative_name'] !== '' || $record['cooperative_registration_number'] !== '')) {
+                            if (!function_exists('cooperative_match_or_create')) {
+                                require_once __DIR__ . '/cooperatives.php';
+                            }
+                            $matched = cooperative_match_or_create(
+                                $pdo,
+                                $record['cooperative_name'] !== '' ? $record['cooperative_name'] : ('Cooperative ' . $record['cooperative_registration_number']),
+                                $record['cooperative_registration_number'],
+                                $record['state'],
+                                $record['lga'],
+                                admin_current_user_id($pdo) ?: null
+                            );
+                            $cooperativeId = (int) ($matched['cooperative']['id'] ?? 0);
+                            if ($cooperativeId > 0) {
+                                $pdo->prepare('UPDATE applications SET cooperative_id = ? WHERE id = ?')->execute([$cooperativeId, $applicationId]);
+                                $note = 'Cooperative member of ' . (string) ($matched['cooperative']['name'] ?? '') . ($matched['created'] ? ' (cooperative registered)' : '') . '.';
+                            }
+                        }
                         admin_import_send_confirmation($pdo, $applicationId, true, $record['phone_e164'] !== '', $record['phone_e164'] !== '');
                     }
                     $status = 'pending_engagement';
-                    $note = 'Confirmation link sent by available email/SMS/WhatsApp channels.';
+                    if ($note === '') {
+                        $note = 'Confirmation link sent by available email/SMS/WhatsApp channels.';
+                    }
                     if ($record['alternate_email'] !== '' || $record['alternate_phone'] !== '') {
                         $note .= ' Alternate contacts captured.';
                     }
@@ -560,17 +651,43 @@ function admin_import_process(PDO $pdo, string $path, string $filename, string $
                 $note = 'Staff accounts require a valid email.';
                 $summary['needs_contact']++;
             } else {
-                $password = strtoupper(bin2hex(random_bytes(4)));
-                $userId = admin_import_create_staff_user($pdo, $record, $password);
-                if ($sendNotifications) {
-                    natcodev_notify_user($pdo, $userId, 'bulk_user_onboarded', 'Your NATCODEV account is ready', [
-                        'role' => $roles[$record['role']],
-                        'temporary_password' => $password,
-                    ], 'Hello {name}, your NATCODEV {role} account has been created. Login: {login_url}. Temporary password: {temporary_password}. Field agent console: {field_agent_url}');
+                $userId = admin_import_create_staff_user($pdo, $record);
+                // The import never supplies a password, so every staff
+                // account is activated through a claim link instead of a
+                // plain-text temporary password. Already-claimed accounts
+                // are left untouched so re-importing a row cannot reset
+                // them to claimable.
+                staff_claim_ensure_schema($pdo);
+                $claimedStmt = $pdo->prepare('SELECT claimed_at FROM users WHERE id = ? LIMIT 1');
+                $claimedStmt->execute([$userId]);
+                $claimedAt = $claimedStmt->fetchColumn();
+                if ($claimedAt === null || $claimedAt === false) {
+                    $claim = staff_account_claim_begin($pdo, $userId);
+                    $note = $claim['ok']
+                        ? 'Staff account created/updated; claim link sent.'
+                        : 'Staff account created/updated, but the claim email could not be delivered.';
+                } else {
+                    $note = 'Staff account created/updated; account already claimed.';
                 }
                 $status = 'staff_onboarded';
-                $note = 'Staff account created/updated.';
                 $summary['staff']++;
+
+                // Coordinator imports carry their enclave:
+                // assign the scoped role so the coordination
+                // workspace resolves their tier's scope.
+                $tierScope = admin_import_tier_scope($record['role']);
+                if ($tierScope !== null) {
+                    $scopeValue = (string) ($record[$tierScope['scope_column']] ?? '');
+                    if ($scopeValue !== '') {
+                        $pdo->prepare("INSERT INTO user_role_assignments (user_id, role_key, scope_type, scope_value, status, notes, assigned_by)
+                            VALUES (?, ?, ?, ?, 'active', 'Scoped coordinator import', ?)
+                            ON DUPLICATE KEY UPDATE status = 'active', revoked_at = NULL, scope_value = VALUES(scope_value), assigned_by = VALUES(assigned_by)")
+                            ->execute([$userId, $record['role'], $tierScope['scope_type'], $scopeValue, admin_current_user_id($pdo) ?: null]);
+                        $importScopeType = $tierScope['scope_type'];
+                        $importScopeValue = $scopeValue;
+                        $note .= ' Enclave scope (' . $tierScope['scope_type'] . ': ' . $scopeValue . ') assigned.';
+                    }
+                }
             }
         } catch (Throwable $e) {
             $status = 'failed';
@@ -596,6 +713,12 @@ function admin_import_process(PDO $pdo, string $path, string $filename, string $
             $record['farm_size'],
             $record['state'] ?: null,
             $record['lga'] ?: null,
+            $record['district'] ?: null,
+            $record['village'] ?: null,
+            $record['cooperative_name'] ?: null,
+            $record['cooperative_registration_number'] ?: null,
+            $importScopeType,
+            $importScopeValue,
             $status,
             $note,
             $applicationId,

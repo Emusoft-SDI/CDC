@@ -44,6 +44,7 @@ function admin_operator_otp_begin(string $next = 'index.php'): array
     $_SESSION['admin_otp_grace_expires'] = time() + 1800;
     $_SESSION['admin_otp_email'] = $email;
     $_SESSION['admin_otp_next'] = admin_operator_safe_next($next);
+    $_SESSION['admin_otp_attempts'] = 0;
     unset($_SESSION['admin_authenticated'], $_SESSION['admin']);
 
     $plain = "NATCODEV operator login code: {$code}\n\nThis code expires in 10 minutes. If you did not request it, change the admin password immediately.";
@@ -71,12 +72,21 @@ function admin_operator_otp_verify(string $code): array
     if ($hash === '' || $expires < time()) {
         $graceExpires = (int) ($_SESSION['admin_otp_grace_expires'] ?? 0);
         if ($hash === '' || $graceExpires < time()) {
-            unset($_SESSION['admin_otp_hash'], $_SESSION['admin_otp_expires'], $_SESSION['admin_otp_grace_expires'], $_SESSION['admin_otp_email'], $_SESSION['admin_otp_next'], $_SESSION['admin_otp_debug_code']);
+            unset($_SESSION['admin_otp_hash'], $_SESSION['admin_otp_expires'], $_SESSION['admin_otp_grace_expires'], $_SESSION['admin_otp_email'], $_SESSION['admin_otp_next'], $_SESSION['admin_otp_debug_code'], $_SESSION['admin_otp_attempts']);
             return ['ok' => false, 'message' => 'Operator OTP has expired. Please start admin login again.', 'restart' => true];
         }
         return ['ok' => false, 'message' => 'Operator OTP has expired. Request a new code below.', 'restart' => false, 'expired' => true];
     }
+    if ((int) ($_SESSION['admin_otp_attempts'] ?? 0) >= 5) {
+        unset($_SESSION['admin_otp_hash'], $_SESSION['admin_otp_expires'], $_SESSION['admin_otp_grace_expires'], $_SESSION['admin_otp_email'], $_SESSION['admin_otp_next'], $_SESSION['admin_otp_debug_code'], $_SESSION['admin_otp_attempts']);
+        return ['ok' => false, 'message' => 'Too many failed attempts. Please start admin login again.', 'restart' => true];
+    }
     if (strlen($code) !== 6 || !password_verify($code, $hash)) {
+        $_SESSION['admin_otp_attempts'] = (int) ($_SESSION['admin_otp_attempts'] ?? 0) + 1;
+        if ((int) $_SESSION['admin_otp_attempts'] >= 5) {
+            unset($_SESSION['admin_otp_hash'], $_SESSION['admin_otp_expires'], $_SESSION['admin_otp_grace_expires'], $_SESSION['admin_otp_email'], $_SESSION['admin_otp_next'], $_SESSION['admin_otp_debug_code'], $_SESSION['admin_otp_attempts']);
+            return ['ok' => false, 'message' => 'Too many failed attempts. Please start admin login again.', 'restart' => true];
+        }
         return ['ok' => false, 'message' => 'Invalid operator OTP. Check the latest 6-digit code and try again before it expires.', 'restart' => false];
     }
 
@@ -87,6 +97,6 @@ function admin_operator_otp_verify(string $code): array
     if (function_exists('admin_audit')) {
         admin_audit(db(), 'admin_login', 'Admin operator signed in via password + OTP.');
     }
-    unset($_SESSION['admin_otp_hash'], $_SESSION['admin_otp_expires'], $_SESSION['admin_otp_grace_expires'], $_SESSION['admin_otp_email'], $_SESSION['admin_otp_next'], $_SESSION['admin_otp_debug_code']);
+    unset($_SESSION['admin_otp_hash'], $_SESSION['admin_otp_expires'], $_SESSION['admin_otp_grace_expires'], $_SESSION['admin_otp_email'], $_SESSION['admin_otp_next'], $_SESSION['admin_otp_debug_code'], $_SESSION['admin_otp_attempts']);
     return ['ok' => true, 'next' => $next];
 }

@@ -2,13 +2,16 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../provider/_provider.php';
+require_once __DIR__ . '/../lib/admin-approvals.php';
+if (is_file(__DIR__ . '/../lib/admin-audit-v2.php')) {
+    require_once __DIR__ . '/../lib/admin-audit-v2.php';
+}
 
 $pdo = db();
 if (!admin_session_is_authenticated($pdo)) {
     // CLI fallback: allow running from CLI as admin if PHP runs without session
     if (PHP_SAPI !== 'cli') {
-        http_response_code(403);
-        exit('Forbidden');
+        app_render_error_page(403, 'Sign in to manage certificates.');
     }
 }
 
@@ -42,43 +45,84 @@ if (!$certificate) {
 }
 
 if ($action !== '') {
+    if (PHP_SAPI !== 'cli' && !verify_csrf($_POST['_csrf'] ?? null)) {
+        app_render_error_page(403, 'Invalid security token.');
+    }
     try {
+        $isSuperAdmin = admin_current_user_is_super_admin($pdo);
+        $providerId = (int) ($providerRow['id'] ?? $certificate['provider_id'] ?? 0);
+
         if ($action === 'REVOKE') {
-            $stmt = $pdo->prepare('UPDATE provider_accreditation_certificates SET status = ?, revoked_at = NOW(), revoked_reason = ? WHERE certificate_ref = ?');
-            $stmt->execute(['revoked', $reason, $ref]);
-            $msg = "Certificate revoked.";
+            $requestType = 'revoke_provider_certification';
             $auditAction = 'certificate_revoked';
+            $newStatus = 'revoked';
+            if ($isSuperAdmin) {
+                $stmt = $pdo->prepare('UPDATE provider_accreditation_certificates SET status = ?, revoked_at = NOW(), revoked_reason = ? WHERE certificate_ref = ?');
+                $stmt->execute(['revoked', $reason, $ref]);
+            }
+            $msg = "Certificate revoked.";
         } elseif ($action === 'SUSPEND' || $action === 'HOLD') {
-            $stmt = $pdo->prepare('UPDATE provider_accreditation_certificates SET status = ?, revoked_at = NULL, revoked_reason = ? WHERE certificate_ref = ?');
-            $stmt->execute(['suspended', $reason, $ref]);
-            $msg = "Certificate suspended/held.";
+            $requestType = 'suspend_provider_certification';
             $auditAction = 'certificate_suspended';
+            $newStatus = 'suspended';
+            if ($isSuperAdmin) {
+                $stmt = $pdo->prepare('UPDATE provider_accreditation_certificates SET status = ?, revoked_at = NULL, revoked_reason = ? WHERE certificate_ref = ?');
+                $stmt->execute(['suspended', $reason, $ref]);
+            }
+            $msg = "Certificate suspended/held.";
         } elseif ($action === 'REINSTATE' || $action === 'RESTORE') {
-            $stmt = $pdo->prepare('UPDATE provider_accreditation_certificates SET status = ?, revoked_at = NULL, revoked_reason = NULL WHERE certificate_ref = ?');
-            $stmt->execute(['issued', $ref]);
-            $msg = "Certificate reinstated to issued.";
+            $requestType = 'reinstate_provider_certification';
             $auditAction = 'certificate_reinstated';
+            $newStatus = 'issued';
+            if ($isSuperAdmin) {
+                $stmt = $pdo->prepare('UPDATE provider_accreditation_certificates SET status = ?, revoked_at = NULL, revoked_reason = NULL WHERE certificate_ref = ?');
+                $stmt->execute(['issued', $ref]);
+            }
+            $msg = "Certificate reinstated to issued.";
         } else {
             throw new RuntimeException('Unknown action');
         }
 
-        // record audit_log if available (include acting admin id/name if present)
-        if (app_table_exists($pdo, 'audit_log')) {
-            $actorId = null;
-            $actorName = null;
-            try {
-                $actorId = admin_current_user_id($pdo);
-                $actorName = admin_current_user_name($pdo);
-            } catch (Throwable $e) {
-                // ignore
+        if (!$isSuperAdmin) {
+            // Non-super-admins cannot change provider certification directly: queue for Super Admin approval.
+            admin_ensure_action_request_schema($pdo);
+            $pending = $pdo->prepare("SELECT id FROM admin_action_requests WHERE request_type = ? AND target_table = 'provider_registry' AND target_id = ? AND status = 'pending' LIMIT 1");
+            $pending->execute([$requestType, $providerId]);
+            if (!$pending->fetchColumn()) {
+                $request = $pdo->prepare("
+                    INSERT INTO admin_action_requests
+                        (request_type, target_table, target_id, target_key, target_label, requested_by, reason, payload_json)
+                    VALUES (?, 'provider_registry', ?, ?, ?, ?, ?, ?)
+                ");
+                $request->execute([
+                    $requestType,
+                    $providerId,
+                    $ref,
+                    'Certificate ' . $ref,
+                    admin_current_user_id($pdo),
+                    $reason,
+                    json_encode(['action' => $action, 'reason' => $reason, 'certificate_ref' => $ref], JSON_UNESCAPED_SLASHES),
+                ]);
             }
-            $desc = sprintf('%s: %s by admin%s (ref=%s)%s', $auditAction, $reason ?: '-', $actorName ? ' ' . $actorName : '', $ref, PHP_SAPI === 'cli' ? ' (cli)' : '');
-            $stmt = $pdo->prepare('INSERT INTO audit_log (action, description, ip_address, actor_id, actor_name) VALUES (?, ?, ?, ?, ?)');
-            $stmt->execute([$auditAction, $desc, $_SERVER['REMOTE_ADDR'] ?? null, $actorId, $actorName]);
+            $msg = "Certificate action queued for Super Admin approval.";
+        } else {
+            // record structured audit event if available (include acting admin id/name if present)
+            if (function_exists('admin_audit_event')) {
+                admin_audit_event(
+                    $pdo,
+                    $auditAction,
+                    'provider_registry',
+                    $providerId,
+                    [],
+                    ['status' => $newStatus],
+                    'success',
+                    sprintf('%s: %s (ref=%s)%s', $auditAction, $reason ?: '-', $ref, PHP_SAPI === 'cli' ? ' (cli)' : '')
+                );
+            }
         }
 
-        // notify provider by email if available
-        if (!empty($providerRow['email']) && function_exists('app_send_mail')) {
+        // notify provider by email if available (only when the change was applied)
+        if ($isSuperAdmin && !empty($providerRow['email']) && function_exists('app_send_mail')) {
             $to = (string) $providerRow['email'];
             $subject = 'NATCODEV: Your accreditation certificate status changed';
             $plain = "Hello " . (($providerRow['contact_person'] ?? '') ?: '') . ",\n\nYour accreditation certificate ({$ref}) status has been changed to: " . ucfirst(strtolower($action)) . ".\n\nReason: " . ($reason ?: 'No reason provided') . "\n\nIf you have questions contact support.\n";
@@ -111,6 +155,9 @@ if ($action !== '') {
 // Web view
 ?><?php require_once __DIR__ . '/../lib/admin-layout.php'; admin_page_start('Manage Provider Certificate', ['active' => '', 'wide' => true, 'head_html' => '', 'css' => '' . ' .nc-head{display:none}']); ?>
 <h1>Manage Provider Certificate</h1>
+<?php if (!empty($msg)): ?>
+<p><strong><?= htmlspecialchars($msg) ?></strong></p>
+<?php endif; ?>
 <p><strong>Reference:</strong> <?= htmlspecialchars($ref) ?></p>
 <p><strong>Provider:</strong> <?= htmlspecialchars((string) ($certificate['company_name'] ?? $certificate['contact_person'] ?? '')) ?></p>
 <p><strong>Status:</strong> <?= htmlspecialchars((string) ($certificate['status'] ?? '')) ?></p>
@@ -119,6 +166,7 @@ if ($action !== '') {
 <p><strong>Revoked Reason:</strong> <?= nl2br(htmlspecialchars((string) ($certificate['revoked_reason'] ?? ''))) ?></p>
 
 <form method="post">
+  <input type="hidden" name="_csrf" value="<?= htmlspecialchars(csrf_token()) ?>">
   <input type="hidden" name="ref" value="<?= htmlspecialchars($ref) ?>">
   <label>Action:
     <select name="action">

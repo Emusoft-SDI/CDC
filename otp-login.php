@@ -41,6 +41,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("INSERT INTO otp_sessions (user_id, otp_code, expires_at, purpose) VALUES (?, ?, ?, 'login')")->execute([$user['id'], $otp, $expires]);
                 $_SESSION['otp_user_id'] = $user['id'];
                 $_SESSION['otp_verified'] = false;
+                // Clear any stale destination left behind by an
+                // abandoned cooperative-login OTP challenge, so this
+                // generic sign-in is never routed into the wrong
+                // workspace after the code is verified.
+                unset($_SESSION['otp_next_destination']);
                 $_SESSION['otp_delivery_message'] = otp_delivery_message($delivery);
                 if (!app_is_production()) {
                     $_SESSION['otp_debug_code'] = $otp;

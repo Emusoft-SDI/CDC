@@ -44,6 +44,16 @@ class TestHarness
         self::assert($condition, $description, $details);
     }
 
+    public static function assertTrue(bool $condition, string $description, string $failureDetails = ''): void
+    {
+        self::assert($condition, $description, $failureDetails);
+    }
+
+    public static function assertFalse(bool $condition, string $description, string $failureDetails = ''): void
+    {
+        self::assert(!$condition, $description, $failureDetails);
+    }
+
     public static function assertThrows(callable $callback, string $expectedExceptionClass, string $description): void
     {
         try {

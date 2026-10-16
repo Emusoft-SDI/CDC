@@ -25,7 +25,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($action === 'revoke_certificate') {
             $certificateId = (int) ($_POST['certificate_id'] ?? 0);
-            if ($certificateId <= 0 || $notes === '') {
+            if (!admin_current_user_is_super_admin($pdo)) {
+                http_response_code(403);
+                $error = 'Certificate revocation is restricted to the Super Admin.';
+            } elseif ($certificateId <= 0 || $notes === '') {
                 $error = 'Select a certificate and provide a revocation reason.';
             } else {
                 $pdo->prepare("
@@ -248,7 +251,7 @@ admin_page_start('Document Verification', [
               <a class="button secondary sm" href="<?= e($certVerifyUrl) ?>" target="_blank" rel="noopener"><i class="fas fa-up-right-from-square"></i> Verify</a>
               <?php if (!empty($cert['certificate_path'])): ?><a class="button secondary sm" href="<?= e(admin_document_public_url((string) $cert['certificate_path'])) ?>" target="_blank" rel="noopener">HTML</a><?php endif; ?>
               <?php if (!empty($cert['certificate_pdf_path'])): ?><a class="button secondary sm" href="<?= e(admin_document_public_url((string) $cert['certificate_pdf_path'])) ?>" target="_blank" rel="noopener">PDF</a><?php endif; ?>
-              <?php if ((string) $cert['status'] === 'issued'): ?>
+              <?php if ((string) $cert['status'] === 'issued' && admin_current_user_is_super_admin($pdo)): ?>
                 <details class="user-manage">
                   <summary class="button secondary sm"><i class="fas fa-ban"></i> Revoke</summary>
                   <form class="user-manage-form" method="post">

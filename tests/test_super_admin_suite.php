@@ -154,4 +154,154 @@ function run_super_admin_tests(): void
     foreach ($requiredCoreTables as $tbl) {
         TestHarness::assert(in_array($tbl, $tables, true), "Super Admin Health: Core database table '{$tbl}' verified healthy and active");
     }
+
+    // =========================================================================
+    // 5. Withdrawal Automation, Pre-Flight Buffer, Global Daily Cap & RBAC
+    // =========================================================================
+    require_once __DIR__ . '/../lib/wallet-withdrawals.php';
+    require_once __DIR__ . '/../lib/circuit-breaker.php';
+    wallet_ensure_schema($pdo);
+    circuit_breaker_ensure_schema($pdo);
+
+    // 5.1 RBAC Enforcement: Standard Staff/Admin must NEVER be allowed to save withdrawal policy
+    $policyPayload = [
+        'wallet_auto_withdrawals_enabled' => '1',
+        'wallet_auto_preflight_buffer_enabled' => '1',
+        'wallet_auto_preflight_buffer_minutes' => '5',
+        'wallet_auto_global_daily_cap' => '500000',
+        'wallet_auto_max_amount' => '25000',
+        'wallet_auto_daily_user_limit' => '50000',
+        'wallet_withdrawal_flat_fee' => '100',
+        'wallet_withdrawal_percent_fee' => '1.5',
+        'wallet_deposit_flat_fee' => '50',
+        'wallet_deposit_percent_fee' => '1.0',
+        'circuit_breaker_failure_threshold' => '3',
+        'circuit_breaker_cooldown_seconds' => '120',
+        'wallet_auto_allowed_providers' => ['monnify', 'paystack'],
+        'wallet_auto_require_account_name' => '1',
+    ];
+
+    $rbacRejected = false;
+    try {
+        wallet_save_withdrawal_policy($pdo, $policyPayload, $adminUser);
+    } catch (RuntimeException $e) {
+        $rbacRejected = true;
+    }
+    TestHarness::assertTrue($rbacRejected, "Super Admin RBAC: Standard staff/regular admin rejected from modifying withdrawal automation policy");
+
+    // Null admin parameter must also be rejected when no Super Admin session exists
+    $nullAdminRejected = false;
+    try {
+        wallet_save_withdrawal_policy($pdo, $policyPayload, null);
+    } catch (RuntimeException $e) {
+        $nullAdminRejected = true;
+    }
+    TestHarness::assertTrue($nullAdminRejected, "Super Admin RBAC: Null admin caller rejected from modifying withdrawal automation policy");
+
+    // 5.2 Super Admin Authorization: Super Admin successfully modifies withdrawal policy
+    $superAdminSaved = false;
+    try {
+        wallet_save_withdrawal_policy($pdo, $policyPayload, $superUser);
+        $superAdminSaved = true;
+    } catch (Throwable $e) {
+        $superAdminSaved = false;
+    }
+    TestHarness::assertTrue($superAdminSaved, "Super Admin RBAC: Super Admin successfully updated withdrawal automation policy");
+
+    $savedPolicy = wallet_withdrawal_policy($pdo);
+    TestHarness::assertTrue($savedPolicy['auto_enabled'], "Super Admin Policy: Automation master switch enabled");
+    TestHarness::assertTrue($savedPolicy['preflight_buffer_enabled'], "Super Admin Policy: Pre-flight buffer enabled");
+    TestHarness::assertEqual(5, $savedPolicy['preflight_buffer_minutes'], "Super Admin Policy: Pre-flight buffer delay set to 5 minutes");
+    TestHarness::assertEqual(500000.0, (float) $savedPolicy['global_daily_cap'], "Super Admin Policy: Global daily cap set to 500,000 NGN");
+    TestHarness::assertEqual(100.0, (float) $savedPolicy['withdrawal_flat_fee'], "Super Admin Policy: Withdrawal flat fee set to 100 NGN");
+    TestHarness::assertEqual(1.5, (float) $savedPolicy['withdrawal_percent_fee'], "Super Admin Policy: Withdrawal percent fee set to 1.5%");
+
+    // 5.3 Global Platform Daily Cap Enforcement
+    $growerWallet = wallet_get_or_create($pdo, $growerId);
+    $pdo->prepare("UPDATE wallets SET balance = 1000000, hold_balance = 0 WHERE id = ?")->execute([(int) $growerWallet['id']]);
+
+    // Insert auto-dispatched withdrawal today totaling 500,000 NGN to saturate cap
+    $capRef = 'WD-CAP-' . bin2hex(random_bytes(3));
+    $pdo->prepare("
+        INSERT INTO wallet_withdrawals 
+            (wallet_id, user_id, amount, status, payout_status, requested_at, created_at, reference, total_debited)
+        VALUES 
+            (?, ?, 500000.00, 'approved', 'initiated', NOW(), NOW(), ?, 500000.00)
+    ")->execute([(int) $growerWallet['id'], $growerId, $capRef]);
+
+    $evalCap = wallet_evaluate_withdrawal_policy($pdo, $growerId, 5000.00, 'monnify', 'Regular Coconut Grower');
+    TestHarness::assertTrue($evalCap['review_required'], "Global Daily Cap: Withdrawal flagged for manual review when global daily cap reached");
+    TestHarness::assertFalse($evalCap['automation_eligible'], "Global Daily Cap: Withdrawal ineligible for auto-execution due to global daily cap");
+    TestHarness::assertTrue(str_contains((string) $evalCap['review_reason'], 'Platform global daily withdrawal cap reached'), "Global Daily Cap: Audit reason specifically cites global daily cap");
+
+    // 5.4 Pre-Flight Buffer Behavior
+    // Remove the cap-saturating withdrawal
+    $pdo->prepare("DELETE FROM wallet_withdrawals WHERE reference = ?")->execute([$capRef]);
+
+    // Ensure user has at least 1 completed withdrawal so first_withdrawal SLA doesn't block automation
+    $prevWdRef = 'WD-PREV-' . bin2hex(random_bytes(3));
+    $pdo->prepare("
+        INSERT INTO wallet_withdrawals 
+            (wallet_id, user_id, amount, status, payout_status, requested_at, created_at, reference, total_debited)
+        VALUES 
+            (?, ?, 1000.00, 'approved', 'confirmed', NOW(), NOW(), ?, 1000.00)
+    ")->execute([(int) $growerWallet['id'], $growerId, $prevWdRef]);
+
+    $evalBufferEligible = wallet_evaluate_withdrawal_policy($pdo, $growerId, 5000.00, 'monnify', 'Regular Coconut Grower');
+    TestHarness::assertTrue(!empty($evalBufferEligible['automation_eligible']), "Pre-Flight Buffer: Eligible withdrawal marked automation eligible");
+    TestHarness::assertTrue(!empty($evalBufferEligible['preflight_buffered']), "Pre-Flight Buffer: Eligible withdrawal marked as preflight_buffered");
+    TestHarness::assertEqual(5, (int) $evalBufferEligible['preflight_buffer_minutes'], "Pre-Flight Buffer: Buffer delay minutes matches policy (5m)");
+
+    // Request a withdrawal while pre-flight buffer mode is ON
+    $wdReq = wallet_request_withdrawal($pdo, $growerUser, [
+        'amount' => 5000.00,
+        'provider' => 'monnify',
+        'bank_code' => '058',
+        'bank_name' => 'GTBank',
+        'account_number' => '0123456789',
+        'account_name' => 'Regular Coconut Grower',
+        'note' => 'Buffered withdrawal test',
+    ]);
+    TestHarness::assertTrue(!empty($wdReq['success']), "Pre-Flight Buffer: Withdrawal requested successfully");
+    $wdBufRow = $pdo->query("SELECT * FROM wallet_withdrawals WHERE reference = " . $pdo->quote((string) $wdReq['reference']))->fetch(PDO::FETCH_ASSOC);
+    TestHarness::assertEqual(1, (int) $wdBufRow['preflight_buffered'], "Pre-Flight Buffer: Withdrawal record has preflight_buffered = 1 in database");
+    TestHarness::assert(!empty($wdBufRow['preflight_buffered_until']), "Pre-Flight Buffer: preflight_buffered_until timestamp is populated");
+    TestHarness::assertEqual('pending', $wdBufRow['status'], "Pre-Flight Buffer: Withdrawal remains in pending status during buffer hold");
+
+    // 5.5 Autonomous Mode: When buffer mode is OFF, eligible withdrawals dispatch immediately
+    $policyBufferOff = $policyPayload;
+    $policyBufferOff['wallet_auto_preflight_buffer_enabled'] = '0';
+    wallet_save_withdrawal_policy($pdo, $policyBufferOff, $superUser);
+
+    $evalImmediate = wallet_evaluate_withdrawal_policy($pdo, $growerId, 5000.00, 'monnify', 'Regular Coconut Grower');
+    TestHarness::assertTrue(!empty($evalImmediate['automation_eligible']), "Autonomous Life: Withdrawal marked automation eligible when buffer is OFF");
+    TestHarness::assertFalse(!empty($evalImmediate['preflight_buffered']), "Autonomous Life: Withdrawal NOT buffered when buffer mode is OFF (immediate dispatch)");
+
+    // 5.6 Circuit Breaker Cooldown Fallback: Does NOT strand users when fallback is available
+    // Trip monnify circuit breaker to OPEN
+    $pdo->prepare("
+        INSERT INTO gateway_circuit_breakers (provider, state, failure_count, failure_threshold, cooldown_seconds, cooldown_until)
+        VALUES ('monnify', 'open', 5, 3, 300, DATE_ADD(NOW(), INTERVAL 300 SECOND))
+        ON DUPLICATE KEY UPDATE state = 'open', failure_count = 5, cooldown_until = DATE_ADD(NOW(), INTERVAL 300 SECOND)
+    ")->execute();
+    // Ensure paystack is closed and healthy
+    circuit_breaker_reset($pdo, 'paystack', 1);
+
+    $evalFallback = wallet_evaluate_withdrawal_policy($pdo, $growerId, 5000.00, 'monnify', 'Regular Coconut Grower');
+    TestHarness::assertTrue(!empty($evalFallback['automation_eligible']), "Circuit Breaker Fallback: Payout remains automation eligible via fallback provider (users not stranded)");
+
+    // 5.7 When all allowed providers are in cooldown, queue for manual review
+    $pdo->prepare("
+        INSERT INTO gateway_circuit_breakers (provider, state, failure_count, failure_threshold, cooldown_seconds, cooldown_until)
+        VALUES ('paystack', 'open', 5, 3, 300, DATE_ADD(NOW(), INTERVAL 300 SECOND))
+        ON DUPLICATE KEY UPDATE state = 'open', failure_count = 5, cooldown_until = DATE_ADD(NOW(), INTERVAL 300 SECOND)
+    ")->execute();
+
+    $evalAllOpen = wallet_evaluate_withdrawal_policy($pdo, $growerId, 5000.00, 'monnify', 'Regular Coconut Grower');
+    TestHarness::assertFalse(!empty($evalAllOpen['automation_eligible']), "Circuit Breaker Saturation: Ineligible for automation when all fallback gateways in cooldown");
+    TestHarness::assertTrue(!empty($evalAllOpen['review_required']), "Circuit Breaker Saturation: Queued for operator manual review");
+
+    // Reset circuit breakers and clean up temporary withdrawal records
+    circuit_breaker_reset_all($pdo, 1);
+    $pdo->prepare("DELETE FROM wallet_withdrawals WHERE wallet_id = ?")->execute([(int) $growerWallet['id']]);
 }

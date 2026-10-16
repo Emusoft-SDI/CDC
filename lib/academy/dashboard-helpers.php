@@ -4,7 +4,7 @@ declare(strict_types=1);
 function ac_screen(string $value): string
 {
     $value = preg_replace('/[^a-z-]/', '', $value) ?: 'catalog';
-    return in_array($value, ['catalog', 'course', 'checkout', 'learning', 'lesson', 'quiz', 'certificates', 'transactions', 'messages', 'settings', 'support'], true) ? $value : 'catalog';
+    return in_array($value, ['catalog', 'course', 'checkout', 'learning', 'lesson', 'quiz', 'certificates', 'transactions', 'messages', 'settings', 'support', 'program', 'overview'], true) ? $value : 'catalog';
 }
 
 function ac_redirect(string $screen, string $key, string $message, array $extra = []): void

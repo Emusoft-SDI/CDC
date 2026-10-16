@@ -8,8 +8,7 @@ require_once __DIR__ . '/../lib/admin-layout.php';
 admin_handle_logout_request('login.php');
 
 if (!admin_current_user_is_super_admin(db())) {
-    http_response_code(403);
-    exit('Forbidden: Only Super Admin can access the legacy applications console.');
+    app_render_error_page(403, 'Only Super Admin can access the legacy applications console.');
 }
 
 $pdo = db();
@@ -277,8 +276,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
         exit('Invalid security token.');
     }
     if (!$isSuperAdmin) {
-        http_response_code(403);
-        exit('Forbidden: only Super Admin can delete applications.');
+        app_render_error_page(403, 'Only Super Admin can delete applications.');
     }
     if ((string) ($_POST['confirm_delete'] ?? '') !== 'DELETE') {
         http_response_code(422);
@@ -329,8 +327,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'revie
         exit('Invalid security token.');
     }
     if (!$isSuperAdmin) {
-        http_response_code(403);
-        exit('Forbidden: only Super Admin can review delete requests.');
+        app_render_error_page(403, 'Only Super Admin can review delete requests.');
     }
 
     $requestId = (int) ($_POST['request_id'] ?? 0);

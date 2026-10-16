@@ -64,7 +64,7 @@ $commands = [
     <nav aria-label="Operations exits">
       <a href="../index.php"><i class="fas fa-gauge-high"></i><span>Workspace Hub</span></a>
       <a href="../search.php"><i class="fas fa-magnifying-glass"></i><span>Search Platform</span></a>
-      <a href="../admin.php?logout=1"><i class="fas fa-right-from-bracket"></i><span>Logout</span></a>
+      <a href="../admin.php?logout=1&amp;_csrf=<?= e(csrf_token()) ?>"><i class="fas fa-right-from-bracket"></i><span>Logout</span></a>
     </nav>
   </aside>
   <div class="ops-main">

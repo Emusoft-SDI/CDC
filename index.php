@@ -3,6 +3,12 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/lib/news.php';
+require_once __DIR__ . '/lib/landing-templates.php';
+
+// Prevent browser caching of dynamic homepage content
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('X-Accel-Expires: 0');
 
 $pdo = db();
 news_ensure_schema($pdo);
@@ -13,25 +19,39 @@ $year = date('Y');
 
 $roles = [
     ['icon' => 'fa-seedling', 'title' => 'Grower', 'text' => 'Manage your farm, access support, and grow better.', 'href' => 'apply.php', 'tone' => 'green'],
-    ['icon' => 'fa-user-gear', 'title' => 'Learners', 'text' => 'Find jobs, get trained, and build your skills.', 'href' => 'academy/register.php', 'tone' => 'green'],
-    ['icon' => 'fa-box-open', 'title' => 'Input Provider', 'text' => 'Supply quality inputs and grow your business.', 'href' => 'provider/index.php', 'tone' => 'green'],
-    ['icon' => 'fa-screwdriver-wrench', 'title' => 'Service Provider', 'text' => 'Offer services and solutions to farmers.', 'href' => 'provider/index.php', 'tone' => 'teal'],
-    ['icon' => 'fa-store', 'title' => 'Marketplace Seller', 'text' => 'Sell your products and reach more buyers.', 'href' => 'market/seller-central.php', 'tone' => 'gold'],
-    ['icon' => 'fa-cart-shopping', 'title' => 'Buyer', 'text' => 'Buy quality products and farm services.', 'href' => 'buyer/register.php', 'tone' => 'gold'],
-    ['icon' => 'fa-location-dot', 'title' => 'Field Agent', 'text' => 'Verify, inspect, and support on the field.', 'href' => 'field-agent/login.php', 'tone' => 'blue'],
-    ['icon' => 'fa-people-group', 'title' => 'Coordinator', 'text' => 'Coordinate activities and drive impact.', 'href' => 'login.php', 'tone' => 'purple'],
 ];
+if (admin_feature_is_allowed($pdo, 'training')) {
+    $roles[] = ['icon' => 'fa-user-gear', 'title' => 'Learners', 'text' => 'Find jobs, get trained, and build your skills.', 'href' => 'academy/register.php', 'tone' => 'green'];
+}
+if (admin_feature_is_allowed($pdo, 'providers')) {
+    $roles[] = ['icon' => 'fa-box-open', 'title' => 'Provider', 'text' => 'Supply quality inputs or offer services and solutions to farmers.', 'href' => 'provider/index.php', 'tone' => 'green'];
+}
+if (admin_feature_is_allowed($pdo, 'marketplace')) {
+    $roles[] = ['icon' => 'fa-store', 'title' => 'Marketplace Seller', 'text' => 'Sell your products and reach more buyers.', 'href' => 'market/seller-central.php', 'tone' => 'gold'];
+    $roles[] = ['icon' => 'fa-cart-shopping', 'title' => 'Buyer', 'text' => 'Buy quality products and farm services.', 'href' => 'buyer/register.php', 'tone' => 'gold'];
+}
+$roles[] = ['icon' => 'fa-location-dot', 'title' => 'Field Agent', 'text' => 'Verify, inspect, and support on the field.', 'href' => 'field-agent/login.php', 'tone' => 'blue'];
+$roles[] = ['icon' => 'fa-people-group', 'title' => 'Coordinator', 'text' => 'Coordinate activities and drive impact.', 'href' => 'apply.php?type=coordinator', 'tone' => 'purple'];
+$roles[] = ['icon' => 'fa-users', 'title' => 'Cooperative', 'text' => 'Partner with NATCODEV and onboard members.', 'href' => 'apply.php?type=cooperative', 'tone' => 'purple'];
 
 $features = [
     ['icon' => 'fa-shield-halved', 'title' => 'Verified Registry', 'text' => 'Secure identity verification for growers, farms, and stakeholders.', 'href' => 'apply.php?type=farmer'],
     ['icon' => 'fa-chart-line', 'title' => 'Farm Performance', 'text' => 'Track productivity, yield, and profitability in real time.', 'href' => 'login.php'],
     ['icon' => 'fa-cow', 'title' => 'Intercrop & Livestock Income', 'text' => 'Diversify income with intercrops and livestock management.', 'href' => 'login.php'],
-    ['icon' => 'fa-graduation-cap', 'title' => 'NATCODEV Academy', 'text' => 'Learn practical skills and earn industry-recognized certificates.', 'href' => 'academy/index.php'],
-    ['icon' => 'fa-bag-shopping', 'title' => 'Marketplace Access', 'text' => 'Buy and sell verified inputs, products, equipment, and services.', 'href' => 'market/index.php'],
-    ['icon' => 'fa-wallet', 'title' => 'Wallet & Payments', 'text' => 'Secure payments, payouts, and access to finance.', 'href' => 'dashboard/wallet.php'],
-    ['icon' => 'fa-award', 'title' => 'Certificate Verification', 'text' => 'Verify certificates and accreditations with confidence.', 'href' => 'verify-certificate.php'],
-    ['icon' => 'fa-headset', 'title' => 'Support Desk', 'text' => 'Get help when you need it. We are here for your success.', 'href' => 'support/index.php'],
 ];
+if (admin_feature_is_allowed($pdo, 'training')) {
+    $features[] = ['icon' => 'fa-graduation-cap', 'title' => 'NATCODEV Academy', 'text' => 'Learn practical skills and earn industry-recognized certificates.', 'href' => 'academy/index.php'];
+}
+if (admin_feature_is_allowed($pdo, 'marketplace')) {
+    $features[] = ['icon' => 'fa-bag-shopping', 'title' => 'Marketplace Access', 'text' => 'Buy and sell verified inputs, products, equipment, and services.', 'href' => 'market/index.php'];
+}
+if (admin_feature_is_allowed($pdo, 'wallet')) {
+    $features[] = ['icon' => 'fa-wallet', 'title' => 'Wallet & Payments', 'text' => 'Secure payments, payouts, and access to finance.', 'href' => 'dashboard/wallet.php'];
+}
+$features[] = ['icon' => 'fa-award', 'title' => 'Certificate Verification', 'text' => 'Verify certificates and accreditations with confidence.', 'href' => 'verify-certificate.php'];
+if (admin_feature_is_allowed($pdo, 'support')) {
+    $features[] = ['icon' => 'fa-headset', 'title' => 'Support Desk', 'text' => 'Get help when you need it. We are here for your success.', 'href' => 'support/index.php'];
+}
 
 $trust = [
     ['icon' => 'fa-shield-heart', 'title' => 'Trusted by thousands', 'text' => 'of coconut farmers'],
@@ -41,6 +61,8 @@ $trust = [
     ['icon' => 'fa-lock', 'title' => 'Secure, transparent', 'text' => 'and compliant'],
 ];
 $office = app_contact_office();
+
+$homeTemplate = landing_template($pdo, 'home');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -70,9 +92,19 @@ $office = app_contact_office();
     .footer{background:#052915;color:#e8f6ec;margin-top:36px}.footer-inner{max-width:var(--max);margin:0 auto;padding:24px 24px 18px;display:grid;grid-template-columns:minmax(320px,1.55fr) repeat(4,minmax(0,1fr));gap:18px;align-items:start}.footer h3{margin:0 0 8px;color:#fff;font-size:1rem}.footer p,.footer a{color:#cfe5d3;line-height:1.45;font-size:.93rem}.footer a{display:block;margin:4px 0}.footer-brand{display:flex;gap:12px;align-items:center;margin-bottom:10px}.footer-brand img{width:54px;height:54px;background:#fff;border-radius:50%}.footer-bottom{border-top:1px solid rgba(255,255,255,.12);padding:14px 24px;text-align:center;color:#bdd5c1}
     @media(max-width:1320px){.role-grid,.feature-grid,.news-teaser-grid{grid-template-columns:repeat(4,1fr)}.nav-wrap{grid-template-columns:1fr}.nav,.actions{justify-content:flex-start;flex-wrap:wrap}.trust-row{grid-template-columns:repeat(3,1fr)}.story{grid-template-columns:1fr;padding:0 18px}.platform,.role-panel{margin-left:18px;margin-right:18px}}
     @media(max-width:820px){.top-inner,.top-links,.nav,.actions,.hero-actions{align-items:flex-start;flex-direction:column}.nav-wrap{padding:14px}.role-grid,.feature-grid,.news-teaser-grid,.quick-links,.footer-inner{grid-template-columns:1fr}.trust-row{grid-template-columns:1fr}.hero-inner{padding:42px 18px 92px}.role-panel{margin-top:-42px}.section-title{font-size:1.3rem}.brand strong{font-size:1.55rem}}
+    .home-template-b .hero{min-height:360px}
+    .home-template-b .hero .btn{min-width:210px}
+    .home-template-b .hero-actions{gap:16px}
+    .home-template-b .quiet-link{color:#e8f6ec;text-decoration:underline;font-weight:650}
+    .home-template-b .role-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:22px}
+    .home-template-b .role-icon{width:64px;height:64px;font-size:1.8rem}
+    .home-template-b .role-card{min-height:160px;padding:22px 16px}
+    .home-template-b .feature-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+    @media(max-width:1320px){.home-template-b .role-grid{grid-template-columns:repeat(3,minmax(0,1fr));}}
+    @media(max-width:820px){.home-template-b .role-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
   </style>
 </head>
-<body>
+<body class="home-template-<?= e($homeTemplate) ?>">
   <div class="top-strip">
     <div class="top-inner">
       <div><i class="fas fa-leaf"></i> Building productive coconut communities for Nigeria's future.</div>
@@ -92,11 +124,11 @@ $office = app_contact_office();
       <nav class="nav" aria-label="Primary navigation">
         <a href="index.php">Home</a>
         <a href="registry/register.php">Registry</a>
-        <a href="market/index.php">Marketplace</a>
-        <a href="academy/index.php?screen=catalog">Academy</a>
+        <?php if (admin_feature_is_allowed($pdo, 'marketplace')): ?><a href="market/index.php">Marketplace</a><?php endif; ?>
+        <?php if (admin_feature_is_allowed($pdo, 'training')): ?><a href="academy/index.php?screen=catalog">Academy</a><?php endif; ?>
         <a href="news.php">News & Insights</a>
         <a href="verify-certificate.php">Verify</a>
-        <a href="support/index.php">Support</a>
+        <?php if (admin_feature_is_allowed($pdo, 'support')): ?><a href="support/index.php">Support</a><?php endif; ?>
       </nav>
       <div class="actions">
         <a class="icon-btn" href="search.php" aria-label="Search NATCODEV"><i class="fas fa-search"></i></a>
@@ -107,95 +139,7 @@ $office = app_contact_office();
   </header>
 
   <main>
-    <section class="hero">
-      <div class="hero-inner">
-        <div class="hero-copy">
-          <h1>National Coconut <span>Development & Propagation</span> Initiative</h1>
-          <p>Register, verify, train, trade, and grow with one connected coconut development platform.</p>
-          <div class="hero-actions">
-            <a class="btn primary" href="apply.php?type=farmer"><i class="fas fa-user-plus"></i> Register Now</a>
-            <a class="btn light" href="market/index.php"><i class="fas fa-cart-shopping"></i> Explore Marketplace</a>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section id="registry" class="role-panel">
-      <h2 class="section-title"><i class="fas fa-leaf"></i> Choose your role. Start your journey. <i class="fas fa-leaf"></i></h2>
-      <div class="role-grid">
-        <?php foreach ($roles as $role): ?>
-          <a class="role-card <?= e($role['tone']) ?>" href="<?= e($role['href']) ?>">
-            <span class="role-icon"><i class="fas <?= e($role['icon']) ?>"></i></span>
-            <h3><?= e($role['title']) ?></h3>
-            <p><?= e($role['text']) ?></p>
-            <span class="arrow"><i class="fas fa-chevron-right"></i></span>
-          </a>
-        <?php endforeach; ?>
-      </div>
-    </section>
-
-    <section id="programs" class="platform">
-      <h2 class="section-title"><i class="fas fa-leaf"></i> One Platform, Every Stakeholder <i class="fas fa-leaf"></i></h2>
-      <div class="feature-grid">
-        <?php foreach ($features as $feature): ?>
-          <a class="feature-card" href="<?= e($feature['href']) ?>">
-            <i class="fas <?= e($feature['icon']) ?>"></i>
-            <span><h3><?= e($feature['title']) ?></h3><p><?= e($feature['text']) ?></p></span>
-          </a>
-        <?php endforeach; ?>
-      </div>
-      <div class="trust-row">
-        <?php foreach ($trust as $item): ?>
-          <div class="trust-item"><i class="fas <?= e($item['icon']) ?>"></i><span><?= e($item['title']) ?><br><?= e($item['text']) ?></span></div>
-        <?php endforeach; ?>
-        <a class="trust-item learn" href="#about">Learn More About NATCODEV <i class="fas fa-chevron-right"></i></a>
-      </div>
-    </section>
-
-    <?php if (!empty($recentNews)): ?>
-      <!-- Latest News & Announcements -->
-      <section id="updates" class="news-teaser">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
-          <h2 style="color:var(--green);font-size:1.8rem;margin:0;font-weight:900;"><i class="fas fa-newspaper"></i> Latest News & Bulletins</h2>
-          <a href="news.php" class="btn primary" style="min-height:38px;padding:8px 18px;font-size:0.92rem;">View All Releases &rarr;</a>
-        </div>
-        <div class="news-teaser-grid">
-          <?php foreach ($recentNews as $post): 
-            $img = !empty($post['image_url']) ? $post['image_url'] : 'assets/public/natcodev-community-impact.png';
-            $detailUrl = 'news-detail.php?slug=' . urlencode((string) $post['slug']);
-          ?>
-            <article class="teaser-card">
-              <a href="<?= e($detailUrl) ?>">
-                <img src="<?= e($img) ?>" alt="<?= e($post['title']) ?>" class="teaser-img" onerror="this.src='assets/public/natcodev-community-impact.png'">
-              </a>
-              <div class="teaser-body">
-                <span style="background:rgba(8,117,58,0.1);color:var(--green2);font-size:0.75rem;font-weight:800;text-transform:uppercase;padding:4px 10px;border-radius:12px;align-self:flex-start;margin-bottom:10px;"><?= e($post['category'] ?? 'General') ?></span>
-                <h3 style="margin:0 0 8px;font-size:1.15rem;color:var(--green);line-height:1.4;"><a href="<?= e($detailUrl) ?>"><?= e($post['title']) ?></a></h3>
-                <p style="margin:0 0 16px;color:#475569;font-size:0.9rem;line-height:1.5;flex-grow:1;"><?= e(mb_strimwidth((string)($post['summary'] ?? strip_tags($post['content'])), 0, 120, '...')) ?></p>
-                <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding-top:12px;font-size:0.82rem;color:var(--muted);margin-top:auto;">
-                  <span><?= date('M d, Y', strtotime($post['created_at'])) ?></span>
-                  <a href="<?= e($detailUrl) ?>" style="color:var(--green2);font-weight:800;">Read More &rarr;</a>
-                </div>
-              </div>
-            </article>
-          <?php endforeach; ?>
-        </div>
-      </section>
-    <?php endif; ?>
-
-    <section id="about" class="story">
-      <div class="story-img" aria-label="Coconut farmers and marketplace community"></div>
-      <article class="story-card">
-        <h2>A meaningful entry point for the whole coconut value chain.</h2>
-        <p>NATCODEV brings registry, verification, Academy training, certificates, marketplace access, wallet payments, farm operations, reporting, and support into one public-facing platform for growers, farm hands, providers, sellers, buyers, field teams, coordinators, and visitors.</p>
-        <div class="quick-links">
-          <a href="market/index.php"><i class="fas fa-store"></i> Marketplace</a>
-          <a href="academy/index.php"><i class="fas fa-graduation-cap"></i> Academy</a>
-          <a href="verify-certificate.php"><i class="fas fa-award"></i> Verify Certificate</a>
-          <a href="support/index.php"><i class="fas fa-headset"></i> Support Desk</a>
-        </div>
-      </article>
-    </section>
+    <?php require __DIR__ . '/templates/home-' . $homeTemplate . '.php'; ?>
   </main>
 
   <?= public_footer() ?>

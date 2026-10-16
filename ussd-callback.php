@@ -3,19 +3,25 @@
 require_once 'config.php';
 require_once 'lib/ussd.php';
 
+$pdo = db();
 $ussd = new USSDPayment($pdo);
 
-// Get callback data (format depends on provider)
-$input = json_decode(file_get_contents('php://input'), true);
+$raw = file_get_contents('php://input') ?: '';
+$signature = (string) ($_SERVER['HTTP_X_TERMII_SIGNATURE'] ?? $_SERVER['HTTP_X_USSD_SIGNATURE'] ?? '');
 
-// Termii example format
-$reference = $input['reference'] ?? '';
-$status = $input['status'] ?? '';
-$amount = $input['amount'] ?? 0;
-
-if ($reference && $status) {
-    $ussd->handleCallback($reference, $status, $amount);
+if (!$ussd->verifyCallbackSignature($raw, $signature)) {
+    json_response(['success' => false, 'error' => 'Invalid signature'], 401);
 }
 
-http_response_code(200);
-?>
+$input = json_decode($raw, true);
+
+// Termii example format
+$reference = is_array($input) ? (string) ($input['reference'] ?? '') : '';
+$status = is_array($input) ? (string) ($input['status'] ?? '') : '';
+$amount = is_array($input) ? (float) ($input['amount'] ?? 0) : 0;
+
+if ($reference !== '' && $status !== '') {
+    json_response($ussd->handleCallback($reference, $status, $amount));
+}
+
+json_response(['success' => true, 'ignored' => true]);

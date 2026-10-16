@@ -55,7 +55,23 @@ function monnify_configuration_error(): string
 
 function paystack_env(string $key, string $default = ''): string
 {
+    if ($key === 'PAYSTACK_SECRET_KEY') {
+        return paystack_secret();
+    }
     return trim((string) app_env($key, $default));
+}
+
+function paystack_secret(): string
+{
+    if (function_exists('app_secret')) {
+        try {
+            $stored = app_secret(db(), 'paystack_secret_key', 'PAYSTACK_SECRET_KEY');
+            return trim((string) $stored);
+        } catch (Throwable $e) {
+            // fall through to environment configuration
+        }
+    }
+    return trim((string) app_env('PAYSTACK_SECRET_KEY', ''));
 }
 
 function paystack_base_url(): string
@@ -136,10 +152,11 @@ function paystack_request(string $method, string $path, array $payload = []): ar
 
     $decoded = json_decode($response, true);
     $ok = $status >= 200 && $status < 300 && is_array($decoded) && (bool) ($decoded['status'] ?? false);
+    $inner = is_array($decoded['data'] ?? null) ? $decoded['data'] : [];
     return [
         'success' => $ok,
         'status' => $status,
-        'data' => is_array($decoded) ? $decoded : null,
+        'data' => $inner,
         'raw' => mb_substr($response, 0, 1500),
         'error' => $ok ? null : (string) ($decoded['message'] ?? $error ?: "Paystack HTTP {$status}"),
     ];
@@ -232,12 +249,17 @@ function monnify_request(string $method, string $path, ?array $payload = null, b
 
     $decoded = json_decode($response, true);
     $ok = $status >= 200 && $status < 300 && is_array($decoded) && (($decoded['requestSuccessful'] ?? true) !== false);
+    $trimmed = strtolower(ltrim((string) $response));
+    $isHtml = str_starts_with($trimmed, '<!doctype') || str_starts_with($trimmed, '<html');
+    $fallback = $isHtml
+        ? "Monnify blocked the request (HTTP {$status}, HTML response). The gateway firewall rejected it — a redirectUrl pointing to localhost or a non-HTTPS URL is a common cause."
+        : "Monnify HTTP {$status}";
     return [
         'success' => $ok,
         'status' => $status,
         'data' => is_array($decoded) ? $decoded : null,
         'raw' => mb_substr($response, 0, 1500),
-        'error' => $ok ? null : (string) ($decoded['responseMessage'] ?? $decoded['message'] ?? $error ?: "Monnify HTTP {$status}"),
+        'error' => $ok ? null : (string) ($decoded['responseMessage'] ?? $decoded['message'] ?? $error ?: $fallback),
     ];
 }
 
@@ -264,5 +286,50 @@ function monnify_access_token(): string
     $expiresAt = time() + max(300, $expiresIn);
     return $token;
 }
+
+function monnify_list_banks(): array
+{
+    if (!monnify_is_configured()) {
+        return ['success' => false, 'error' => monnify_configuration_error(), 'banks' => []];
+    }
+
+    try {
+        $res = monnify_request('GET', '/api/v1/banks');
+        if (!empty($res['success']) && isset($res['data']['responseBody']) && is_array($res['data']['responseBody'])) {
+            $banks = [];
+            foreach ($res['data']['responseBody'] as $b) {
+                $name = (string) ($b['name'] ?? '');
+                $code = (string) ($b['code'] ?? '');
+                if ($name !== '' && $code !== '') {
+                    $banks[] = ['name' => $name, 'code' => $code];
+                }
+            }
+            if ($banks) {
+                return ['success' => true, 'banks' => $banks];
+            }
+        }
+    } catch (Throwable $e) {
+        // Fall back below
+    }
+
+    if (!app_is_production()) {
+        return [
+            'success' => true,
+            'banks' => [
+                ['name' => 'Access Bank', 'code' => '044'],
+                ['name' => 'First Bank of Nigeria', 'code' => '011'],
+                ['name' => 'Guaranty Trust Bank (GTBank)', 'code' => '058'],
+                ['name' => 'United Bank for Africa (UBA)', 'code' => '033'],
+                ['name' => 'Zenith Bank', 'code' => '057'],
+                ['name' => 'Kuda Microfinance Bank', 'code' => '50211'],
+                ['name' => 'Opay (Paycom)', 'code' => '999992'],
+                ['name' => 'PalmPay', 'code' => '999991'],
+            ],
+        ];
+    }
+
+    return ['success' => false, 'error' => 'Unable to load Monnify banks', 'banks' => []];
+}
+
 
 

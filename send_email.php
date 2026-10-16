@@ -57,6 +57,16 @@ if (!preg_match('/^0[7-9][01][0-9]{8}$/', $phone)) {
     json_response(['success' => false, 'message' => 'Invalid Nigerian phone number'], 422);
 }
 
+// One phone number per account, the same rule the registration wizard
+// enforces, so SMS and withdrawal alerts only ever reach the account's
+// owner. The account already registered to this email keeps its number.
+$emailUserStmt = db()->prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1');
+$emailUserStmt->execute([$email]);
+$emailUserId = (int) ($emailUserStmt->fetchColumn() ?: 0);
+if (($phoneOwner = registration_wizard_phone_owner(db(), $phone, $emailUserId)) !== null) {
+    json_response(['success' => false, 'message' => registration_wizard_phone_conflict_message($phoneOwner)], 422);
+}
+
 try {
     $pdo = db();
     app_ensure_core_schema($pdo);

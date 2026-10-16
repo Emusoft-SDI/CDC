@@ -1,4 +1,4 @@
-<?php defined('NATCODEV_SUPER_ADMIN') || exit; 
+﻿<?php defined('NATCODEV_SUPER_ADMIN') || exit; 
 $search = trim((string) ($_GET['q'] ?? ''));
 $roleFilter = trim((string) ($_GET['role'] ?? ''));
 $statusFilter = trim((string) ($_GET['status'] ?? ''));
@@ -47,8 +47,9 @@ $users = $usersStmt->fetchAll();
               <option value="<?= e($key) ?>"><?= e($label) ?></option>
             <?php endforeach; ?>
           </select>
-          <label>Temporary Password</label>
-          <input name="password" value="<?= e(super_admin_temp_password()) ?>" required>
+          <label>Temporary Password (optional)</label>
+          <input name="password" minlength="8">
+          <small class="meta">Leave blank to send the staff member a self-service claim link instead.</small>
           <label>State or Role Scope</label>
           <input name="location" placeholder="National, State name, investor group, etc.">
           <div class="check-row compact-checks">
@@ -59,7 +60,7 @@ $users = $usersStmt->fetchAll();
         </form>
       </details>
       <a class="button secondary" href="index.php">Back to Snapshot</a>
-      <a class="button secondary" href="index.php?export=users">Export CSV</a>
+      <form method="post" style="display:inline"><input type="hidden" name="action" value="export_users"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><button type="submit" class="button secondary">Export CSV</button></form>
     </div>
   </div>
 

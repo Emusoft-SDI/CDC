@@ -247,7 +247,7 @@ function track_date(?array $row): string
 
 $logo = app_primary_logo_url();
 $initials = $user ? market_initials((string) ($user['name'] ?? 'User')) : 'NT';
-market_header('Track Marketplace Order', 'orders', $pdo);
+market_header('Track Marketplace Order', 'orders', $pdo, $checkoutRef !== '' ? [['label' => 'Order ' . $checkoutRef]] : []);
 ?>
   <style>
     :root{--green:#0b6b33;--green-dark:#06451f;--mint:#eef8ef;--gold:#d5a929;--teal:#1f9d8a;--ink:#101828;--muted:#667085;--line:#e4eadf;--bg:#fbfcf8;--shadow:0 18px 48px rgba(16,24,40,.08)}

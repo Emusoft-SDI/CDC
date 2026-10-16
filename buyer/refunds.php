@@ -31,6 +31,13 @@ $orderStmt = $pdo->prepare("
 $orderStmt->execute([$userId]);
 $refundOrders = $orderStmt->fetchAll();
 
+$marketRefunds = [];
+if (app_table_exists($pdo, 'marketplace_refunds')) {
+    $marketRefundStmt = $pdo->prepare('SELECT * FROM marketplace_refunds WHERE buyer_user_id = ? ORDER BY created_at DESC, id DESC LIMIT 80');
+    $marketRefundStmt->execute([$userId]);
+    $marketRefunds = $marketRefundStmt->fetchAll();
+}
+
 $refundTotal = array_reduce($refundTransactions, static fn(float $sum, array $row): float => $sum + abs((float) ($row['amount'] ?? 0)), 0.0);
 $counts = buyer_counts($pdo, $user);
 buyer_page_start('Buyer Refunds', 'refunds', $user, $counts);
@@ -40,6 +47,7 @@ buyer_page_start('Buyer Refunds', 'refunds', $user, $counts);
   <div class="kpi"><i class="fas fa-rotate-left"></i><span><b><?= count($refundTransactions) ?></b><br>Refund Entries</span></div>
   <div class="kpi"><i class="fas fa-naira-sign"></i><span><b><?= e(buyer_money($refundTotal)) ?></b><br>Refund Value</span></div>
   <div class="kpi"><i class="fas fa-cart-shopping"></i><span><b><?= count($refundOrders) ?></b><br>Affected Checkouts</span></div>
+  <div class="kpi"><i class="fas fa-box-open"></i><span><b><?= count($marketRefunds) ?></b><br>Marketplace Refunds</span></div>
   <div class="kpi"><i class="fas fa-wallet"></i><span><b><?= e(buyer_money((float) ($counts['wallet'] ?? 0))) ?></b><br>Wallet Balance</span></div>
 </div>
 <div class="grid">
@@ -65,6 +73,18 @@ buyer_page_start('Buyer Refunds', 'refunds', $user, $counts);
         </div>
       <?php endforeach; ?>
       <?php if (!$refundOrders): ?><div class="alert ok">No cancelled, reversed, or refunded checkout record is attached to this buyer account.</div><?php endif; ?>
+    </div>
+  </section>
+  <section class="card span-12">
+    <div class="card-head"><h2>Marketplace Refunds</h2><span class="badge"><?= count($marketRefunds) ?> record<?= count($marketRefunds) === 1 ? '' : 's' ?></span></div>
+    <div class="list">
+      <?php foreach ($marketRefunds as $refund): ?>
+        <div class="row">
+          <span><strong><?= e((string) ($refund['refund_ref'] ?? 'Refund')) ?></strong><br><small>Checkout <?= e((string) ($refund['checkout_ref'] ?? '')) ?> / <?= e((string) ($refund['created_at'] ?? '')) ?><?php if ((string) ($refund['status'] ?? '') === 'provider_refund_pending'): ?> — the charge was made at the payment provider, so the refund is being issued there and is not a wallet credit<?php endif; ?></small></span>
+          <span><strong><?= e(buyer_money((float) ($refund['refund_amount'] ?? 0))) ?></strong><br><?= buyer_status_badge((string) ($refund['status'] ?? 'pending')) ?></span>
+        </div>
+      <?php endforeach; ?>
+      <?php if (!$marketRefunds): ?><div class="alert ok">No marketplace refund has been recorded for this buyer account.</div><?php endif; ?>
     </div>
   </section>
   <section class="card span-12">

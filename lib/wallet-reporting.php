@@ -86,8 +86,8 @@ function wallet_reporting_refresh(PDO $pdo, string $from, string $to): void
             COALESCE(NULLIF(wt.status,''),'unknown') status,
             {$roleCase} stakeholder_role,
             COUNT(*) transactions,
-            COALESCE(SUM(CASE WHEN wt.type = 'credit' THEN wt.amount ELSE 0 END),0) inflow,
-            COALESCE(SUM(CASE WHEN wt.type IN ('debit','withdrawal') THEN ABS(wt.amount) ELSE 0 END),0) outflow,
+            COALESCE(SUM(CASE WHEN wt.type IN ('credit', 'funding') OR wt.direction = 'inflow' THEN wt.amount ELSE 0 END),0) inflow,
+            COALESCE(SUM(CASE WHEN wt.type IN ('debit','withdrawal') OR wt.direction = 'outflow' THEN ABS(wt.amount) ELSE 0 END),0) outflow,
             SUM(CASE WHEN wt.status IN ('failed','rejected') THEN 1 ELSE 0 END) failed_count
         FROM wallet_transactions wt
         LEFT JOIN users u ON u.id = wt.user_id

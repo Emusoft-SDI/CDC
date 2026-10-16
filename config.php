@@ -1,6 +1,11 @@
 <?php
 declare(strict_types=1);
 
+// Capture any accidental whitespace/output before headers are sent
+if (ob_get_level() === 0) {
+    ob_start();
+}
+
 if (defined('NATCODEV_BOOTSTRAPPED')) {
     return;
 }
@@ -13,10 +18,22 @@ require_once __DIR__ . '/app/autoload.php';
 
 app_load_env(__DIR__ . '/.env');
 
+// Core layout helpers (escaping, CSRF, feature gating) — loaded once per request
+// so pages don't need to include misc.php individually.
+if (!function_exists('admin_feature_is_allowed')) {
+    require_once __DIR__ . '/lib/layout/misc.php';
+}
+
 // Break-glass: only the operator-configured MAINTENANCE_BYPASS_KEY opens maintenance mode.
 $maintenance_bypass_key = (string) (app_env('MAINTENANCE_BYPASS_KEY') ?? '');
 if ($maintenance_bypass_key !== '' && isset($_GET['admin_bypass']) && hash_equals($maintenance_bypass_key, (string) $_GET['admin_bypass'])) {
-    setcookie('natcodev_bypass', '1', time() + 86400 * 7, '/');
+    setcookie('natcodev_bypass', '1', [
+        'expires' => time() + 86400 * 7,
+        'path' => '/',
+        'httponly' => true,
+        'samesite' => 'Lax',
+        'secure' => str_starts_with((string) app_env('APP_URL', ''), 'https://'),
+    ]);
     $_COOKIE['natcodev_bypass'] = '1';
 }
 if (!isset($_COOKIE['natcodev_bypass']) && file_exists(__DIR__ . '/.maintenance')) {
@@ -129,7 +146,7 @@ function app_public_url(string $path): string
     if ($basePath === '' || $basePath === '.') {
         $basePath = '';
     }
-    $basePath = preg_replace('#/(admin|academy|api|buyer|dashboard|field-agent|market|marketplace|provider|support|super-admin)(/.*)?$#', '', $basePath);
+    $basePath = preg_replace('#/(admin|academy|api|buyer|cooperatives|dashboard|field-agent|market|marketplace|provider|support|super-admin)(/.*)?$#', '', $basePath);
     if ($basePath === '/' || $basePath === '.') {
         $basePath = '';
     }
@@ -178,15 +195,53 @@ function db(): PDO
         );
     } catch (PDOException $e) {
         error_log('Database connection failed: ' . $e->getMessage());
-        if (!isset($_COOKIE['natcodev_bypass']) && basename($_SERVER['SCRIPT_NAME'] ?? '') !== 'maintenance.html') {
+        // Retry up to 5 times with 1-second delays for startup race conditions
+        $retry = 5;
+        while ($retry > 0) {
+            try {
+                usleep(1000000); // 1 second
+                $pdo = new PDO(
+                    "mysql:host={$host};port={$port};dbname={$name};charset=utf8mb4",
+                    $user,
+                    $pass,
+                    [
+                        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                        PDO::ATTR_EMULATE_PREPARES => false,
+                    ]
+                );
+                return $pdo;
+            } catch (PDOException $retryE) {
+                $retry--;
+                if ($retry === 0) {
+                    error_log('Database connection failed after ' . (5 - $retry) . ' retries: ' . $retryE->getMessage());
+                }
+            }
+        }
+        $onMaintenancePage = basename($_SERVER['SCRIPT_NAME'] ?? '') === 'maintenance.html';
+        $hasBypassCookie = isset($_COOKIE['natcodev_bypass']) && $_COOKIE['natcodev_bypass'] === '1';
+        if (!$onMaintenancePage && !$hasBypassCookie) {
             // Auto-fallback to maintenance mode if DB is completely down
             http_response_code(503);
             header('Retry-After: 3600');
+            header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+            header('Pragma: no-cache');
             require __DIR__ . '/maintenance.html';
             exit;
         }
-        // If they have bypass cookie, they still get the raw error so they can debug
-        throw $e;
+        // Break-glass debugging: raw errors are only ever exposed outside production.
+        if (!app_is_production()) {
+            throw $e;
+        }
+        if ($onMaintenancePage) {
+            exit;
+        }
+        http_response_code(503);
+        header('Retry-After: 3600');
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+        header('Pragma: no-cache');
+        require __DIR__ . '/maintenance.html';
+        exit;
     }
 
     return $pdo;
@@ -358,12 +413,25 @@ function app_check_rate_limit(string $action, int $maxAttempts, int $decaySecond
     $pdo = db();
 
     try {
-        $stmt = $pdo->prepare("SELECT attempts, last_attempt_at FROM app_rate_limits WHERE limit_key = ? AND expires_at > ? LIMIT 1");
-        $stmt->execute([$key, $now]);
+        if (!app_table_exists($pdo, 'app_rate_limits')) {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS app_rate_limits (
+                    limit_key VARCHAR(180) PRIMARY KEY,
+                    attempts INT NOT NULL DEFAULT 1,
+                    last_attempt_at INT NOT NULL,
+                    expires_at INT NOT NULL,
+                    INDEX idx_rate_limit_expiry (expires_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+        }
+        $stmt = $pdo->prepare("SELECT attempts, last_attempt_at, expires_at FROM app_rate_limits WHERE limit_key = ? LIMIT 1");
+        $stmt->execute([$key]);
         $record = $stmt->fetch();
 
-        if (!$record) {
-            $stmt = $pdo->prepare("INSERT INTO app_rate_limits (limit_key, attempts, last_attempt_at, expires_at) VALUES (?, 1, ?, ?)");
+        // Treat an expired row as a fresh window: a plain INSERT would collide
+        // with its PRIMARY KEY and trip the fail-closed catch, locking the key out permanently.
+        if (!$record || (int) $record['expires_at'] <= $now) {
+            $stmt = $pdo->prepare("INSERT INTO app_rate_limits (limit_key, attempts, last_attempt_at, expires_at) VALUES (?, 1, ?, ?) ON DUPLICATE KEY UPDATE attempts = 1, last_attempt_at = VALUES(last_attempt_at), expires_at = VALUES(expires_at)");
             $stmt->execute([$key, $now, $now + $decaySeconds]);
             return true;
         }
@@ -377,7 +445,7 @@ function app_check_rate_limit(string $action, int $maxAttempts, int $decaySecond
         return true;
     } catch (Throwable $e) {
         error_log('Rate limit check failed: ' . $e->getMessage());
-        return true; // Fail open to avoid blocking users on DB errors
+        return false; // Fail closed: never disable brute-force protection on DB errors
     }
 }
 
@@ -686,8 +754,8 @@ function app_ensure_farmer_engagement_schema(PDO $pdo): void
 
 function current_user(PDO $pdo): ?array
 {
-    if (session_status() !== PHP_SESSION_ACTIVE) {
-        session_start();
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
     }
     if (empty($_SESSION['user_id'])) {
         return null;
@@ -724,17 +792,19 @@ function current_user(PDO $pdo): ?array
 function require_user_role(PDO $pdo, array $roles): array
 {
     $user = current_user($pdo);
-    if (!$user || !in_array($user['role'], $roles, true)) {
-        http_response_code(403);
-        exit('Forbidden');
+    // Resolve effective roles (role columns, active user_role_assignments,
+    // super_admin flags) like the workspace middleware — the raw role column
+    // alone locks out assignment-based field staff and super admins.
+    if (!$user || !app_user_has_any_role($pdo, $user, $roles)) {
+        app_render_error_page(403, 'Your account does not have access to this area.');
     }
     return $user;
 }
 
 function admin_session_is_authenticated(PDO $pdo): bool
 {
-    if (session_status() !== PHP_SESSION_ACTIVE) {
-        session_start();
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
     }
 
     $hasAdminSession = ($_SESSION['admin_authenticated'] ?? false) === true || ($_SESSION['admin'] ?? false) === true;
@@ -1429,7 +1499,17 @@ function generate_application_ref(): string
 
 require_once __DIR__ . '/lib/helpers.php';
 require_once __DIR__ . '/lib/public-footer.php';
+require_once __DIR__ . '/lib/error-page.php';
 require_once __DIR__ . '/lib/otp-delivery.php';
+require_once __DIR__ . '/lib/staff-claim.php';
 require_once __DIR__ . '/lib/registration-wizard.php';
+require_once __DIR__ . '/lib/enrollment-applications.php';
+require_once __DIR__ . '/lib/cooperatives.php';
+require_once __DIR__ . '/lib/user-workspaces.php';
+require_once __DIR__ . '/lib/academy/sponsorships.php';
+require_once __DIR__ . '/lib/academy/sponsorship-admin.php';
+require_once __DIR__ . '/lib/marketplace-coop-link.php';
+require_once __DIR__ . '/lib/support-escalation.php';
+require_once __DIR__ . '/lib/wallet-schema.php';
 
 

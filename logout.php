@@ -7,6 +7,11 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
 
+if (!verify_csrf((string) ($_GET['_csrf'] ?? ''))) {
+    http_response_code(403);
+    exit('Invalid security token.');
+}
+
 $next = platform_safe_next_for_logout((string) ($_GET['next'] ?? ''));
 $_SESSION = [];
 

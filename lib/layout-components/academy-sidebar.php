@@ -9,6 +9,7 @@
   <div class="sb-nav-label">Academy</div>
   <nav>
     <?php foreach ([
+      'overview' => ['fas fa-th-large', 'Dashboard'],
       'catalog' => ['fas fa-compass', 'Catalog'],
       'learning' => ['fas fa-book-open', 'My Learning'],
       'lesson' => ['fas fa-play-circle', 'Lesson Player'],
@@ -23,14 +24,15 @@
     <?php endforeach; ?>
     <a class="sb-item <?= $screen === 'transactions' ? 'active' : '' ?>" href="dashboard.php?screen=transactions"><i class="fas fa-wallet"></i><span>Fund Wallet</span></a>
     <a class="sb-item" href="../academy/index.php"><i class="fas fa-home"></i><span>Academy Site</span></a>
+    <a class="sb-item" href="../academy/program.php"><i class="fas fa-graduation-cap"></i><span>Programs</span></a>
  
      <a class="sb-item" href="../academy/request-role.php"><i class="fas fa-user-shield"></i><span>Request Role</span></a>
-    <a class="sb-item" href="logout.php"><i class="fas fa-sign-out-alt"></i><span>Logout</span></a>
+    <a class="sb-item" href="logout.php?_csrf=<?= e(csrf_token()) ?>"><i class="fas fa-sign-out-alt"></i><span>Logout</span></a>
   </nav>
   <div class="sb-footer">
     <h4>Learn. Grow. Certify.</h4>
     <p>Practical skills. Real farm impact.</p>
     <a class="btn-sb" href="dashboard.php?screen=catalog">Browse Catalog <i class="fas fa-arrow-right"></i></a>
-    <a class="btn-sb" href="logout.php">Logout</a>
+    <a class="btn-sb" href="logout.php?_csrf=<?= e(csrf_token()) ?>">Logout</a>
   </div>
 </aside>

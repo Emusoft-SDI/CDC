@@ -43,32 +43,14 @@ class PaymentGateway {
     }
     
     // Process successful payment
+    //
+    // Deprecated: this moved money with no provider verification, no
+    // idempotency and no transaction wrapper. All wallet credits must go
+    // through wallet_credit_once(). Kept only so legacy callers fail
+    // loudly instead of double-crediting.
     public function processPayment($userId, $amount, $reference, $description) {
-        try {
-            // Get wallet
-            $stmt = $this->pdo->prepare("SELECT id FROM wallets WHERE user_id = ?");
-            $stmt->execute([$userId]);
-            $walletId = $stmt->fetchColumn();
-            
-            if (!$walletId) {
-                throw new Exception("Wallet not found");
-            }
-            
-            // Add transaction
-            $this->pdo->prepare("
-                INSERT INTO wallet_transactions (wallet_id, amount, type, description, reference, status)
-                VALUES (?, ?, 'credit', ?, ?, 'completed')
-            ")->execute([$walletId, $amount, $description, $reference]);
-            
-            // Update balance
-            $this->pdo->prepare("UPDATE wallets SET balance = balance + ? WHERE user_id = ?")
-                     ->execute([$amount, $userId]);
-            
-            return true;
-        } catch (Exception $e) {
-            error_log("Payment processing error: " . $e->getMessage());
-            return false;
-        }
+        error_log('PaymentGateway::processPayment is deprecated and refused an unverified credit for user #' . $userId . ' (ref ' . $reference . ').');
+        throw new RuntimeException('PaymentGateway::processPayment is deprecated; use wallet_credit_once().');
     }
 }
 ?>

@@ -26,6 +26,15 @@ if (!function_exists('nc_footer_root_prefix')) {
     /**
      * Relative path back to the application root, so one footer works at any depth.
      * "/win/index.php" -> "", "/win/market/index.php" -> "../".
+     *
+     * Depth is measured from the URL in the browser's address bar
+     * ($_SERVER['REQUEST_URI']), because that is what the browser
+     * resolves relative links against — not the script that rendered
+     * the page. This matters for ErrorDocument pages (404.php, etc.):
+     * Apache keeps the original, non-existent URL in the address bar,
+     * so a prefix measured from SCRIPT_FILENAME would be too shallow
+     * and every relative link (Go home, Go back, Get help, footer)
+     * would resolve inside the broken path and loop on the error page.
      */
     function nc_footer_root_prefix(): string
     {
@@ -35,18 +44,43 @@ if (!function_exists('nc_footer_root_prefix')) {
         }
 
         $root = str_replace('\\', '/', (string) realpath(dirname(__DIR__)));
-        $script = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_FILENAME'] ?? ''));
 
-        if ($root !== '' && $script !== '' && str_starts_with($script, $root)) {
-            $relative = ltrim(substr($script, strlen($root)), '/');
-            $depth = substr_count($relative, '/');
-            $prefix = str_repeat('../', $depth);
-        } else {
-            $prefix = '';
+        // Measure from the browser URL first (correct for both
+        // normal pages and ErrorDocument subrequests).
+        $browserPath = (string) (parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?: '');
+        $browserPath = rawurldecode($browserPath);
+
+        $relative = '';
+        if ($browserPath !== '') {
+            $basePath = (string) parse_url((string) app_base_url(), PHP_URL_PATH);
+            $basePath = $basePath === '' ? '/' : $basePath;
+            if (str_starts_with($browserPath, $basePath)) {
+                $relative = substr($browserPath, strlen($basePath));
+            }
         }
+
+        // Fall back to the rendered script's depth (CLI, or a
+        // missing REQUEST_URI).
+        if ($relative === '') {
+            $script = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_FILENAME'] ?? ''));
+            if ($root !== '' && $script !== '' && str_starts_with($script, $root)) {
+                $relative = ltrim(substr($script, strlen($root)), '/');
+            }
+        }
+
+        $relative = ltrim($relative, '/');
+        $depth = $relative === '' ? 0 : substr_count($relative, '/');
+        $prefix = str_repeat('../', $depth);
 
         return $prefix;
     }
+}
+
+// Load misc.php for admin_feature_is_allowed() if not already loaded (e.g., by pages
+// that don't go through admin-layout.php like register-wizard.php, index.php may load it
+// via its own includes but public-footer is called before those sometimes).
+if (!function_exists('admin_feature_is_allowed')) {
+    require_once __DIR__ . '/layout/misc.php';
 }
 
 if (!function_exists('nc_footer_link')) {
@@ -145,17 +179,28 @@ if (!function_exists('public_footer_links')) {
     /**
      * The whole link set: two short columns. Kept small on purpose.
      *
+     * @param ?PDO $pdo Optional; if provided, Marketplace/Academy/Support links
+     *                  are hidden when their respective modules are toggled off.
      * @return array<string, array<string, string>>
      */
-    function public_footer_links(): array
+    function public_footer_links(?PDO $pdo = null): array
     {
+        $platform = [
+            'Verify a Certificate' => 'verify-certificate.php',
+        ];
+        // Conditionally add module-dependent links
+        if ($pdo !== null && admin_feature_is_allowed($pdo, 'marketplace')) {
+            $platform['Marketplace'] = 'market/';
+        }
+        if ($pdo !== null && admin_feature_is_allowed($pdo, 'training')) {
+            $platform['Academy'] = 'academy/';
+        }
+        if ($pdo !== null && admin_feature_is_allowed($pdo, 'support')) {
+            $platform['Support'] = 'support/';
+        }
+
         return [
-            'Platform' => [
-                'Marketplace' => 'market/',
-                'Academy' => 'academy/',
-                'Verify a Certificate' => 'verify-certificate.php',
-                'Support' => 'support/',
-            ],
+            'Platform' => $platform,
             'Company' => [
                 'About Us' => 'about.php',
                 'News & Updates' => 'news.php',
@@ -250,7 +295,11 @@ if (!function_exists('public_footer')) {
         $compact = (bool) ($options['compact'] ?? false);
         $ctx = public_footer_context();
         $office = $ctx['office'];
-        $links = public_footer_links();
+
+        // Get PDO for module-aware link filtering; fall back to null if unavailable.
+        $_footer_pdo = null;
+        try { $_footer_pdo = db(); } catch (Throwable) {}
+        $links = public_footer_links($_footer_pdo);
 
         $brand = '';
         if ($ctx['logo']) {

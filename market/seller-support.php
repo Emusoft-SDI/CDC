@@ -95,12 +95,12 @@ seller_header('Seller Support Desk', 'support', $user, $seller);
 <?php if ($error): ?><div class="alert err"><?= e($error) ?></div><?php endif; ?>
 
 <section class="sc-kpis">
-  <div class="sc-card sc-kpi"><span class="sc-icon"><i data-lucide="headphones"></i></span><div><small>All Tickets</small><b><?= count($tickets) ?></b><span>Seller support history</span></div></div>
-  <div class="sc-card sc-kpi"><span class="sc-icon orange"><i data-lucide="circle-alert"></i></span><div><small>Open Issues</small><b><?= (int) $openCount ?></b><span>Needs follow-up</span></div></div>
-  <div class="sc-card sc-kpi"><span class="sc-icon blue"><i data-lucide="package"></i></span><div><small>Products</small><b><?= count($ctx['listings']) ?></b><span>Store catalog</span></div></div>
-  <div class="sc-card sc-kpi"><span class="sc-icon gold"><i data-lucide="shopping-bag"></i></span><div><small>Orders</small><b><?= count($ctx['orders']) ?></b><span>Fulfillment queue</span></div></div>
-  <div class="sc-card sc-kpi"><span class="sc-icon"><i data-lucide="message-square"></i></span><div><small>Inquiries</small><b><?= count($ctx['inquiries']) ?></b><span>Buyer messages</span></div></div>
-  <div class="sc-card sc-kpi"><span class="sc-icon purple"><i data-lucide="shield-check"></i></span><div><small>Managed By</small><b>Admin</b><span>Super Admin oversight</span></div></div>
+  <div class="sc-card sc-kpi"><span class="sc-icon"><i class="fa-solid fa-headphones"></i></span><div><small>All Tickets</small><b><?= count($tickets) ?></b><span>Seller support history</span></div></div>
+  <div class="sc-card sc-kpi"><span class="sc-icon orange"><i class="fa-solid fa-circle-exclamation"></i></span><div><small>Open Issues</small><b><?= (int) $openCount ?></b><span>Needs follow-up</span></div></div>
+  <div class="sc-card sc-kpi"><span class="sc-icon blue"><i class="fa-solid fa-box"></i></span><div><small>Products</small><b><?= count($ctx['listings']) ?></b><span>Store catalog</span></div></div>
+  <div class="sc-card sc-kpi"><span class="sc-icon gold"><i class="fa-solid fa-bag-shopping"></i></span><div><small>Orders</small><b><?= count($ctx['orders']) ?></b><span>Fulfillment queue</span></div></div>
+  <div class="sc-card sc-kpi"><span class="sc-icon"><i class="fa-solid fa-comment"></i></span><div><small>Inquiries</small><b><?= count($ctx['inquiries']) ?></b><span>Buyer messages</span></div></div>
+  <div class="sc-card sc-kpi"><span class="sc-icon purple"><i class="fa-solid fa-shield-halved"></i></span><div><small>Managed By</small><b>Admin</b><span>Super Admin oversight</span></div></div>
 </section>
 
 <div class="sc-grid">
@@ -123,7 +123,7 @@ seller_header('Seller Support Desk', 'support', $user, $seller);
     <div class="sc-panel-head"><h2>Seller Help Guide</h2><a class="sc-link" href="../support/index.php?category=marketplace">Public Help</a></div>
     <div class="sc-list">
       <?php foreach ($guide as $item): ?>
-        <div class="sc-row"><span class="sc-icon"><i data-lucide="life-buoy"></i></span><div><strong><?= e($item[0]) ?></strong><br><small class="muted"><?= e($item[1]) ?></small></div><span class="badge"><?= e($categories[$item[2]]['label'] ?? 'Support') ?></span></div>
+        <div class="sc-row"><span class="sc-icon"><i class="fa-solid fa-life-ring"></i></span><div><strong><?= e($item[0]) ?></strong><br><small class="muted"><?= e($item[1]) ?></small></div><span class="badge"><?= e($categories[$item[2]]['label'] ?? 'Support') ?></span></div>
       <?php endforeach; ?>
     </div>
   </section>
@@ -132,7 +132,7 @@ seller_header('Seller Support Desk', 'support', $user, $seller);
     <div class="sc-panel-head"><h2>My Tickets</h2><span class="badge"><?= count($tickets) ?></span></div>
     <div class="sc-list">
       <?php foreach ($tickets as $ticket): ?>
-        <a class="sc-row" href="seller-support.php?ticket=<?= e((string) $ticket['ticket_ref']) ?>"><span class="sc-icon"><i data-lucide="ticket"></i></span><div><strong><?= e((string) $ticket['ticket_ref']) ?></strong><br><small class="muted"><?= e((string) $ticket['subject']) ?></small></div><span class="badge"><?= e($statuses[(string) $ticket['status']] ?? (string) $ticket['status']) ?></span></a>
+        <a class="sc-row" href="seller-support.php?ticket=<?= e((string) $ticket['ticket_ref']) ?>"><span class="sc-icon"><i class="fa-solid fa-ticket"></i></span><div><strong><?= e((string) $ticket['ticket_ref']) ?></strong><br><small class="muted"><?= e((string) $ticket['subject']) ?></small></div><span class="badge"><?= e($statuses[(string) $ticket['status']] ?? (string) $ticket['status']) ?></span></a>
       <?php endforeach; ?>
       <?php if (!$tickets): ?><div class="empty">No seller support tickets yet.</div><?php endif; ?>
     </div>
@@ -144,7 +144,7 @@ seller_header('Seller Support Desk', 'support', $user, $seller);
       <p><strong><?= e((string) $selected['ticket_ref']) ?></strong> - <?= e((string) $selected['subject']) ?><br><small class="muted"><?= e($categories[(string) $selected['category']]['label'] ?? (string) $selected['category']) ?> / <?= e($statuses[(string) $selected['status']] ?? (string) $selected['status']) ?></small></p>
       <div class="sc-list">
         <?php foreach ($conversation as $msg): ?>
-          <div class="sc-row"><span class="sc-icon"><i data-lucide="message-circle"></i></span><div><strong><?= e((string) $msg['author_name']) ?></strong> <small class="muted"><?= e(support_role_label((string) $msg['author_role'])) ?></small><br><?= nl2br(e((string) $msg['message'])) ?></div><small class="muted"><?= e(date('M j, g:i A', strtotime((string) $msg['created_at']))) ?></small></div>
+          <div class="sc-row"><span class="sc-icon"><i class="fa-solid fa-comment-dots"></i></span><div><strong><?= e((string) $msg['author_name']) ?></strong> <small class="muted"><?= e(support_role_label((string) $msg['author_role'])) ?></small><br><?= nl2br(e((string) $msg['message'])) ?></div><small class="muted"><?= e(date('M j, g:i A', strtotime((string) $msg['created_at']))) ?></small></div>
         <?php endforeach; ?>
       </div>
       <form method="post" class="sc-form" style="margin-top:14px">

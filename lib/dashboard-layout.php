@@ -217,7 +217,7 @@ function dashboard_page_start(string $title, array $options = []): void
     if (session_status() === PHP_SESSION_ACTIVE) {
         dashboard_redirect_learner_only($pdo);
     }
-    if (session_status() === PHP_SESSION_ACTIVE && (!isset($options['user_name']) || !array_key_exists('unread', $options) || !array_key_exists('profile_picture', $options) || !array_key_exists('notices', $options) || !array_key_exists('location', $options))) {
+    if (session_status() === PHP_SESSION_ACTIVE && (!isset($options['user_name']) || !array_key_exists('unread', $options) || !array_key_exists('profile_picture', $options) || !array_key_exists('notices', $options) || !array_key_exists('location', $options) || !array_key_exists('app_ref', $options))) {
         try {
             $current = current_user($pdo);
             if ($current && !isset($options['user_name'])) {
@@ -234,9 +234,11 @@ function dashboard_page_start(string $title, array $options = []): void
             }
             if ($current && !array_key_exists('app_ref', $options)) {
                 $options['app_ref'] = null;
-                if (!empty($current['application_id']) && app_table_exists($pdo, 'applications')) {
-                    $appStmt = $pdo->prepare("SELECT app_ref FROM applications WHERE id = ?");
-                    $appStmt->execute([(int) $current['application_id']]);
+                // current_user() does not select application_id, so resolve the
+                // reference through the users join instead.
+                if (app_table_exists($pdo, 'applications')) {
+                    $appStmt = $pdo->prepare("SELECT a.app_ref FROM applications a JOIN users u ON u.application_id = a.id WHERE u.id = ? LIMIT 1");
+                    $appStmt->execute([(int) $current['id']]);
                     $fetchedRef = $appStmt->fetchColumn();
                     if ($fetchedRef) {
                         $options['app_ref'] = (string) $fetchedRef;
@@ -307,8 +309,7 @@ function dashboard_page_start(string $title, array $options = []): void
     if (empty($options['skip_feature_gate'])) {
         try {
             if (!admin_feature_is_allowed($pdo, dashboard_feature_for_script((string) $active))) {
-                http_response_code(403);
-                exit('Forbidden: this feature is not enabled for your role.');
+                app_render_error_page(403, 'This feature is not enabled for your role.');
             }
         } catch (Throwable $e) {
             error_log('Dashboard feature gate error: ' . $e->getMessage());
@@ -471,6 +472,10 @@ function dashboard_page_start(string $title, array $options = []): void
     <div class="sb-user-id">ID: <?= e($appRef ? (string) $appRef : 'Not linked') ?></div>
     <div class="sb-online">Online</div>
   </div>
+  <form action="search-results.php" method="get" style="margin:0 12px 8px 12px;display:flex;align-items:center;background:rgba(255,255,255,.1);border-radius:var(--radius-sm);border:1px solid rgba(255,255,255,.15)">
+    <span style="padding:0 10px;color:rgba(255,255,255,.5)"><i class="fas fa-search"></i></span>
+    <input name="q" type="text" placeholder="Search..." aria-label="Search" style="background:transparent;border:0;color:#fff;padding:10px 12px;width:100%;font:inherit;font-size:13px;outline:none;flex:1">
+  </form>
   <nav class="sb-nav" aria-label="Grower navigation">
     <?php foreach ($navGroups as $group): ?>
       <div class="sb-nav-label"><?= e($group['label']) ?></div>
@@ -488,7 +493,7 @@ function dashboard_page_start(string $title, array $options = []): void
     <h4>Grow more. Earn more.</h4>
     <p>Use farm operations, Academy, marketplace, wallet, and support as your farm grows.</p>
     <a class="btn-outline-sb" href="../academy/index.php?screen=catalog">Explore Programs</a>
-    <a class="btn-outline-sb" href="logout.php" style="margin-top:8px;">Logout</a>
+    <a class="btn-outline-sb" href="logout.php?_csrf=<?= e(csrf_token()) ?>" style="margin-top:8px;">Logout</a>
   </div>
 </aside>
 <header class="topbar">
@@ -514,13 +519,14 @@ function dashboard_page_start(string $title, array $options = []): void
         <a class="tb-drop-link" href="inbox.php"><i class="fas fa-envelope"></i> Messages</a>
         <a class="tb-drop-link" href="profile.php"><i class="fas fa-user-edit"></i> Edit Profile</a>
         <a class="tb-drop-link" href="account-settings.php"><i class="fas fa-cog"></i> Account Settings</a><?php foreach ((array)($options['dashboard_links'] ?? []) as $dash): ?><a class="tb-drop-link" href="<?= e((string) $dash['href']) ?>"><i class="fas fa-random"></i> <?= e((string) $dash['label']) ?></a><?php endforeach; ?>
-        <a class="tb-drop-link danger" href="logout.php"><i class="fas fa-sign-out-alt"></i> Logout</a>
+        <a class="tb-drop-link danger" href="logout.php?_csrf=<?= e(csrf_token()) ?>"><i class="fas fa-sign-out-alt"></i> Logout</a>
       </div>
     </div>
   </div>
 </header>
 <main class="main">
   <div class="dash-main">
+    <?= page_breadcrumbs(auto_breadcrumbs(dashboard_nav_groups(), $active, 'Grower Hub', 'index.php'), 'NATCODEV', '../index.php') ?>
     <?php if ($showTitle): ?>
       <section class="page-title">
         <div>

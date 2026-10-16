@@ -2,6 +2,9 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config.php';
+// The seed and migration paths enforce the seller plan listing limit,
+// which lives in the revenue module.
+require_once __DIR__ . '/platform-revenue.php';
 
 function marketplace_slug(string $value): string
 {
@@ -188,7 +191,10 @@ function marketplace_ensure_schema(PDO $pdo): void
     ");
     app_ensure_primary_auto_increment($pdo, 'marketplace_sellers');
     app_add_column_if_missing($pdo, 'marketplace_sellers', 'logo_path', "VARCHAR(255) NULL");
+    app_add_column_if_missing($pdo, 'marketplace_sellers', 'cooperative_id', "INT NULL");
+    app_add_column_if_missing($pdo, 'marketplace_sellers', 'linked_at', "DATETIME NULL");
     app_add_column_if_missing($pdo, 'marketplace_sellers', 'deleted_at', "DATETIME NULL");
+    app_add_index_if_missing($pdo, 'marketplace_sellers', 'idx_mp_sellers_coop', 'cooperative_id');
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS marketplace_listings (
@@ -436,6 +442,13 @@ function marketplace_migrate_legacy_items(PDO $pdo): void
         $type = in_array((string) ($item['category'] ?? ''), ['service', 'training'], true) ? 'service' : (((string) ($item['category'] ?? '') === 'equipment') ? 'equipment' : 'product');
         $categoryId = marketplace_category_id_for_type($pdo, $type);
         $title = (string) ($item['title'] ?? 'Marketplace Item');
+        // Shared listing-limit guard. Platform storefronts are exempt, so this
+        // only bites if a migration is ever pointed at a subscriber seller.
+        $limitError = seller_listing_limit_error($pdo, (int) $sellerId);
+        if ($limitError !== '') {
+            error_log('Listing migration stopped for seller #' . $sellerId . ': ' . $limitError);
+            break;
+        }
         $insert->execute([
             $sellerId,
             $categoryId,
@@ -566,6 +579,13 @@ function marketplace_seed_business_listings(PDO $pdo): void
             $exists->execute([$slug]);
             if ($exists->fetch()) {
                 continue;
+            }
+            // Shared listing-limit guard. Platform storefronts are exempt,
+            // so seeding is unaffected.
+            $limitError = seller_listing_limit_error($pdo, (int) $sellerId);
+            if ($limitError !== '') {
+                error_log('Seeded listings stopped for seller #' . $sellerId . ': ' . $limitError);
+                break 2;
             }
             $insert->execute([
                 $sellerId,

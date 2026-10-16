@@ -56,8 +56,7 @@ if (isset($_GET['download'])) {
     $stmt->execute([$backupId]);
     $backup = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$backup) {
-        http_response_code(404);
-        exit('Backup was not found.');
+        app_render_error_page(404, 'This backup could not be found.');
     }
 
     $bundleRelative = str_replace('\\', '/', dirname((string) $backup['storage_path']));
@@ -75,8 +74,7 @@ if (isset($_GET['download'])) {
 
     $downloadPath = $targetRelative !== '' ? backup_private_file_path($targetRelative, $absoluteRoot) : null;
     if (!$downloadPath) {
-        http_response_code(404);
-        exit('Backup artifact was not found.');
+        app_render_error_page(404, 'This backup artifact could not be found.');
     }
 
     header('Content-Type: application/octet-stream');
@@ -94,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $action = (string) ($_POST['action'] ?? '');
             if ($action === 'save_backup_settings') {
-                foreach (['dr_backup_storage_path', 'dr_google_drive_path', 'dr_external_drive_path', 'dr_git_remote', 'dr_backup_frequency', 'dr_backup_retention_days', 'dr_recovery_contact', 'dr_auto_backup_interval_seconds', 'dr_auto_backup_activity_window_seconds', 'dr_auto_backup_email_to', 'dr_auto_backup_critical_tables'] as $key) {
+                foreach (['dr_backup_storage_path', 'dr_google_drive_path', 'dr_external_drive_path', 'dr_git_remote', 'dr_backup_frequency', 'dr_backup_retention_days', 'dr_recovery_contact', 'dr_auto_backup_interval_seconds', 'dr_auto_backup_activity_window_seconds', 'dr_auto_backup_email_to', 'dr_auto_backup_critical_tables', 'dr_encryption_enabled', 'dr_slack_webhook', 'dr_teams_webhook', 'dr_telegram_chat_id', 'dr_telegram_bot_token', 'dr_s3_endpoint', 'dr_s3_region', 'dr_s3_access_key', 'dr_s3_secret_key', 'dr_s3_bucket', 'dr_s3_autobackup', 'dr_binlog_relay_enabled', 'dr_binlog_storage_path', 'dr_sync_enabled', 'dr_gcs_key_file', 'dr_gcs_bucket', 'dr_gcs_object_prefix', 'dr_ftp_host', 'dr_ftp_port', 'dr_ftp_username', 'dr_ftp_password', 'dr_ftp_remote_path', 'dr_ftp_protocol', 'dr_ftp_ssh_key', 'dr_email_backup_recipient', 'dr_email_backup_pass_email', 'dr_email_backup_manual_pass'] as $key) {
                     dr_save_setting($pdo, $key, trim((string) ($_POST[$key] ?? '')));
                 }
                 dr_save_setting($pdo, 'dr_auto_backup_enabled', !empty($_POST['dr_auto_backup_enabled']) ? '1' : '0');
@@ -107,6 +105,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'include_site' => !empty($_POST['include_site']),
                     'copy_google_drive' => !empty($_POST['copy_google_drive']),
                     'copy_external_drive' => !empty($_POST['copy_external_drive']),
+                    'upload_s3' => !empty($_POST['upload_s3']),
+                    'upload_gcs' => !empty($_POST['upload_gcs']),
+                    'upload_ftp' => !empty($_POST['upload_ftp']),
+                    'email_backup' => !empty($_POST['email_backup']),
+                    's3_bucket' => (string) ($settings['dr_s3_bucket'] ?? ''),
                 ]);
                 $message = 'Backup bundle created: ' . $bundle['backup_ref'];
             } elseif ($action === 'run_integrity_backup') {
@@ -114,6 +117,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $message = ($bundle['status'] ?? '') === 'completed'
                     ? 'Data-integrity SQL backup created: ' . ($bundle['backup_ref'] ?? '')
                     : 'Data-integrity backup skipped: ' . ($bundle['reason'] ?? 'not due');
+            } elseif ($action === 'run_restore_drill') {
+                $drill = dr_run_restore_drill($pdo, (int) ($user['id'] ?? 0));
+                if (($drill['status'] ?? '') === 'passed') {
+                    $message = "Restore drill {$drill['drill_ref']} passed.";
+                } else {
+                    $error = "Restore drill {$drill['drill_ref']} did not pass: " . ($drill['output'] ?? $drill['error'] ?? 'unknown');
+                }
+            } elseif ($action === 'process_sync_events') {
+                $count = dr_process_sync_events($pdo);
+                $message = "{$count} sync event(s) processed.";
             }
         } catch (Throwable $e) {
             $error = $e->getMessage();
@@ -123,9 +136,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $settings = dr_settings($pdo);
 $backups = app_table_exists($pdo, 'dr_backups') ? $pdo->query("SELECT * FROM dr_backups ORDER BY created_at DESC, id DESC LIMIT 25")->fetchAll(PDO::FETCH_ASSOC) : [];
+$drills = app_table_exists($pdo, 'dr_restore_drills') ? $pdo->query("SELECT * FROM dr_restore_drills ORDER BY created_at DESC, id DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC) : [];
 $zipReady = class_exists('ZipArchive');
 $gitHead = trim((string) @shell_exec('git rev-parse --short HEAD 2>NUL'));
 $gitBranch = trim((string) @shell_exec('git branch --show-current 2>NUL'));
+
+// Check binlog relay status
+$binlogPidFile = sys_get_temp_dir() . '/natcodev_binlog_relay.pid';
+$binlogRunning = is_file($binlogPidFile) && @posix_kill((int) trim(file_get_contents($binlogPidFile)), 0) ?? false;
+$drBackupPath = dirname(__DIR__) . '/win-private/binlogs';
+$relayChunks = is_dir($drBackupPath) ? count(glob($drBackupPath . '*.relay.gz') ?: []) : 0;
 
 admin_page_start('Backup & Disaster Recovery', [
     'active' => 'backups.php',
@@ -151,6 +171,8 @@ admin_page_start('Backup & Disaster Recovery', [
     ['Site Zip', $zipReady ? 'On' : 'Off', 'Archive capability', 'fa-file-zipper', $zipReady ? 'blue' : 'red'],
     ['Frequency', (string) ($settings['dr_backup_frequency'] ?? 'daily'), 'Schedule', 'fa-clock', 'orange'],
     ['Retention', (string) ($settings['dr_backup_retention_days'] ?? '30') . 'd', 'Days kept', 'fa-calendar-days', 'purple'],
+    ['Binlog Relay', $binlogRunning ? 'Running' : 'Stopped', ($relayChunks ?: 0) . ' chunk(s)', 'fa-database', $binlogRunning ? '' : 'bad'],
+    ['Last Restore Drill', (string) ($settings['dr_last_restore_test_at'] ? date('M j, Y', strtotime((string) $settings['dr_last_restore_test_at'])) : 'Never'), 'Monthly smoke test', 'fa-vial', str_contains((string) ($settings['dr_last_restore_result'] ?? ''), '"passed"') ? '' : 'warn'],
 ]) ?>
 
 <details class="collapse-card" id="create"<?= $error !== '' ? ' open' : '' ?>>
@@ -168,6 +190,10 @@ admin_page_start('Backup & Disaster Recovery', [
       <label class="check"><input type="checkbox" name="include_site" value="1" checked> Include full site archive <?= $zipReady ? '' : '(Zip extension unavailable)' ?></label>
       <label class="check"><input type="checkbox" name="copy_google_drive" value="1"> Copy to Google Drive folder</label>
       <label class="check"><input type="checkbox" name="copy_external_drive" value="1"> Copy to external drive folder</label>
+      <label class="check"><input type="checkbox" name="upload_s3" value="1" <?= empty($settings['dr_s3_endpoint']) || empty($settings['dr_s3_access_key']) ? 'disabled title="Configure S3 credentials below"' : '' ?>> Upload encrypted bundle to S3-compatible cloud (AWS S3 / Backblaze B2 / DO Spaces)</label>
+      <label class="check"><input type="checkbox" name="upload_gcs" value="1" <?= empty($settings['dr_gcs_key_file']) || empty($settings['dr_gcs_bucket']) ? 'disabled title="Configure Google Cloud Storage credentials below"' : '' ?>> Upload encrypted bundle to Google Cloud Storage</label>
+      <label class="check"><input type="checkbox" name="upload_ftp" value="1" <?= empty($settings['dr_ftp_host']) || empty($settings['dr_ftp_username']) ? 'disabled title="Configure FTP/SFTP credentials below"' : '' ?>> Upload encrypted bundle to FTP / SFTP server</label>
+      <label class="check"><input type="checkbox" name="email_backup" value="1" <?= ($settings['dr_email_backup_recipient'] ?? '') === '' || ($settings['dr_email_backup_pass_email'] ?? '') === '' ? 'disabled title="Configure email backup recipients below"' : '' ?>> Send encrypted backup as password-protected email attachment</label>
       <div class="actions"><button type="submit"><i class="fas fa-box-archive"></i> Create Backup Now</button></div>
     </form>
   </div>
@@ -180,6 +206,7 @@ admin_page_start('Backup & Disaster Recovery', [
     <span class="caret"><i class="fas fa-chevron-down"></i></span>
   </summary>
   <div class="collapse-body">
+    <!-- Destinations -->
     <h3 style="margin:0 0 10px">Backup Destinations</h3>
     <form method="post">
       <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
@@ -196,6 +223,121 @@ admin_page_start('Backup & Disaster Recovery', [
       <div class="actions"><button type="submit"><i class="fas fa-floppy-disk"></i> Save Backup Settings</button></div>
     </form>
 
+    <!-- Encryption -->
+    <h3 style="margin:18px 0 6px">Encryption</h3>
+    <p class="muted">Encrypts backup bundles with AES-256-CBC before storing or uploading. The passphrase is stored in settings — lose it and you lose access to your backups.</p>
+    <form method="post">
+      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+      <input type="hidden" name="action" value="save_backup_settings">
+      <label class="check"><input type="checkbox" name="dr_encryption_enabled" value="1" <?= ($settings['dr_encryption_enabled'] ?? '0') === '1' ? 'checked' : '' ?>> Enable AES-256-CBC bundle encryption</label>
+      <p class="meta">The encryption passphrase is auto-generated on first use and stored securely in settings.</p>
+      <div class="actions"><button type="submit">Save Encryption Settings</button></div>
+    </form>
+
+    <!-- Webhooks -->
+    <h3 style="margin:18px 0 6px">Webhook Notifications</h3>
+    <p class="muted">Post-backup notifications sent via Slack, Microsoft Teams, or Telegram when a backup completes.</p>
+    <form method="post">
+      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+      <input type="hidden" name="action" value="save_backup_settings">
+      <div class="field-grid">
+        <label class="field"><span>Slack Incoming Webhook URL</span><input name="dr_slack_webhook" value="<?= e((string) ($settings['dr_slack_webhook'] ?? '')) ?>" placeholder="https://hooks.slack.com/services/..."></label>
+        <label class="field"><span>Teams Incoming Webhook URL</span><input name="dr_teams_webhook" value="<?= e((string) ($settings['dr_teams_webhook'] ?? '')) ?>" placeholder="https://outlook.office.com/webhook/..."></label>
+        <label class="field"><span>Telegram Chat ID</span><input name="dr_telegram_chat_id" value="<?= e((string) ($settings['dr_telegram_chat_id'] ?? '')) ?>" placeholder="-100xxxxxxxx"></label>
+        <label class="field"><span>Telegram Bot Token</span><input name="dr_telegram_bot_token" value="<?= e((string) ($settings['dr_telegram_bot_token'] ?? '')) ?>" placeholder="123456789:ABCdef..." ></label>
+      </div>
+      <div class="actions"><button type="submit">Save Notification Settings</button></div>
+    </form>
+
+    <!-- S3 -->
+    <h3 style="margin:18px 0 6px">S3-Compatible Cloud Storage</h3>
+    <p class="muted">Upload encrypted backup bundles to AWS S3, Backblaze B2, DigitalOcean Spaces, Wasabi, or any S3-compatible endpoint.</p>
+    <form method="post">
+      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+      <input type="hidden" name="action" value="save_backup_settings">
+      <div class="field-grid">
+        <label class="field"><span>S3 Endpoint URL</span><input name="dr_s3_endpoint" value="<?= e((string) ($settings['dr_s3_endpoint'] ?? '')) ?>" placeholder="https://s3.amazonaws.com or https://nyc3.digitaloceanspaces.com"></label>
+        <label class="field"><span>Region</span><input name="dr_s3_region" inputmode="text" value="<?= e((string) ($settings['dr_s3_region'] ?? 'us-east-1')) ?>"></label>
+        <label class="field"><span>Access Key</span><input name="dr_s3_access_key" value="<?= e((string) ($settings['dr_s3_access_key'] ?? '')) ?>"></label>
+        <label class="field"><span>Secret Key</span><input name="dr_s3_secret_key" type="password" value="<?= e((string) ($settings['dr_s3_secret_key'] ?? '')) ?>"></label>
+        <label class="field"><span>Bucket Name</span><input name="dr_s3_bucket" value="<?= e((string) ($settings['dr_s3_bucket'] ?? '')) ?>"></label>
+        <label class="field"><span>Auto-backup to S3</span><input type="checkbox" name="dr_s3_autobackup" value="1" <?= ($settings['dr_s3_autobackup'] ?? '0') === '1' ? 'checked' : '' ?>></label>
+      </div>
+      <div class="actions"><button type="submit">Save S3 Credentials</button></div>
+    </form>
+
+    <!-- Binlog Relay -->
+    <h3 style="margin:18px 0 6px">Binary Log Relay (PITR)</h3>
+    <p class="muted">Continuously polls MySQL binary log for point-in-time recovery. Run as a daemon via systemd or Windows Task Scheduler.</p>
+    <form method="post">
+      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+      <input type="hidden" name="action" value="save_backup_settings">
+      <label class="check"><input type="checkbox" name="dr_binlog_relay_enabled" value="1" <?= ($settings['dr_binlog_relay_enabled'] ?? '0') === '1' ? 'checked' : '' ?>> Relay enabled</label>
+      <div class="field-grid">
+        <label class="field"><span>Relay storage path</span><input name="dr_binlog_storage_path" value="<?= e((string) ($settings['dr_binlog_storage_path'] ?? '../win-private/binlogs')) ?>"></label>
+        <label class="field"><span>Status</span><?= $binlogRunning ? '<span style="color:#0f5132;font-weight:800">● Running</span>' : '<span style="color:#9f1d1d;font-weight:800">○ Stopped</span>' ?> · <?= $relayChunks ?> chunk(s)</label>
+      </div>
+      <div class="actions"><button type="submit">Save Relay Settings</button></div>
+    </form>
+    <div class="code-line">Start: php binlog-relay.php &nbsp;|&nbsp; Stop: php binlog-relay.php --stop &nbsp;|&nbsp; Status: php binlog-relay.php --status</div>
+
+    <!-- Google Cloud Storage -->
+    <h3 style="margin:18px 0 6px">Google Cloud Storage</h3>
+    <p class="muted">Upload encrypted backup bundles to Google Cloud Storage using a Service Account JSON key file.</p>
+    <form method="post">
+      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+      <input type="hidden" name="action" value="save_backup_settings">
+      <div class="field-grid">
+        <label class="field"><span>SA JSON Key File Path</span><input name="dr_gcs_key_file" value="<?= e((string) ($settings['dr_gcs_key_file'] ?? '')) ?>" placeholder="C:\path\to\sa-key.json"></label>
+        <label class="field"><span>Bucket Name</span><input name="dr_gcs_bucket" value="<?= e((string) ($settings['dr_gcs_bucket'] ?? '')) ?>" placeholder="my-natcodev-backups"></label>
+        <label class="field"><span>Object Prefix</span><input name="dr_gcs_object_prefix" value="<?= e((string) ($settings['dr_gcs_object_prefix'] ?? 'backups/')) ?>"></label>
+        <label class="field"><span>Auto-upload on integrity backup</span><input type="checkbox" name="dr_gcs_autobackup" value="1" <?= ($settings['dr_gcs_autobackup'] ?? '0') === '1' ? 'checked' : '' ?>></label>
+      </div>
+      <div class="actions"><button type="submit">Save GCS Credentials</button></div>
+    </form>
+
+    <!-- FTP / SFTP -->
+    <h3 style="margin:18px 0 6px">FTP / SFTP Server</h3>
+    <p class="muted">Upload encrypted backups to any FTP, FTPS, or SFTP server. Uses cURL internally — no PHP extension required.</p>
+    <form method="post">
+      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+      <input type="hidden" name="action" value="save_backup_settings">
+      <div class="field-grid">
+        <label class="field"><span>Host</span><input name="dr_ftp_host" value="<?= e((string) ($settings['dr_ftp_host'] ?? '')) ?>" placeholder="sftp.yoursite.com"></label>
+        <label class="field"><span>Protocol</span>
+          <select name="dr_ftp_protocol">
+            <option <?= ($settings['dr_ftp_protocol'] ?? '') === 'ftp' ? 'selected' : '' ?>>ftp</option>
+            <option <?= ($settings['dr_ftp_protocol'] ?? '') === 'ftps' ? 'selected' : '' ?>>ftps</option>
+            <option <?= ($settings['dr_ftp_protocol'] ?? '') === 'sftp' ? 'selected' : '' ?>>sftp</option>
+          </select>
+        </label>
+        <label class="field"><span>Port</span><input name="dr_ftp_port" inputmode="numeric" value="<?= e((string) ($settings['dr_ftp_port'] ?: '')) ?>" placeholder="21, 22, or 990"></label>
+        <label class="field"><span>Username</span><input name="dr_ftp_username" value="<?= e((string) ($settings['dr_ftp_username'] ?? '')) ?>"></label>
+        <label class="field"><span>Password</span><input name="dr_ftp_password" type="password" value="<?= e((string) ($settings['dr_ftp_password'] ?? '')) ?>"></label>
+        <label class="field"><span>SFTP SSH Private Key</span><input name="dr_ftp_ssh_key" value="<?= e((string) ($settings['dr_ftp_ssh_key'] ?? '')) ?>" placeholder="C:\path\to\id_rsa (optional)" ></label>
+        <label class="field"><span>Remote Path</span><input name="dr_ftp_remote_path" value="<?= e((string) ($settings['dr_ftp_remote_path'] ?? '/')) ?>" placeholder="/backups/" ></label>
+        <label class="field"><span>Auto-upload on integrity backup</span><input type="checkbox" name="dr_ftp_autobackup" value="1" <?= ($settings['dr_ftp_autobackup'] ?? '0') === '1' ? 'checked' : '' ?>></label>
+      </div>
+      <div class="actions"><button type="submit">Save FTP/SFTP Settings</button></div>
+    </form>
+
+    <!-- Encrypted Email -->
+    <h3 style="margin:18px 0 6px">Encrypted Email Attachment</h3>
+    <p class="muted">Send the backup as an AES-256-CBC encrypted file via email. The decryption password is sent to a SEPARATE email address for security.</p>
+    <form method="post">
+      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+      <input type="hidden" name="action" value="save_backup_settings">
+      <div class="field-grid">
+        <label class="field"><span>Backup Recipient Email</span><input name="dr_email_backup_recipient" value="<?= e((string) ($settings['dr_email_backup_recipient'] ?? '')) ?>" placeholder="admin@yourcompany.com"></label>
+        <label class="field"><span>Password Delivery Email</span><input name="dr_email_backup_pass_email" value="<?= e((string) ($settings['dr_email_backup_pass_email'] ?? '')) ?>" placeholder="personal-phone@gmail.com (different from above)"></label>
+        <label class="field"><span>Fixed Passphrase (optional)</span><input name="dr_email_backup_manual_pass" value="<?= e((string) ($settings['dr_email_backup_manual_pass'] ?? '')) ?>" placeholder="Leave blank for auto-generated"></label>
+        <label class="field"><span>Auto-send on integrity backup</span><input type="checkbox" name="dr_email_autobackup" value="1" <?= ($settings['dr_email_autobackup'] ?? '0') === '1' ? 'checked' : '' ?>></label>
+      </div>
+      <p class="meta">The encrypted .enc file is sent first; the decryption password arrives moments later on the second email. This two-email approach ensures neither alone can restore your data.</p>
+      <div class="actions"><button type="submit">Save Email Settings</button></div>
+    </form>
+
+    <!-- Integrity Policy -->
     <h3 style="margin:18px 0 6px">Data Integrity Auto Backup</h3>
     <p class="muted">Creates SQL-only backups when critical activity is detected. A scheduler may call the secured runner every 30 seconds or hourly; the policy decides whether work is actually needed.</p>
     <form method="post">
@@ -239,6 +381,48 @@ admin_page_start('Backup & Disaster Recovery', [
   <p class="muted">Git is for code history, not database secrets. Use Git for committed code, then keep SQL/site bundles in local, Google Drive, and external-drive storage.</p>
   <div class="code-line">Branch: <?= e($gitBranch ?: 'unknown') ?> / HEAD: <?= e($gitHead ?: 'unknown') ?></div>
   <div class="code-line">Recommended: git status -> git add reviewed files -> git commit -m "Backup checkpoint" -> git push</div>
+</section>
+
+<!-- Restore Drills -->
+<section class="panel" style="margin-bottom:20px">
+  <div class="user-toolbar">
+    <h2 style="margin:0">Restore Drills &amp; Actions</h2>
+    <div style="display:flex;gap:6px;">
+      <form method="post">
+        <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+        <input type="hidden" name="action" value="run_restore_drill">
+        <button type="submit"><i class="fas fa-vial"></i> Run Restore Drill Now</button>
+      </form>
+      <form method="post">
+        <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+        <input type="hidden" name="action" value="process_sync_events">
+        <button type="submit"><i class="fas fa-sync"></i> Process Sync Events</button>
+      </form>
+    </div>
+  </div>
+  <p class="muted">Automatically tests that the latest backup can be restored by importing SQL into your live database and running smoke checks. Results recorded below.</p>
+  <?php if ($drills): ?>
+    <table>
+      <thead><tr><th>Ref</th><th>Status</th><th>Source</th><th>DB OK</th><th>Login OK</th><th>Health OK</th><th>Date</th></tr></thead>
+      <tbody>
+        <?php foreach ($drills as $drill):
+          $drillTone = (string) $drill['status'] === 'passed' ? '' : ((string) $drill['status'] === 'warning' ? 'pending' : 'danger');
+        ?>
+        <tr>
+          <td><strong><?= e((string) $drill['drill_ref']) ?></strong></td>
+          <td><span class="badge <?= e($drillTone) ?>"><?= e((string) $drill['status']) ?></span></td>
+          <td><?= e((string) $drill['source']) ?></td>
+          <td><?= (int) $drill['db_count_ok'] === 1 ? '<span style="color:#0f5132">✓</span>' : '<span style="color:#9f1d1d">✗</span>' ?></td>
+          <td><?= (int) $drill['smoke_login_ok'] === 1 ? '<span style="color:#0f5132">✓</span>' : '<span style="color:#9f1d1d">✗</span>' ?></td>
+          <td><?= (int) $drill['smoke_health_ok'] === 1 ? '<span style="color:#0f5132">✓</span>' : '<span style="color:#9f1d1d">✗</span>' ?></td>
+          <td><?= e(date('M j, Y g:i A', strtotime((string) $drill['created_at']))) ?></td>
+        </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  <?php else: ?>
+    <p class="muted">No restore drills have been run yet.</p>
+  <?php endif; ?>
 </section>
 
 <section class="panel" style="margin-bottom:20px">

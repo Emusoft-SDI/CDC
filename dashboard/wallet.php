@@ -3,6 +3,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/_user_auth.php';
 require_once __DIR__ . '/../lib/dashboard-layout.php';
 require_once __DIR__ . '/../lib/monnify.php';
+require_once __DIR__ . '/../lib/paystack.php';
+require_once __DIR__ . '/../lib/gateway-manager.php';
 $pdo = db();
 wallet_ensure_schema($pdo);
 $user = current_user($pdo);
@@ -15,9 +17,14 @@ $walletNotice = '';
 $walletError = '';
 $monnifyConfigured = monnify_is_configured();
 $monnifySetupMessage = $monnifyConfigured ? '' : monnify_configuration_error();
+$paystackConfigured = paystack_is_configured();
+$hasConfiguredGateway = !empty(gateway_get_configured_gateways());
+$verifyWalletFunding = function (string $ref) use ($pdo, $userId): array {
+    return gateway_verify_deposit($pdo, $userId, $ref);
+};
 $callbackReference = (string) ($_GET['paymentReference'] ?? $_GET['reference'] ?? '');
-if ($monnifyConfigured && $callbackReference !== '') {
-    $verification = monnify_verify_wallet_funding($pdo, $userId, $callbackReference);
+if ($hasConfiguredGateway && $callbackReference !== '') {
+    $verification = $verifyWalletFunding($callbackReference);
     if (($verification['status'] ?? '') === 'completed') {
         $walletNotice = 'Payment confirmed. Wallet credited.';
         $wallet = wallet_get_or_create($pdo, $userId);
@@ -27,14 +34,14 @@ if ($monnifyConfigured && $callbackReference !== '') {
         $walletError = (string) ($verification['error'] ?? 'Unable to verify payment yet.');
     }
 }
-if ($monnifyConfigured && isset($_POST['check_payment_status']) && verify_csrf($_POST['_csrf'] ?? null)) {
+if ($hasConfiguredGateway && isset($_POST['check_payment_status']) && verify_csrf($_POST['_csrf'] ?? null)) {
     $checkedReference = (string) ($_POST['reference'] ?? '');
-    $verification = monnify_verify_wallet_funding($pdo, $userId, $checkedReference);
+    $verification = $verifyWalletFunding($checkedReference);
     if (($verification['status'] ?? '') === 'completed') {
         $walletNotice = 'Payment confirmed. Wallet credited for ' . $checkedReference . '.';
         $wallet = wallet_get_or_create($pdo, $userId);
     } elseif (($verification['success'] ?? false) && empty($verification['credited'])) {
-        $walletNotice = 'Still pending at Monnify for ' . $checkedReference . '. Complete the payment, then check again.';
+        $walletNotice = 'Still pending with the payment provider for ' . $checkedReference . '. Complete the payment, then check again.';
     } else {
         $walletError = (string) ($verification['error'] ?? 'Unable to verify payment yet.');
     }
@@ -185,7 +192,7 @@ function wallet_tx_payload(array $tx): array
         <h1>Wallet</h1>
         <div class="balance">NGN <?= e(number_format((float) $wallet['balance'], 2)) ?></div>
         <p class="muted">Available balance. Held withdrawals awaiting admin review: NGN <?= e(number_format((float) ($wallet['hold_balance'] ?? 0), 2)) ?>.</p>
-        <p class="muted">Funding is powered by Monnify checkout and bank transfer reconciliation. Withdrawals can be processed by Monnify, Paystack, or manual admin payout.</p>
+        <p class="muted">Funding is powered by multi-gateway checkout (Monnify, Paystack, Fincra, Woven, Korapay, Allawee) with automatic failover and bank transfer reconciliation. Withdrawals can be processed automatically or via manual admin payout.</p>
     </section>
     <section class="card reserved-card">
         <h2>Reserved Transfer Account</h2>
@@ -219,7 +226,18 @@ function wallet_tx_payload(array $tx): array
             <label>Amount
                 <input type="number" name="amount" min="100" step="50" placeholder="5000" value="<?= $prefillAmount > 0 ? e((string) $prefillAmount) : '' ?>" required>
             </label>
-            <button type="submit" <?= $monnifyConfigured ? '' : 'disabled' ?>>Fund With Monnify</button>
+            <label>Payment Method
+                <select name="payment_method">
+                    <option value="auto">Automatic (Best Available)</option>
+                    <option value="monnify">Monnify</option>
+                    <option value="paystack">Paystack</option>
+                    <option value="fincra">Fincra</option>
+                    <option value="woven">Woven Finance</option>
+                    <option value="korapay">Korapay</option>
+                    <option value="allawee">Allawee</option>
+                </select>
+            </label>
+            <button type="submit" <?= $hasConfiguredGateway ? '' : 'disabled' ?>>Fund Wallet</button>
         </form>
         <p id="fundWalletStatus" class="muted"></p>
     </section>
@@ -239,6 +257,10 @@ function wallet_tx_payload(array $tx): array
                     <select name="withdraw_provider" data-provider>
                         <option value="monnify">Monnify transfer</option>
                         <option value="paystack">Paystack transfer</option>
+                        <option value="fincra">Fincra transfer</option>
+                        <option value="woven">Woven transfer</option>
+                        <option value="korapay">Korapay transfer</option>
+                        <option value="allawee">Allawee transfer</option>
                     </select>
                 </label>
             </div></div>
@@ -306,7 +328,7 @@ function wallet_tx_payload(array $tx): array
                 $txPayload = wallet_tx_payload($tx);
                 $checkoutUrl = (string) ($txPayload['checkoutUrl'] ?? '');
                 $reference = (string) $tx['reference'];
-                $isPendingMonnifyFunding = (string) ($tx['type'] ?? '') === 'funding' && (string) ($tx['provider'] ?? '') === 'monnify' && (string) ($tx['status'] ?? '') === 'pending';
+                $isPendingFunding = (string) ($tx['type'] ?? '') === 'funding' && (string) ($tx['status'] ?? '') === 'pending';
                 $isPendingWithdrawal = (string) ($tx['type'] ?? '') === 'withdrawal' && (string) ($tx['status'] ?? '') === 'pending';
                 ?>
                 <tr>
@@ -318,10 +340,10 @@ function wallet_tx_payload(array $tx): array
                     <td><?= e($tx['status']) ?></td>
                     <td>
 <div class="tx-actions">
-<?php if ($isPendingMonnifyFunding && $checkoutUrl !== ''): ?>
+<?php if ($isPendingFunding && $checkoutUrl !== ''): ?>
 <a class="button" href="<?= e($checkoutUrl) ?>">Continue Payment</a>
 <?php endif; ?>
-<?php if ($isPendingMonnifyFunding): ?>
+<?php if ($isPendingFunding): ?>
 <form method="post">
 <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
 <input type="hidden" name="reference" value="<?= e($reference) ?>">
@@ -344,7 +366,7 @@ function wallet_tx_payload(array $tx): array
     document.getElementById('fundWalletForm')?.addEventListener('submit', async event => {
         event.preventDefault();
         const status = document.getElementById('fundWalletStatus');
-        status.textContent = 'Initializing Monnify checkout...';
+        status.textContent = 'Initializing payment...';
         const form = new FormData(event.currentTarget);
         try {
             const res = await fetch('../api/fund-wallet.php', { method: 'POST', body: form });

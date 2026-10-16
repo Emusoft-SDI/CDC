@@ -6,7 +6,12 @@ function super_admin_roles(): array
     return [
         'super_admin' => 'Super Administrator',
         'national_coordinator' => 'National Coordinator',
+        'regional_coordinator' => 'Regional Coordinator',
         'state_coordinator' => 'State Coordinator',
+        'lga_coordinator' => 'LGA Coordinator',
+        'district_coordinator' => 'District Coordinator',
+        'village_coordinator' => 'Village Coordinator',
+        'cooperative_admin' => 'Cooperative Admin',
         'investor' => 'Investor',
         'admin' => 'Administrator',
         'support_agent' => 'Support Agent',
@@ -31,6 +36,10 @@ function super_admin_views(): array
         'users' => [
             'label' => 'User Governance',
             'hint' => 'Create, review, reset, and recover privileged access',
+        ],
+        'cooperatives' => [
+            'label' => 'Cooperative Oversight',
+            'hint' => 'Partner cooperatives, member counts, and status control',
         ],
         'finance' => [
             'label' => 'Finance Oversight',
@@ -68,6 +77,12 @@ function super_admin_nav_groups(): array
                 'hint' => 'Accounts, roles, password resets, and recovery',
                 'href' => 'index.php?view=users',
                 'view' => 'users',
+            ],
+            [
+                'label' => 'Cooperatives',
+                'hint' => 'Partner cooperatives, member counts, and suspension control',
+                'href' => 'index.php?view=cooperatives',
+                'view' => 'cooperatives',
             ],
             [
                 'label' => 'My Profile',
@@ -148,6 +163,10 @@ function super_admin_page_meta(string $view): array
         'users' => [
             'title' => 'User Governance',
             'description' => 'Manage privileged accounts, role assignments, access status, password resets, and recovery actions.',
+        ],
+        'cooperatives' => [
+            'title' => 'Cooperative Oversight',
+            'description' => 'Monitor partner cooperatives, active member counts, enclaves, and suspend or reactivate partnerships.',
         ],
         'profile' => [
             'title' => 'My Profile',
@@ -258,7 +277,9 @@ function super_admin_login_screen(string $error): void
     <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
     <input type="hidden" name="action" value="login">
     <label>Super Admin Password</label>
-    <input type="password" name="password" required autofocus>
+    <input type="password" name="password" required>
+    <label>Super Admin Account Email</label>
+    <input type="email" name="account_email" required autocomplete="username" placeholder="superadmin@natcodev.com.ng">
     <button type="submit">Enter Secure Console</button>
     <p><a href="../admin/admin.php">Return to admin</a></p>
   </form>
@@ -290,6 +311,7 @@ function super_admin_page_start(string $title, string $description = '', string 
 </head>
 <body>
     <?php require __DIR__ . '/../layout-components/super-admin-header.php'; ?>
+<?= page_breadcrumbs(auto_breadcrumbs(super_admin_views(), $activeView, 'Super Admin', 'index.php'), 'NATCODEV', '../index.php') ?>
   <main>
     <section class="hero">
       <div>

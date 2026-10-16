@@ -58,6 +58,11 @@ function app_internal_public_workspace_catalog(): array
         'extensionist' => ['Agric Extensionist', $base . '/field-agent/extensionist.php', 'field'],
         'state_coordinator' => ['State Coordinator', $base . '/coordination/state-coordinator.php', 'coordination'],
         'national_coordinator' => ['National Coordinator', $base . '/coordination/national-coordinator.php', 'coordination'],
+        'regional_coordinator' => ['Regional Coordinator', $base . '/coordination/state-coordinator.php', 'coordination'],
+        'lga_coordinator' => ['LGA Coordinator', $base . '/coordination/enclave-coordinator.php', 'coordination'],
+        'district_coordinator' => ['District Coordinator', $base . '/coordination/enclave-coordinator.php', 'coordination'],
+        'village_coordinator' => ['Village Coordinator', $base . '/coordination/enclave-coordinator.php', 'coordination'],
+        'cooperative_admin' => ['Cooperative Admin', $base . '/cooperatives/', 'cooperative'],
         'support_agent' => ['Support Agent Desk', $base . '/support/agent.php', 'support'],
     ];
 }
@@ -92,4 +97,117 @@ function app_render_internal_public_workspace_switcher(PDO $pdo, array $user, st
         echo '<a class="workspace-link' . e($class) . '" href="' . e((string) $link['href']) . '">' . e((string) $link['label']) . '</a>';
     }
     echo '</div>';
+}
+
+if (!function_exists('platform_safe_next')) {
+    function platform_safe_next(string $next): string
+    {
+        $next = trim(str_replace(["\0", '\\'], ['', '/'], $next));
+        if ($next === '' || preg_match('/^[a-z][a-z0-9+.-]*:/i', $next) || str_starts_with($next, '//') || str_starts_with($next, '/')) {
+            return '';
+        }
+        while (str_starts_with($next, '../')) {
+            $next = substr($next, 3);
+        }
+        return $next;
+    }
+}
+
+if (!function_exists('platform_user_home')) {
+    function platform_user_home(array $user, string $requestedNext = '', ?PDO $pdo = null): string
+    {
+        $safeNext = platform_safe_next($requestedNext);
+        if ($safeNext !== '') {
+            return $safeNext;
+        }
+
+        if ($pdo === null) {
+            try { $pdo = db(); } catch (Throwable) {}
+        }
+
+        $role = strtolower((string) ($user['role'] ?? ''));
+        $platformRole = strtolower((string) ($user['platform_role'] ?? ''));
+
+        if ((int) ($user['is_super_admin'] ?? 0) === 1 || $platformRole === 'super_admin') {
+            return 'super-admin/index.php';
+        }
+        if ($platformRole === 'support_agent') {
+            return ($pdo && admin_feature_is_allowed($pdo, 'support')) ? 'support/agent.php' : 'dashboard/index.php';
+        }
+        if (in_array($platformRole, ['national_coordinator', 'regional_coordinator', 'state_coordinator', 'lga_coordinator', 'district_coordinator', 'village_coordinator'], true)) {
+            return 'coordination/index.php';
+        }
+        if ($platformRole === 'cooperative_admin') {
+            return 'cooperatives/index.php';
+        }
+        if (in_array($platformRole, ['field_agent', 'agronomist', 'agric_extensionist', 'extensionist', 'farm_hand'], true) || $role === 'field_agent') {
+            return 'field-agent/index.php';
+        }
+        if (in_array($platformRole, ['seller', 'marketplace_seller'], true) || $role === 'seller') {
+            return ($pdo && admin_feature_is_allowed($pdo, 'marketplace')) ? 'market/seller-central.php' : 'dashboard/index.php';
+        }
+        if ($platformRole === 'buyer' || $role === 'buyer') {
+            return ($pdo && admin_feature_is_allowed($pdo, 'marketplace')) ? 'buyer/index.php' : 'dashboard/index.php';
+        }
+        if (in_array($platformRole, ['provider', 'input_provider', 'service_provider'], true) || $role === 'provider') {
+            return ($pdo && admin_feature_is_allowed($pdo, 'providers')) ? 'provider/dashboard.php' : 'dashboard/index.php';
+        }
+        if ($platformRole === 'learner' || $role === 'learner') {
+            return ($pdo && admin_feature_is_allowed($pdo, 'training')) ? 'academy/dashboard.php' : 'dashboard/index.php';
+        }
+        if ($role === 'admin' || $platformRole === 'admin') {
+            return 'admin/index.php';
+        }
+
+        return 'dashboard/index.php';
+    }
+}
+
+if (!function_exists('otp_login_destination')) {
+    function otp_login_destination(PDO $pdo, int $userId): string
+    {
+        $fields = ['role'];
+        if (app_column_exists($pdo, 'users', 'platform_role')) {
+            $fields[] = 'platform_role';
+        }
+        if (app_column_exists($pdo, 'users', 'is_super_admin')) {
+            $fields[] = 'is_super_admin';
+        }
+
+        $stmt = $pdo->prepare('SELECT ' . implode(', ', $fields) . ' FROM users WHERE id = ? LIMIT 1');
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch() ?: [];
+        $role = strtolower((string) ($user['role'] ?? ''));
+        $platformRole = strtolower((string) ($user['platform_role'] ?? ''));
+
+        if ((int) ($user['is_super_admin'] ?? 0) === 1 || $platformRole === 'super_admin') {
+            return 'super-admin/index.php';
+        }
+        if (in_array($platformRole, ['national_coordinator', 'regional_coordinator', 'state_coordinator', 'lga_coordinator', 'district_coordinator', 'village_coordinator'], true)) {
+            return 'coordination/index.php';
+        }
+        if ($platformRole === 'cooperative_admin') {
+            return 'cooperatives/index.php';
+        }
+        if ($platformRole === 'support_agent') {
+            return (admin_feature_is_allowed($pdo, 'support')) ? 'support/agent.php' : 'dashboard/index.php';
+        }
+        if ($platformRole === 'admin' || $role === 'admin') {
+            return 'admin/index.php';
+        }
+        if (in_array($platformRole, ['field_agent', 'agronomist', 'agric_extensionist', 'extensionist', 'farm_hand'], true) || $role === 'field_agent') {
+            return 'field-agent/index.php';
+        }
+        if (in_array($platformRole, ['provider', 'input_provider', 'service_provider', 'seller'], true) || in_array($role, ['provider', 'seller'], true)) {
+            return (admin_feature_is_allowed($pdo, 'providers') && admin_feature_is_allowed($pdo, 'marketplace')) ? 'provider/dashboard.php' : 'dashboard/index.php';
+        }
+        if ($platformRole === 'buyer' || $role === 'buyer') {
+            return (admin_feature_is_allowed($pdo, 'marketplace')) ? 'buyer/index.php' : 'dashboard/index.php';
+        }
+        if ($platformRole === 'learner' || $role === 'learner') {
+            return (admin_feature_is_allowed($pdo, 'training')) ? 'academy/dashboard.php' : 'dashboard/index.php';
+        }
+
+        return 'dashboard/index.php';
+    }
 }

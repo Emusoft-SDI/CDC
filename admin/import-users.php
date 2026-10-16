@@ -12,8 +12,7 @@ admin_ensure_import_schema($pdo);
 admin_import_mark_expired($pdo);
 admin_require($pdo);
 if (!admin_current_user_is_super_admin($pdo)) {
-    http_response_code(403);
-    exit('Forbidden: Only Super Admin can access the root user import console.');
+    app_render_error_page(403, 'Only Super Admin can access the root user import console.');
 }
 
 $roles = admin_import_roles();
@@ -297,80 +296,116 @@ admin_page_start('Import & Engagement', [
   <div class="stat"><span>Invalid Contact</span><div class="metric"><?= (int) $counts['invalid_contact'] ?></div></div>
 </section>
 
-<section class="layout">
-  <form class="panel" method="post" enctype="multipart/form-data">
-    <h2>Upload Spreadsheet</h2>
-    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-    <input type="hidden" name="action" value="upload">
-    <label>CSV or XLSX File</label>
-    <input type="file" name="user_upload" accept=".csv,.xlsx" required>
-    <label>Default Role</label>
-    <select name="default_role" required>
-      <?php foreach ($roles as $value => $label): ?>
-        <option value="<?= e($value) ?>"><?= e($label) ?></option>
-      <?php endforeach; ?>
-    </select>
-    <label><input type="checkbox" name="send_notifications" checked> Send onboarding or engagement messages now</label>
-    <div class="actions"><button type="submit" data-busy-text="Importing spreadsheet...">Import Rows</button></div>
-    <p class="meta">For growers, import creates a pending application and sends an engagement confirmation link. The user account is created only when they confirm.</p>
-    <p class="meta">Expected headings include NAME, PHONE NUMBER, ADDRESS, NUMBER OF ACRES/HECTARES, EMAIL ADDRESS, Role, State, LGA, and Qualification.</p>
-  </form>
+<details class="collapse-card"<?= $error !== '' && $message === '' ? ' open' : '' ?>>
+  <summary>
+    <span class="cc-icon"><i class="fas fa-file-excel"></i></span>
+    <span class="collapse-title">Upload Spreadsheet<small>Import CSV or XLSX with farmer and staff data</small></span>
+    <span class="caret"><i class="fas fa-chevron-down"></i></span>
+  </summary>
+  <div class="collapse-body">
+    <form method="post" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+      <input type="hidden" name="action" value="upload">
+      <div class="field-grid">
+        <label class="field"><span>CSV or XLSX File</span>
+          <input type="file" name="user_upload" accept=".csv,.xlsx" required>
+        </label>
+        <label class="field"><span>Default Role</span>
+          <select name="default_role" required>
+            <?php foreach ($roles as $value => $label): ?>
+              <option value="<?= e($value) ?>"><?= e($label) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+        <label class="field"><span>Notifications</span>
+          <input type="checkbox" name="send_notifications" checked> Send onboarding or engagement messages now
+        </label>
+      </div>
+      <div class="actions"><button type="submit" data-busy-text="Importing spreadsheet...">Import Rows</button></div>
+      <p class="meta">For growers, import creates a pending application and sends an engagement confirmation link. The user account is created only when they confirm.</p>
+      <p class="meta">Expected headings include NAME, PHONE NUMBER, ADDRESS, NUMBER OF ACRES/HECTARES, EMAIL ADDRESS, Role, State, LGA, District, Village, Cooperative Name, Cooperative Registration Number, and Qualification.</p>
+      <p class="meta">Coordinator rows (regional, state, LGA, district, village) use the State, LGA, District, and Village columns as their assigned enclave scope. Cooperative member rows are matched to their cooperative via Cooperative Name and Cooperative Registration Number; district and village are captured per member.</p>
+    </form>
+  </div>
+</details>
 
   <?php if ($editRecord): ?>
-    <form class="panel" method="post" style="margin-top:18px;">
-      <h2>Edit Import Row</h2>
-      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-      <input type="hidden" name="action" value="update_record">
-      <input type="hidden" name="record_id" value="<?= (int) $editRecord['id'] ?>">
-      <label>Name</label>
-      <input type="text" name="name" value="<?= e($editRecord['name'] ?? '') ?>" required>
-      <label>Email</label>
-      <input type="text" name="email" value="<?= e($editRecord['email'] ?? '') ?>">
-      <label>Alternate Email</label>
-      <input type="text" name="alternate_email" value="<?= e($editRecord['alternate_email'] ?? '') ?>">
-      <label>Phone</label>
-      <input type="text" name="phone" value="<?= e($editRecord['phone'] ?? '') ?>">
-      <label>Alternate Phone</label>
-      <input type="text" name="alternate_phone" value="<?= e($editRecord['alternate_phone'] ?? '') ?>">
-      <label>Address</label>
-      <textarea name="address"><?= e($editRecord['address'] ?? '') ?></textarea>
-      <div class="actions">
-        <button type="submit">Save Correction</button>
-        <a class="button secondary" href="import-users.php">Cancel</a>
+    <details class="collapse-card">
+      <summary>
+        <span class="cc-icon"><i class="fas fa-edit"></i></span>
+        <span class="collapse-title">Edit Import Row<small>Correct name, email, phone, or address for a single row</small></span>
+        <span class="caret"><i class="fas fa-chevron-down"></i></span>
+      </summary>
+      <div class="collapse-body">
+        <form method="post">
+          <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+          <input type="hidden" name="action" value="update_record">
+          <input type="hidden" name="record_id" value="<?= (int) $editRecord['id'] ?>">
+          <div class="field-grid">
+            <label class="field"><span>Name</span>
+              <input type="text" name="name" value="<?= e($editRecord['name'] ?? '') ?>" required>
+            </label>
+            <label class="field"><span>Email</span>
+              <input type="text" name="email" value="<?= e($editRecord['email'] ?? '') ?>">
+            </label>
+            <label class="field"><span>Alternate Email</span>
+              <input type="text" name="alternate_email" value="<?= e($editRecord['alternate_email'] ?? '') ?>">
+            </label>
+            <label class="field"><span>Phone</span>
+              <input type="text" name="phone" value="<?= e($editRecord['phone'] ?? '') ?>">
+            </label>
+            <label class="field"><span>Alternate Phone</span>
+              <input type="text" name="alternate_phone" value="<?= e($editRecord['alternate_phone'] ?? '') ?>">
+            </label>
+            <label class="field" style="grid-column: 1 / -1"><span>Address</span>
+              <textarea name="address"><?= e($editRecord['address'] ?? '') ?></textarea>
+            </label>
+          </div>
+          <div class="actions">
+            <button type="submit">Save Correction</button>
+            <a class="button secondary" href="import-users.php">Cancel</a>
+          </div>
+          <p class="meta">After saving, use Retry on the row to send the engagement link again.</p>
+        </form>
       </div>
-      <p class="meta">After saving, use Retry on the row to send the engagement link again.</p>
-    </form>
+    </details>
   <?php endif; ?>
 
-  <section>
-    <form class="panel" method="get">
+  <section style="display:flex; flex-direction:column; width:100%;">
+    <form class="panel" method="get" style="width:100%; max-width:none;">
       <h2>Find Import Rows</h2>
       <input type="hidden" name="page" value="1">
-      <label>Status</label>
-      <select name="status">
-        <option value="all" <?= $filterStatus === 'all' ? 'selected' : '' ?>>All Statuses</option>
-        <?php foreach (['pending_engagement', 'pending_phone_engagement', 'needs_contact', 'needs_review', 'expired_no_engagement', 'archived_no_response', 'skipped', 'failed', 'staff_onboarded', 'engagement_confirmed'] as $statusOption): ?>
-          <option value="<?= e($statusOption) ?>" <?= $filterStatus === $statusOption ? 'selected' : '' ?>><?= e(ucwords(str_replace('_', ' ', $statusOption))) ?></option>
-        <?php endforeach; ?>
-      </select>
-      <label>Contact</label>
-      <select name="contact">
-        <option value="all" <?= $filterContact === 'all' ? 'selected' : '' ?>>All Contacts</option>
-        <option value="email" <?= $filterContact === 'email' ? 'selected' : '' ?>>Has Email</option>
-        <option value="phone" <?= $filterContact === 'phone' ? 'selected' : '' ?>>Has Valid Phone</option>
-        <option value="no_email" <?= $filterContact === 'no_email' ? 'selected' : '' ?>>Missing Email</option>
-        <option value="no_phone" <?= $filterContact === 'no_phone' ? 'selected' : '' ?>>Missing Valid Phone</option>
-        <option value="alternate" <?= $filterContact === 'alternate' ? 'selected' : '' ?>>Has Alternate Contact</option>
-      </select>
-      <label>Batch</label>
-      <select name="batch">
-        <option value="">All Batches</option>
-        <?php foreach ($batches as $batch): ?>
-          <option value="<?= e($batch['batch_ref']) ?>" <?= $filterBatch === $batch['batch_ref'] ? 'selected' : '' ?>><?= e($batch['batch_ref']) ?></option>
-        <?php endforeach; ?>
-      </select>
-      <label>Search</label>
-      <input type="search" name="search" value="<?= e($search) ?>" placeholder="name, email, phone, note, batch">
+      <div class="field-grid">
+        <label class="field"><span>Status</span>
+          <select name="status">
+            <option value="all" <?= $filterStatus === 'all' ? 'selected' : '' ?>>All Statuses</option>
+            <?php foreach (['pending_engagement', 'pending_phone_engagement', 'needs_contact', 'needs_review', 'expired_no_engagement', 'archived_no_response', 'skipped', 'failed', 'staff_onboarded', 'engagement_confirmed'] as $statusOption): ?>
+              <option value="<?= e($statusOption) ?>" <?= $filterStatus === $statusOption ? 'selected' : '' ?>><?= e(ucwords(str_replace('_', ' ', $statusOption))) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+        <label class="field"><span>Contact</span>
+          <select name="contact">
+            <option value="all" <?= $filterContact === 'all' ? 'selected' : '' ?>>All Contacts</option>
+            <option value="email" <?= $filterContact === 'email' ? 'selected' : '' ?>>Has Email</option>
+            <option value="phone" <?= $filterContact === 'phone' ? 'selected' : '' ?>>Has Valid Phone</option>
+            <option value="no_email" <?= $filterContact === 'no_email' ? 'selected' : '' ?>>Missing Email</option>
+            <option value="no_phone" <?= $filterContact === 'no_phone' ? 'selected' : '' ?>>Missing Valid Phone</option>
+            <option value="alternate" <?= $filterContact === 'alternate' ? 'selected' : '' ?>>Has Alternate Contact</option>
+          </select>
+        </label>
+        <label class="field"><span>Batch</span>
+          <select name="batch">
+            <option value="">All Batches</option>
+            <?php foreach ($batches as $batch): ?>
+              <option value="<?= e($batch['batch_ref']) ?>" <?= $filterBatch === $batch['batch_ref'] ? 'selected' : '' ?>><?= e($batch['batch_ref']) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+        <label class="field"><span>Search</span>
+          <input type="search" name="search" value="<?= e($search) ?>" placeholder="name, email, phone, note, batch">
+        </label>
+      </div>
       <input type="hidden" name="per_page" value="<?= (int) $perPage ?>">
       <div class="actions">
         <button type="submit">Filter Rows</button>
@@ -405,6 +440,11 @@ admin_page_start('Import & Engagement', [
               <?php if (!empty($record['phone'])): ?><br><small><?= e($record['phone']) ?></small><?php endif; ?>
               <?php if (!empty($record['phone_e164'])): ?><br><small><?= e($record['phone_e164']) ?></small><?php endif; ?>
               <?php if (!empty($record['alternate_phone'])): ?><br><small>Alt: <?= e($record['alternate_phone']) ?></small><?php endif; ?>
+              <?php if (!empty($record['state'])): ?><br><small>State: <?= e($record['state']) ?></small><?php endif; ?>
+              <?php if (!empty($record['lga'])): ?><br><small>LGA: <?= e($record['lga']) ?></small><?php endif; ?>
+              <?php if (!empty($record['district'])): ?><br><small>District: <?= e($record['district']) ?></small><?php endif; ?>
+              <?php if (!empty($record['village'])): ?><br><small>Village: <?= e($record['village']) ?></small><?php endif; ?>
+              <?php if (!empty($record['cooperative_name'])): ?><br><small>Cooperative: <?= e($record['cooperative_name']) ?><?= !empty($record['cooperative_registration_number']) ? ' (' . e($record['cooperative_registration_number']) . ')' : '' ?></small><?php endif; ?>
             </td>
             <td><?= e($roles[$record['role']] ?? $record['role']) ?></td>
             <td>
@@ -459,5 +499,4 @@ admin_page_start('Import & Engagement', [
     </table>
     <?= admin_pagination_controls($totalRecords, $page, $perPage) ?>
   </section>
-</section>
 <?php admin_page_end(); ?>

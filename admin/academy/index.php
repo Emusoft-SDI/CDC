@@ -5,6 +5,7 @@ require_once __DIR__ . '/../_auth.php';
 require_once __DIR__ . '/../../lib/admin-layout.php';
 require_once __DIR__ . '/../../lib/admin-operator-strip.php';
 require_once __DIR__ . '/../../lib/academy.php';
+require_once __DIR__ . '/../../lib/wallet.php';
 
 $pdo = db();
 admin_ensure_schema($pdo);
@@ -16,7 +17,7 @@ defined('ACADEMY_ADMIN_ROUTE_BASE') || define('ACADEMY_ADMIN_ROUTE_BASE', 'index
 $message = '';
 $error = '';
 $tab = str_replace('-', '_', preg_replace('/[^a-z_-]/', '', (string) ($_GET['page'] ?? $_GET['tab'] ?? 'overview')) ?: 'overview');
-$allowedTabs = ['overview', 'programs', 'courses', 'certificate_groups', 'lessons', 'assessments', 'calendar', 'instructors', 'attendance', 'reminders', 'feedback', 'enrollments', 'certificates', 'refunds', 'reports'];
+$allowedTabs = ['overview', 'homepage', 'programs', 'courses', 'certificate_groups', 'lessons', 'assessments', 'calendar', 'instructors', 'attendance', 'reminders', 'feedback', 'enrollments', 'certificates', 'refunds', 'reports'];
 if (!in_array($tab, $allowedTabs, true)) {
     $tab = 'overview';
 }
@@ -24,7 +25,8 @@ if (!in_array($tab, $allowedTabs, true)) {
 function academy_admin_redirect(string $tab, string $key, string $message): void
 {
     $pages = [
-        'overview' => ACADEMY_ADMIN_ROUTE_BASE . '?page=overview',
+        'overview' => ACADEMY_ADMIN_ROUTE_BASE,
+        'homepage' => ACADEMY_ADMIN_ROUTE_BASE . '?page=homepage',
         'programs' => ACADEMY_ADMIN_ROUTE_BASE . '?page=programs',
         'courses' => ACADEMY_ADMIN_ROUTE_BASE . '?page=courses',
         'certificate_groups' => ACADEMY_ADMIN_ROUTE_BASE . '?page=certificate-groups',
@@ -56,17 +58,103 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $audienceRoles = implode(',', array_values(array_filter(array_map('trim', (array) ($_POST['audience_roles'] ?? [])))));
                 $status = in_array((string) ($_POST['status'] ?? 'active'), ['active', 'draft', 'paused', 'archived'], true) ? (string) $_POST['status'] : 'active';
                 $sort = (int) ($_POST['sort_order'] ?? 0);
+                $prerequisites = trim((string) ($_POST['prerequisites'] ?? ''));
                 if ($title === '') {
                     throw new RuntimeException('Program title is required.');
                 }
+                $thumbnail = academy_upload_homepage_image('thumbnail', 'thumbnails');
                 if ($programId > 0) {
-                    $stmt = $pdo->prepare("UPDATE academy_programs SET title = ?, description = ?, audience_roles = ?, status = ?, sort_order = ? WHERE id = ?");
-                    $stmt->execute([$title, $description, $audienceRoles, $status, $sort, $programId]);
+                    if ($thumbnail !== '') {
+                        $stmt = $pdo->prepare("UPDATE academy_programs SET title = ?, description = ?, audience_roles = ?, status = ?, sort_order = ?, thumbnail = ?, prerequisites = ? WHERE id = ?");
+                        $stmt->execute([$title, $description, $audienceRoles, $status, $sort, $thumbnail, $prerequisites, $programId]);
+                    } else {
+                        $stmt = $pdo->prepare("UPDATE academy_programs SET title = ?, description = ?, audience_roles = ?, status = ?, sort_order = ?, prerequisites = ? WHERE id = ?");
+                        $stmt->execute([$title, $description, $audienceRoles, $status, $sort, $prerequisites, $programId]);
+                    }
                 } else {
-                    $stmt = $pdo->prepare("INSERT INTO academy_programs (title, description, audience_roles, status, sort_order) VALUES (?, ?, ?, ?, ?)");
-                    $stmt->execute([$title, $description, $audienceRoles, $status, $sort]);
+                    $stmt = $pdo->prepare("INSERT INTO academy_programs (title, description, audience_roles, status, sort_order, thumbnail, prerequisites) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                    $stmt->execute([$title, $description, $audienceRoles, $status, $sort, $thumbnail, $prerequisites]);
                 }
                 academy_admin_redirect('programs', 'message', 'Academy program saved.');
+            }
+
+            if ($action === 'save_program_thumbnail') {
+                $programId = (int) ($_POST['program_id'] ?? 0);
+                if ($programId <= 0) {
+                    throw new RuntimeException('Select a program first.');
+                }
+                if (isset($_POST['remove_thumbnail'])) {
+                    $pdo->prepare("UPDATE academy_programs SET thumbnail = NULL WHERE id = ?")->execute([$programId]);
+                    academy_admin_redirect('programs', 'message', 'Program image removed.');
+                }
+                $programThumbnail = academy_upload_homepage_image('program_thumbnail', 'thumbnails');
+                if ($programThumbnail === '') {
+                    throw new RuntimeException('Choose a program image to upload.');
+                }
+                $pdo->prepare("UPDATE academy_programs SET thumbnail = ? WHERE id = ?")->execute([$programThumbnail, $programId]);
+                academy_admin_redirect('programs', 'message', 'Program image saved.');
+            }
+
+            if ($action === 'delete_program') {
+                $programId = (int) ($_POST['program_id'] ?? 0);
+                if ($programId <= 0) {
+                    throw new RuntimeException('Select a program to delete.');
+                }
+                $exists = $pdo->prepare("SELECT id FROM academy_programs WHERE id = ?");
+                $exists->execute([$programId]);
+                if (!$exists->fetchColumn()) {
+                    throw new RuntimeException('Program not found.');
+                }
+                $pdo->beginTransaction();
+                $pdo->prepare("UPDATE webinars SET program_id = NULL WHERE program_id = ?")->execute([$programId]);
+                $pdo->prepare("DELETE FROM academy_programs WHERE id = ?")->execute([$programId]);
+                $pdo->commit();
+                academy_admin_redirect('programs', 'message', 'Program deleted. Its courses were moved back to the unassigned list.');
+            }
+
+            if ($action === 'save_homepage') {
+                $currentHomepage = academy_homepage_settings($pdo);
+                $heroPath = (string) $currentHomepage['hero_image'];
+                if (isset($_POST['remove_hero'])) {
+                    $heroPath = '';
+                } else {
+                    $uploadedHero = academy_upload_homepage_image('hero_image', 'hero');
+                    if ($uploadedHero !== '') {
+                        $heroPath = $uploadedHero;
+                    }
+                }
+                $featuredCourseId = (int) ($_POST['featured_course_id'] ?? 0);
+                if ($featuredCourseId > 0) {
+                    $featuredCheck = $pdo->prepare("SELECT id FROM webinars WHERE id = ? AND status = 'active' LIMIT 1");
+                    $featuredCheck->execute([$featuredCourseId]);
+                    if (!$featuredCheck->fetchColumn()) {
+                        throw new RuntimeException('Featured course must be an active Academy course.');
+                    }
+                }
+                $trustBadges = [];
+                for ($index = 0; $index < 3; $index++) {
+                    $trustBadges[] = trim(strip_tags((string) ($_POST['trust_label'][$index] ?? '')));
+                }
+                $pathwayCards = [];
+                for ($index = 0; $index < 4; $index++) {
+                    $pathwayCards[] = [
+                        'icon' => preg_replace('/[^a-z0-9-]/', '', (string) ($_POST['pathway_icon'][$index] ?? '')) ?? '',
+                        'title' => trim(strip_tags((string) ($_POST['pathway_title'][$index] ?? ''))),
+                        'text' => trim(strip_tags((string) ($_POST['pathway_text'][$index] ?? ''))),
+                    ];
+                }
+                academy_homepage_save($pdo, [
+                    'hero_image' => $heroPath,
+                    'eyebrow' => trim(strip_tags((string) ($_POST['eyebrow'] ?? ''))),
+                    'headline' => academy_homepage_html((string) ($_POST['headline'] ?? '')),
+                    'lede' => academy_homepage_html((string) ($_POST['lede'] ?? '')),
+                    'featured_course_id' => $featuredCourseId,
+                    'trust' => $trustBadges,
+                    'pathways' => $pathwayCards,
+                    'cta_heading' => academy_homepage_html((string) ($_POST['cta_heading'] ?? '')),
+                    'cta_copy' => academy_homepage_html((string) ($_POST['cta_copy'] ?? '')),
+                ]);
+                academy_admin_redirect('homepage', 'message', 'Homepage settings saved.');
             }
 
             if ($action === 'save_course') {
@@ -138,6 +226,86 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 academy_admin_redirect('courses', 'message', 'Academy course saved.');
             }
 
+            if ($action === 'course_status') {
+                $courseId = (int) ($_POST['course_id'] ?? 0);
+                $status = in_array((string) ($_POST['status'] ?? 'active'), ['active', 'draft', 'paused', 'archived'], true) ? (string) $_POST['status'] : 'active';
+                if ($courseId <= 0) {
+                    throw new RuntimeException('Select a course to update.');
+                }
+                $stmt = $pdo->prepare("UPDATE webinars SET status = ? WHERE id = ?");
+                $stmt->execute([$status, $courseId]);
+                $label = ['active' => 'live', 'draft' => 'draft', 'paused' => 'disabled', 'archived' => 'discontinued'][$status];
+                academy_admin_redirect('courses', 'message', 'Course set to ' . $label . '.');
+            }
+
+            if ($action === 'delete_course') {
+                $courseId = (int) ($_POST['course_id'] ?? 0);
+                if ($courseId <= 0) {
+                    throw new RuntimeException('Select a course to delete.');
+                }
+                $exists = $pdo->prepare("SELECT id FROM webinars WHERE id = ?");
+                $exists->execute([$courseId]);
+                if (!$exists->fetchColumn()) {
+                    throw new RuntimeException('Course not found.');
+                }
+                $pdo->beginTransaction();
+                $pdo->prepare("DELETE FROM academy_lessons WHERE webinar_id = ?")->execute([$courseId]);
+                $pdo->prepare("DELETE q FROM academy_questions q JOIN academy_assessments a ON a.id = q.assessment_id WHERE a.webinar_id = ?")->execute([$courseId]);
+                $pdo->prepare("DELETE FROM academy_assessments WHERE webinar_id = ?")->execute([$courseId]);
+                $pdo->prepare("DELETE FROM academy_attempts WHERE webinar_id = ?")->execute([$courseId]);
+                $pdo->prepare("DELETE FROM academy_feedback WHERE webinar_id = ?")->execute([$courseId]);
+                $pdo->prepare("DELETE FROM academy_certificates WHERE webinar_id = ?")->execute([$courseId]);
+                $pdo->prepare("DELETE FROM academy_certificate_group_courses WHERE webinar_id = ?")->execute([$courseId]);
+                $pdo->prepare("DELETE FROM academy_cohorts WHERE webinar_id = ?")->execute([$courseId]);
+                $pdo->prepare("DELETE FROM academy_reminders WHERE webinar_id = ?")->execute([$courseId]);
+                $pdo->prepare("DELETE FROM webinar_registrations WHERE webinar_id = ?")->execute([$courseId]);
+                $pdo->prepare("DELETE FROM webinars WHERE id = ?")->execute([$courseId]);
+                $pdo->commit();
+                academy_admin_redirect('courses', 'message', 'Course deleted.');
+            }
+
+            if ($action === 'batch_course_action') {
+                $courseIds = array_values(array_unique(array_filter(array_map('intval', (array) ($_POST['course_ids'] ?? [])))));
+                $batchAction = (string) ($_POST['batch_action'] ?? '');
+                if (!$courseIds) {
+                    throw new RuntimeException('Select at least one course.');
+                }
+                if (!in_array($batchAction, ['live', 'disable', 'discontinue', 'delete'], true)) {
+                    throw new RuntimeException('Choose a batch action.');
+                }
+                $statusMap = ['live' => 'active', 'disable' => 'paused', 'discontinue' => 'archived'];
+                if ($batchAction === 'delete') {
+                    $pdo->beginTransaction();
+                    try {
+                        foreach ($courseIds as $cid) {
+                            $pdo->prepare("DELETE FROM academy_lessons WHERE webinar_id = ?")->execute([$cid]);
+                            $pdo->prepare("DELETE q FROM academy_questions q JOIN academy_assessments a ON a.id = q.assessment_id WHERE a.webinar_id = ?")->execute([$cid]);
+                            $pdo->prepare("DELETE FROM academy_assessments WHERE webinar_id = ?")->execute([$cid]);
+                            $pdo->prepare("DELETE FROM academy_attempts WHERE webinar_id = ?")->execute([$cid]);
+                            $pdo->prepare("DELETE FROM academy_feedback WHERE webinar_id = ?")->execute([$cid]);
+                            $pdo->prepare("DELETE FROM academy_certificates WHERE webinar_id = ?")->execute([$cid]);
+                            $pdo->prepare("DELETE FROM academy_certificate_group_courses WHERE webinar_id = ?")->execute([$cid]);
+                            $pdo->prepare("DELETE FROM academy_cohorts WHERE webinar_id = ?")->execute([$cid]);
+                            $pdo->prepare("DELETE FROM academy_reminders WHERE webinar_id = ?")->execute([$cid]);
+                            $pdo->prepare("DELETE FROM webinar_registrations WHERE webinar_id = ?")->execute([$cid]);
+                            $pdo->prepare("DELETE FROM webinars WHERE id = ?")->execute([$cid]);
+                        }
+                        $pdo->commit();
+                    } catch (Throwable $e) {
+                        $pdo->rollBack();
+                        throw $e;
+                    }
+                    academy_admin_redirect('courses', 'message', count($courseIds) . ' course(s) deleted.');
+                }
+                $status = $statusMap[$batchAction];
+                $stmt = $pdo->prepare("UPDATE webinars SET status = ? WHERE id = ?");
+                foreach ($courseIds as $cid) {
+                    $stmt->execute([$status, $cid]);
+                }
+                $label = ['live' => 'live', 'disable' => 'disabled', 'discontinue' => 'discontinued'][$batchAction];
+                academy_admin_redirect('courses', 'message', count($courseIds) . ' course(s) set to ' . $label . '.');
+            }
+
             if ($action === 'save_certificate_group') {
                 $title = trim((string) ($_POST['title'] ?? ''));
                 $description = trim((string) ($_POST['description'] ?? ''));
@@ -184,29 +352,106 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($action === 'save_lesson') {
+                $lessonId = (int) ($_POST['lesson_id'] ?? 0);
                 $courseId = (int) ($_POST['webinar_id'] ?? 0);
                 $title = trim((string) ($_POST['title'] ?? ''));
                 if ($courseId <= 0 || $title === '') {
                     throw new RuntimeException('Course and lesson title are required.');
                 }
-                $stmt = $pdo->prepare("
-                    INSERT INTO academy_lessons
-                        (webinar_id, title, summary, content, delivery_type, material_url, duration_minutes, sort_order, is_required, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ");
-                $stmt->execute([
+                $videoUrl = trim((string) ($_POST['video_url'] ?? '')) ?: null;
+                $audioUrl = trim((string) ($_POST['audio_url'] ?? '')) ?: null;
+                $infographicUrl = trim((string) ($_POST['infographic_url'] ?? '')) ?: null;
+
+                $params = [
                     $courseId,
                     $title,
                     trim((string) ($_POST['summary'] ?? '')),
                     trim((string) ($_POST['content'] ?? '')),
                     array_key_exists((string) ($_POST['delivery_type'] ?? ''), academy_delivery_types()) ? (string) $_POST['delivery_type'] : 'document',
                     trim((string) ($_POST['material_url'] ?? '')) ?: null,
+                    $videoUrl,
+                    $audioUrl,
+                    $infographicUrl,
                     max(1, (int) ($_POST['duration_minutes'] ?? 20)),
                     (int) ($_POST['sort_order'] ?? 0),
                     isset($_POST['is_required']) ? 1 : 0,
                     in_array((string) ($_POST['status'] ?? 'active'), ['active', 'draft', 'paused', 'archived'], true) ? (string) $_POST['status'] : 'active',
-                ]);
+                ];
+                if ($lessonId > 0) {
+                    $stmt = $pdo->prepare("
+                        UPDATE academy_lessons
+                        SET webinar_id = ?, title = ?, summary = ?, content = ?, delivery_type = ?, material_url = ?,
+                            video_url = ?, audio_url = ?, infographic_url = ?,
+                            duration_minutes = ?, sort_order = ?, is_required = ?, status = ?
+                        WHERE id = ?
+                    ");
+                    $stmt->execute(array_merge($params, [$lessonId]));
+                } else {
+                    $stmt = $pdo->prepare("
+                        INSERT INTO academy_lessons
+                            (webinar_id, title, summary, content, delivery_type, material_url, video_url, audio_url, infographic_url, duration_minutes, sort_order, is_required, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    $stmt->execute($params);
+                }
                 academy_admin_redirect('lessons', 'message', 'Lesson/material saved.');
+            }
+
+            if ($action === 'lesson_status') {
+                $lessonId = (int) ($_POST['lesson_id'] ?? 0);
+                $status = in_array((string) ($_POST['status'] ?? 'active'), ['active', 'draft', 'paused', 'archived'], true) ? (string) $_POST['status'] : 'active';
+                if ($lessonId <= 0) {
+                    throw new RuntimeException('Select a lesson to update.');
+                }
+                $stmt = $pdo->prepare("UPDATE academy_lessons SET status = ? WHERE id = ?");
+                $stmt->execute([$status, $lessonId]);
+                $label = ['active' => 'live', 'draft' => 'draft', 'paused' => 'disabled', 'archived' => 'discontinued'][$status];
+                academy_admin_redirect('lessons', 'message', 'Lesson set to ' . $label . '.');
+            }
+
+            if ($action === 'delete_lesson') {
+                $lessonId = (int) ($_POST['lesson_id'] ?? 0);
+                if ($lessonId <= 0) {
+                    throw new RuntimeException('Select a lesson to delete.');
+                }
+                $pdo->prepare("DELETE FROM academy_progress WHERE lesson_id IN (SELECT id FROM academy_lessons WHERE id = ?)")->execute([$lessonId]);
+                $pdo->prepare("DELETE FROM academy_lessons WHERE id = ?")->execute([$lessonId]);
+                academy_admin_redirect('lessons', 'message', 'Lesson deleted.');
+            }
+
+            if ($action === 'batch_lesson_action') {
+                $lessonIds = array_values(array_unique(array_filter(array_map('intval', (array) ($_POST['lesson_ids'] ?? [])))));
+                $batchAction = (string) ($_POST['batch_action'] ?? '');
+                if (!$lessonIds) {
+                    throw new RuntimeException('Select at least one lesson.');
+                }
+                if (!in_array($batchAction, ['live', 'disable', 'discontinue', 'delete'], true)) {
+                    throw new RuntimeException('Choose a batch action.');
+                }
+                $statusMap = ['live' => 'active', 'disable' => 'paused', 'discontinue' => 'archived'];
+                if ($batchAction === 'delete') {
+                    $pdo->beginTransaction();
+                    try {
+                        $progressStmt = $pdo->prepare("DELETE FROM academy_progress WHERE lesson_id IN (SELECT id FROM academy_lessons WHERE id = ?)");
+                        $deleteStmt = $pdo->prepare("DELETE FROM academy_lessons WHERE id = ?");
+                        foreach ($lessonIds as $lid) {
+                            $progressStmt->execute([$lid]);
+                            $deleteStmt->execute([$lid]);
+                        }
+                        $pdo->commit();
+                    } catch (Throwable $e) {
+                        $pdo->rollBack();
+                        throw $e;
+                    }
+                    academy_admin_redirect('lessons', 'message', count($lessonIds) . ' lesson(s) deleted.');
+                }
+                $status = $statusMap[$batchAction];
+                $stmt = $pdo->prepare("UPDATE academy_lessons SET status = ? WHERE id = ?");
+                foreach ($lessonIds as $lid) {
+                    $stmt->execute([$status, $lid]);
+                }
+                $label = ['live' => 'live', 'disable' => 'disabled', 'discontinue' => 'discontinued'][$batchAction];
+                academy_admin_redirect('lessons', 'message', count($lessonIds) . ' lesson(s) set to ' . $label . '.');
             }
 
             if ($action === 'save_assessment') {
@@ -224,7 +469,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     max(1, (int) ($_POST['max_attempts'] ?? 3)),
                     in_array((string) ($_POST['status'] ?? 'active'), ['active', 'draft', 'paused', 'archived'], true) ? (string) $_POST['status'] : 'active',
                 ]);
-                academy_admin_redirect('assessments', 'message', 'Assessment saved.');
+                require_once dirname(__DIR__, 2) . '/lib/academy/assessments.php';
+                academy_ensure_course_quiz_invariants($pdo, $courseId);
+                academy_admin_redirect('assessments', 'message', 'Assessment saved and quiz invariants enforced.');
             }
 
             if ($action === 'save_question') {
@@ -233,21 +480,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($assessmentId <= 0 || $question === '') {
                     throw new RuntimeException('Assessment and question are required.');
                 }
+                $optA = trim((string) ($_POST['option_a'] ?? ''));
+                $optB = trim((string) ($_POST['option_b'] ?? ''));
+                $optC = trim((string) ($_POST['option_c'] ?? ''));
+                $optD = trim((string) ($_POST['option_d'] ?? ''));
+                if ($optA === '' || $optB === '' || $optC === '' || $optD === '') {
+                    throw new RuntimeException('All four options (A, B, C, D) are required for assessment questions.');
+                }
                 $stmt = $pdo->prepare("
                     INSERT INTO academy_questions
-                        (assessment_id, question_text, option_a, option_b, option_c, option_d, correct_option, points, sort_order)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (assessment_id, question_text, option_a, option_b, option_c, option_d, correct_option, points, sort_order, rationale)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
                 $stmt->execute([
                     $assessmentId,
                     $question,
-                    trim((string) ($_POST['option_a'] ?? '')),
-                    trim((string) ($_POST['option_b'] ?? '')),
-                    trim((string) ($_POST['option_c'] ?? '')),
-                    trim((string) ($_POST['option_d'] ?? '')),
+                    $optA,
+                    $optB,
+                    $optC,
+                    $optD,
                     in_array((string) ($_POST['correct_option'] ?? 'A'), ['A', 'B', 'C', 'D'], true) ? (string) $_POST['correct_option'] : 'A',
                     max(1, (float) ($_POST['points'] ?? 1)),
                     (int) ($_POST['sort_order'] ?? 0),
+                    trim((string) ($_POST['rationale'] ?? '')) ?: null,
                 ]);
                 academy_admin_redirect('assessments', 'message', 'Assessment question saved.');
             }
@@ -270,10 +525,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($action === 'review_refund') {
                 $refundId = (int) ($_POST['refund_id'] ?? 0);
-                $status = in_array((string) ($_POST['status'] ?? 'pending'), ['pending', 'approved', 'rejected', 'paid', 'closed'], true) ? (string) $_POST['status'] : 'pending';
-                $stmt = $pdo->prepare("UPDATE academy_refund_requests SET status = ?, admin_notes = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?");
-                $stmt->execute([$status, trim((string) ($_POST['admin_notes'] ?? '')), (int) ($_SESSION['user_id'] ?? 0) ?: null, $refundId]);
-                academy_admin_redirect('refunds', 'message', 'Refund review saved.');
+                $status = in_array((string) ($_POST['status'] ?? 'pending'), ['pending', 'under_review', 'approved', 'paid', 'rejected', 'closed'], true) ? (string) $_POST['status'] : 'pending';
+                $adminNotes = trim((string) ($_POST['admin_notes'] ?? ''));
+                $result = admin_process_academy_refund($pdo, $refundId, $status, $adminNotes, (int) ($_SESSION['user_id'] ?? 0) ?: 0);
+                if (empty($result['success'])) {
+                    throw new RuntimeException((string) ($result['error'] ?? 'Refund review failed.'));
+                }
+                if (!empty($result['queued'])) {
+                    academy_admin_redirect('refunds', 'message', 'Refund queued for Super Admin money approval (request #' . $result['queued'] . '). No funds moved yet.');
+                }
+                academy_admin_redirect('refunds', 'message', $status === 'rejected' ? 'Refund rejected.' : 'Refund review saved.');
             }
 
             if ($action === 'save_instructor') {
@@ -377,6 +638,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $programs = $pdo->query("SELECT * FROM academy_programs ORDER BY sort_order ASC, title ASC")->fetchAll();
+$editingProgram = null;
+$editProgramId = (int) ($_GET['edit'] ?? 0);
+if ($editProgramId > 0) {
+    $editProgramStmt = $pdo->prepare("SELECT * FROM academy_programs WHERE id = ?");
+    $editProgramStmt->execute([$editProgramId]);
+    $editingProgram = $editProgramStmt->fetch() ?: null;
+}
 $courses = academy_courses($pdo, null, false);
 $certificateGroups = academy_certificate_groups($pdo, null, false);
 $instructors = $pdo->query("SELECT * FROM academy_instructors ORDER BY status ASC, name ASC")->fetchAll();
@@ -551,6 +819,181 @@ function academy_admin_badge(string $status): string
 }
 $roles = ['all', 'grower', 'farm_hand', 'provider', 'input_provider', 'service_provider', 'seller', 'field_agent', 'agronomist', 'agric_extensionist', 'state_coordinator', 'national_coordinator', 'investor', 'admin', 'super_admin'];
 
+// --- Course grid: search, filter, sort, paginate (courses tab) ---
+$gridQ = trim((string) ($_GET['q'] ?? ''));
+$gridStatus = (string) ($_GET['f_status'] ?? 'all');
+$gridType = (string) ($_GET['f_type'] ?? 'all');
+$gridPrice = (string) ($_GET['f_price'] ?? 'all');
+$gridProgram = (int) ($_GET['f_program'] ?? 0);
+$gridSort = (string) ($_GET['s'] ?? 'title');
+$gridDir = strtolower((string) ($_GET['d'] ?? 'asc')) === 'desc' ? 'DESC' : 'ASC';
+$gridPage = max(1, (int) ($_GET['p'] ?? 1));
+$gridPer = 20;
+
+$sortMap = [
+    'title' => 'w.title',
+    'program' => 'p.title',
+    'type' => 'w.course_type',
+    'status' => 'w.status',
+    'price' => 'w.is_free',
+    'start' => 'w.start_time',
+    'enrollments' => 'enrollments',
+    'lessons' => 'lesson_count',
+];
+$sortCol = $sortMap[$gridSort] ?? 'w.title';
+
+$where = ['1 = 1'];
+$args = [];
+if ($gridQ !== '') {
+    $where[] = "(w.title LIKE ? OR w.course_code LIKE ? OR w.description LIKE ?)";
+    $like = '%' . $gridQ . '%';
+    $args[] = $like;
+    $args[] = $like;
+    $args[] = $like;
+}
+if (in_array($gridStatus, ['active', 'draft', 'paused', 'archived'], true)) {
+    $where[] = "COALESCE(w.status, 'active') = ?";
+    $args[] = $gridStatus;
+}
+if (in_array($gridType, ['course', 'webinar', 'workshop', 'certification', 'orientation'], true)) {
+    $where[] = "w.course_type = ?";
+    $args[] = $gridType;
+}
+if ($gridPrice === 'free') {
+    $where[] = 'w.is_free = 1';
+} elseif ($gridPrice === 'paid') {
+    $where[] = 'w.is_free = 0';
+}
+if ($gridProgram > 0) {
+    $where[] = 'w.program_id = ?';
+    $args[] = $gridProgram;
+}
+$whereSql = implode(' AND ', $where);
+
+$countStmt = $pdo->prepare("SELECT COUNT(*) FROM webinars w LEFT JOIN academy_programs p ON p.id = w.program_id WHERE {$whereSql}");
+$countStmt->execute($args);
+$gridTotal = (int) $countStmt->fetchColumn();
+$gridPages = max(1, (int) ceil($gridTotal / $gridPer));
+$gridPage = min($gridPage, $gridPages);
+$gridOffset = ($gridPage - 1) * $gridPer;
+
+$gridStmt = $pdo->prepare("
+    SELECT w.*, p.title AS program_title,
+           (SELECT COUNT(DISTINCT r.id) FROM webinar_registrations r WHERE r.webinar_id = w.id) AS enrollments,
+           (SELECT COUNT(DISTINCT l.id) FROM academy_lessons l WHERE l.webinar_id = w.id AND l.status = 'active') AS lesson_count,
+           (SELECT COUNT(DISTINCT a.id) FROM academy_assessments a WHERE a.webinar_id = w.id AND a.status = 'active') AS assessment_count
+    FROM webinars w
+    LEFT JOIN academy_programs p ON p.id = w.program_id
+    WHERE {$whereSql}
+    ORDER BY {$sortCol} {$gridDir}, w.id ASC
+    LIMIT {$gridPer} OFFSET {$gridOffset}
+");
+$gridStmt->execute($args);
+$courseGrid = $gridStmt->fetchAll();
+
+// Build a clean query string that preserves the current grid filters
+// (search + filters only; sort and page are appended by the view).
+$gridBase = http_build_query(array_filter([
+    'q' => $gridQ,
+    'f_status' => $gridStatus !== 'all' ? $gridStatus : null,
+    'f_type' => $gridType !== 'all' ? $gridType : null,
+    'f_price' => $gridPrice !== 'all' ? $gridPrice : null,
+    'f_program' => $gridProgram > 0 ? $gridProgram : null,
+], static fn ($v): bool => $v !== null && $v !== ''));
+
+// Load the course being edited (when ?edit=<id> is set).
+$editingCourse = null;
+$editId = (int) ($_GET['edit'] ?? 0);
+if ($editId > 0) {
+    $editStmt = $pdo->prepare("SELECT w.*, p.title AS program_title FROM webinars w LEFT JOIN academy_programs p ON p.id = w.program_id WHERE w.id = ?");
+    $editStmt->execute([$editId]);
+    $editingCourse = $editStmt->fetch() ?: null;
+}
+
+// --- Lesson grid: search, filter, sort, paginate (lessons tab) ---
+$lgQ = trim((string) ($_GET['q'] ?? ''));
+$lgCourse = (int) ($_GET['f_course'] ?? 0);
+$lgDelivery = (string) ($_GET['f_delivery'] ?? 'all');
+$lgStatus = (string) ($_GET['f_status'] ?? 'all');
+$lgSort = (string) ($_GET['s'] ?? 'course');
+$lgDir = strtolower((string) ($_GET['d'] ?? 'asc')) === 'desc' ? 'DESC' : 'ASC';
+$lgPage = max(1, (int) ($_GET['p'] ?? 1));
+$lgPer = 20;
+
+$lgSortMap = [
+    'course' => 'w.title',
+    'title' => 'l.title',
+    'delivery' => 'l.delivery_type',
+    'status' => 'l.status',
+    'duration' => 'l.duration_minutes',
+    'sort' => 'l.sort_order',
+];
+$lgSortCol = $lgSortMap[$lgSort] ?? 'w.title';
+
+$lgWhere = ['1 = 1'];
+$lgArgs = [];
+if ($lgQ !== '') {
+    $lgWhere[] = "(l.title LIKE ? OR l.summary LIKE ? OR l.content LIKE ?)";
+    $lgLike = '%' . $lgQ . '%';
+    $lgArgs[] = $lgLike;
+    $lgArgs[] = $lgLike;
+    $lgArgs[] = $lgLike;
+}
+if ($lgCourse > 0) {
+    $lgWhere[] = 'l.webinar_id = ?';
+    $lgArgs[] = $lgCourse;
+}
+if (array_key_exists($lgDelivery, academy_delivery_types())) {
+    $lgWhere[] = 'l.delivery_type = ?';
+    $lgArgs[] = $lgDelivery;
+}
+if (in_array($lgStatus, ['active', 'draft', 'paused', 'archived'], true)) {
+    $lgWhere[] = "COALESCE(l.status, 'active') = ?";
+    $lgArgs[] = $lgStatus;
+}
+$lgWhereSql = implode(' AND ', $lgWhere);
+
+$lgCountStmt = $pdo->prepare("
+    SELECT COUNT(*) FROM academy_lessons l
+    JOIN webinars w ON w.id = l.webinar_id
+    WHERE {$lgWhereSql}
+");
+$lgCountStmt->execute($lgArgs);
+$lgTotal = (int) $lgCountStmt->fetchColumn();
+$lgPages = max(1, (int) ceil($lgTotal / $lgPer));
+$lgPage = min($lgPage, $lgPages);
+$lgOffset = ($lgPage - 1) * $lgPer;
+
+$lgStmt = $pdo->prepare("
+    SELECT l.*, w.title AS course_title
+    FROM academy_lessons l
+    JOIN webinars w ON w.id = l.webinar_id
+    WHERE {$lgWhereSql}
+    ORDER BY {$lgSortCol} {$lgDir}, l.id ASC
+    LIMIT {$lgPer} OFFSET {$lgOffset}
+");
+$lgStmt->execute($lgArgs);
+$lessonGrid = $lgStmt->fetchAll();
+
+$lgBase = http_build_query(array_filter([
+    'q' => $lgQ,
+    'f_course' => $lgCourse > 0 ? $lgCourse : null,
+    'f_delivery' => $lgDelivery !== 'all' ? $lgDelivery : null,
+    'f_status' => $lgStatus !== 'all' ? $lgStatus : null,
+], static fn ($v): bool => $v !== null && $v !== ''));
+
+// Load the lesson being edited (when ?edit_lesson=<id> is set).
+$editingLesson = null;
+$editLessonId = (int) ($_GET['edit_lesson'] ?? 0);
+if ($editLessonId > 0) {
+    $elStmt = $pdo->prepare("SELECT l.*, w.title AS course_title FROM academy_lessons l JOIN webinars w ON w.id = l.webinar_id WHERE l.id = ?");
+    $elStmt->execute([$editLessonId]);
+    $editingLesson = $elStmt->fetch() ?: null;
+}
+
+$homepage = academy_homepage_settings($pdo);
+$activeCourses = array_values(array_filter($courses, static fn (array $row): bool => (string) ($row['status'] ?? '') === 'active'));
+
 admin_page_start('Academy Workspace', [
     'active' => 'academy/?page=' . str_replace('_', '-', (string) $tab),
     'description' => 'Manage programs, courses, lessons, materials, assessments, enrollments, certificates, refunds, and learning reports.',
@@ -560,7 +1003,9 @@ admin_page_start('Academy Workspace', [
         ['label' => 'Learning & Training'],
         ['label' => 'Academy Workspace'],
     ],
-    'css' => '.acad-workspace{display:block}.acad-rail{position:sticky;top:18px;min-height:calc(100vh - 36px);border-radius:8px;background:linear-gradient(180deg,#063f24,#005b32);color:#fff;padding:16px;box-shadow:0 18px 42px rgba(6,63,36,.22)}.acad-brand{display:flex;gap:10px;align-items:center;border-bottom:1px solid rgba(255,255,255,.14);padding-bottom:14px;margin-bottom:14px}.acad-brand img{width:46px;height:46px;border-radius:50%;background:#fff;padding:4px}.acad-brand strong{display:block;font-size:1.05rem}.acad-brand small{display:block;color:#dff5e8;font-size:.72rem;line-height:1.25}.acad-label{font-size:.72rem;text-transform:uppercase;color:#aee4c4;font-weight:900;margin:14px 4px 8px}.acad-nav{display:grid;gap:5px}.acad-nav a{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#fff;text-decoration:none;padding:10px 11px;border-radius:8px;font-weight:850}.acad-nav a:hover,.acad-nav a.active{background:rgba(46,204,113,.24)}.acad-nav span:first-child{display:inline-flex;align-items:center;gap:9px}.acad-count{background:#0ea765;color:#fff;border-radius:999px;min-width:24px;text-align:center;padding:2px 7px;font-size:.74rem}.acad-count.warn{background:#f79009}.acad-content{min-width:0;padding:0}.acad-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}.acad-search{flex:1;min-width:280px;border:1px solid var(--line);border-radius:8px;background:#fff;display:flex;align-items:center;gap:10px;padding:9px 12px;color:var(--muted)}.acad-search input{border:0;box-shadow:none;padding:0}.acad-search input:focus{box-shadow:none}.acad-toolstrip{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.acad-tool{border:1px solid var(--line);border-radius:8px;background:#fff;padding:9px 11px;font-weight:850;color:#102033}.acad-head{display:flex;justify-content:space-between;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:14px}.acad-head h2{font-size:1.65rem;margin:0;color:#0b1f16}.acad-head p{margin:4px 0 0;color:var(--muted)}.acad-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.acad-kpi{border:1px solid var(--line);border-radius:8px;background:#fff;box-shadow:var(--shadow);padding:14px;display:flex;justify-content:space-between;gap:10px;min-height:112px}.acad-kpi small{display:block;text-transform:uppercase;font-size:.72rem;font-weight:900;color:#536171}.acad-kpi strong{display:block;font-size:1.45rem;color:#101828;margin-top:7px}.acad-kpi span{display:block;color:#079455;font-size:.78rem;font-weight:850;margin-top:5px}.acad-icon{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:#e8f5ed;color:#087443;font-size:1.2rem}.acad-icon.blue{background:#e8f1ff;color:#175cd3}.acad-icon.orange{background:#fff1df;color:#c05600}.acad-icon.purple{background:#f1e9ff;color:#6941c6}.acad-icon.red{background:#fee4e2;color:#d92d20}.acad-grid{display:grid;grid-template-columns:1.2fr 1.35fr .95fr;gap:14px;margin-top:14px}.acad-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-top:14px}.acad-bottom{display:grid;grid-template-columns:1fr 1.15fr;gap:14px;margin-top:14px}.acad-panel{border:1px solid var(--line);border-radius:8px;background:#fff;box-shadow:var(--shadow);padding:14px}.acad-panel-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}.acad-panel-head h3{margin:0;color:#102033;font-size:1rem}.acad-panel-head a{color:#0f6b3c;text-decoration:none;font-weight:900;font-size:.82rem}.acad-table{width:100%;border-collapse:collapse}.acad-table th,.acad-table td{padding:9px 8px;border-bottom:1px solid #edf1f4;text-align:left;font-size:.8rem;vertical-align:top}.acad-table th{font-size:.72rem;text-transform:uppercase;color:#667085}.acad-badge{display:inline-flex;border-radius:999px;padding:3px 7px;font-size:.7rem;font-weight:900}.acad-badge.ok{background:#dcfae6;color:#067647}.acad-badge.info{background:#dbeafe;color:#175cd3}.acad-badge.warn{background:#fef0c7;color:#b54708}.acad-badge.bad{background:#fee4e2;color:#b42318}.acad-chart{height:210px;display:flex;align-items:end;gap:10px;border-bottom:1px solid #d8dee6;padding:12px 8px 0}.acad-bar{flex:1;border-radius:8px 8px 0 0;background:linear-gradient(180deg,#0f6b3c,#9bd6ae);min-height:28px}.acad-list{display:grid;gap:9px}.acad-list-row{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid #eef2f4;padding-bottom:9px;font-size:.83rem}.acad-list-row strong{color:#102033}.acad-list-row small{display:block;color:var(--muted);margin-top:2px}.acad-progress{height:8px;border-radius:999px;background:#eef2f4;overflow:hidden;min-width:86px}.acad-fill{height:100%;background:#0f6b3c}.acad-actions{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px}.acad-action{border:1px solid var(--line);border-radius:8px;background:#fff;padding:16px;display:flex;gap:12px;align-items:center;color:inherit;text-decoration:none}.acad-action i{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:#e8f5ed;color:#0f6b3c}.acad-action strong{display:block;color:#102033}.acad-action small{color:var(--muted)}.academy-tabs{display:grid;gap:10px;margin:0 0 18px}.academy-tab-row{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fff}.academy-tab-label{min-width:92px;padding:9px 10px;color:var(--green-dark);font-weight:900}.academy-tab-row a{display:inline-flex;align-items:center;min-height:36px;padding:8px 11px;border:1px solid transparent;border-radius:7px;background:#f8fbf9;color:var(--ink);font-weight:800}.academy-tab-row a.active,.academy-tab-row a:hover{background:#e8f5ed;border-color:#cae4d4;color:var(--green-dark);text-decoration:none}.academy-split{display:grid;grid-template-columns:360px minmax(0,1fr);gap:18px;align-items:start}.academy-create{padding:0}.academy-create>summary{padding:16px 18px;font-weight:900;color:var(--green-dark);cursor:pointer;list-style:none}.academy-create>summary::-webkit-details-marker{display:none}.academy-create>form,.academy-create>.panel-inner{padding:0 18px 18px}.academy-pillbox{display:flex;gap:6px;flex-wrap:wrap}.academy-pillbox label{margin:0;border:1px solid var(--line);border-radius:999px;padding:6px 9px;background:#fbfdfb;font-size:.85rem}.academy-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.academy-card-list{display:grid;gap:12px}.academy-card-list article{border:1px solid var(--line);border-radius:8px;background:#fff;padding:14px}.academy-mini{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}@media(max-width:1100px){.acad-workspace{grid-template-columns:1fr}.acad-rail{position:relative;top:auto;min-height:auto}.acad-nav{grid-template-columns:repeat(3,minmax(0,1fr))}.acad-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.acad-grid,.acad-row,.acad-bottom{grid-template-columns:1fr}.acad-actions{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:900px){.academy-split,.academy-form-grid,.acad-nav,.acad-kpis,.acad-actions{grid-template-columns:1fr}.academy-tab-label{width:100%;min-width:0}}',
+    'css' => '.acad-brand{display:flex;gap:10px;align-items:center;border-bottom:1px solid rgba(255,255,255,.14);padding-bottom:14px;margin-bottom:14px}.acad-brand img{width:46px;height:46px;border-radius:50%;background:#fff;padding:4px}.acad-brand strong{display:block;font-size:1.05rem}.acad-brand small{display:block;color:#dff5e8;font-size:.72rem;line-height:1.25}.acad-label{font-size:.72rem;text-transform:uppercase;color:#aee4c4;font-weight:900;margin:14px 4px 8px}.acad-nav{display:grid;gap:5px}.acad-nav a{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#fff;text-decoration:none;padding:10px 11px;border-radius:8px;font-weight:850}.acad-nav a:hover,.acad-nav a.active{background:rgba(46,204,113,.24)}.acad-nav span:first-child{display:inline-flex;align-items:center;gap:9px}.acad-count{background:#0ea765;color:#fff;border-radius:999px;min-width:24px;text-align:center;padding:2px 7px;font-size:.74rem}.acad-count.warn{background:#f79009}.acad-toolstrip{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.acad-tool{border:1px solid var(--line);border-radius:8px;background:#fff;padding:9px 11px;font-weight:850;color:#102033}.acad-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px}.acad-head h2{font-size:1.65rem;margin:0;color:#0b1f16}.acad-head p{margin:4px 0 0;color:var(--muted)}.acad-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.acad-kpi{border:1px solid var(--line);border-radius:8px;background:#fff;box-shadow:var(--shadow);padding:14px;display:flex;justify-content:space-between;gap:10px;min-height:112px}.acad-kpi small{display:block;text-transform:uppercase;font-size:.72rem;font-weight:900;color:#536171}.acad-kpi strong{display:block;font-size:1.45rem;color:#101828;margin-top:7px}.acad-kpi span{display:block;color:#079455;font-size:.78rem;font-weight:850;margin-top:5px}.acad-icon{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:#e8f5ed;color:#087443;font-size:1.2rem}.acad-icon.blue{background:#e8f1ff;color:#175cd3}.acad-icon.orange{background:#fff1df;color:#c05600}.acad-icon.purple{background:#f1e9ff;color:#6941c6}.acad-icon.red{background:#fee4e2;color:#d92d20}.acad-overview-grid{display:grid;grid-template-columns:1.2fr 1.35fr .95fr;gap:14px;margin-top:14px}.acad-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-top:14px}.acad-bottom{display:grid;grid-template-columns:1fr 1.15fr;gap:14px;margin-top:14px}.acad-panel{border:1px solid var(--line);border-radius:8px;background:#fff;box-shadow:var(--shadow);padding:14px}.acad-panel-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}.acad-panel-head h3{margin:0;color:#102033;font-size:1rem}.acad-panel-head a{color:#0f6b3c;text-decoration:none;font-weight:900;font-size:.82rem}.acad-table{width:100%;border-collapse:collapse}.acad-table th,.acad-table td{padding:9px 8px;border-bottom:1px solid #edf1f4;text-align:left;font-size:.8rem;vertical-align:top}.acad-table th{font-size:.72rem;text-transform:uppercase;color:#667085}.acad-badge{display:inline-flex;border-radius:999px;padding:3px 7px;font-size:.7rem;font-weight:900}.acad-badge.ok{background:#dcfae6;color:#067647}.acad-badge.info{background:#dbeafe;color:#175cd3}.acad-badge.warn{background:#fef0c7;color:#b54708}.acad-badge.bad{background:#fee4e2;color:#b42318}.acad-chart{height:210px;display:flex;align-items:flex-end;gap:10px;border-bottom:1px solid #d8dee6;padding:12px 8px 0}.acad-bar{flex:1;border-radius:8px 8px 0 0;background:linear-gradient(180deg,#0f6b3c,#9bd6ae);min-height:28px}.acad-list{display:grid;gap:9px}.acad-list-row{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid #eef2f4;padding-bottom:9px;font-size:.83rem}.acad-list-row strong{color:#102033}.acad-list-row small{display:block;color:var(--muted);margin-top:2px}.acad-progress{height:8px;border-radius:999px;background:#eef2f4;overflow:hidden;min-width:86px}.acad-fill{height:100%;background:#0f6b3c}.acad-actions{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px}.acad-action{border:1px solid var(--line);border-radius:8px;background:#fff;padding:16px;display:flex;gap:12px;align-items:center;color:inherit;text-decoration:none}.acad-action i{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:#e8f5ed;color:#0f6b3c}.acad-action strong{display:block;color:#102033}.acad-action small{color:var(--muted)}.academy-tabs{display:grid;gap:10px;margin:0 0 18px}.academy-tab-row{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fff}.academy-tab-label{min-width:92px;padding:9px 10px;color:var(--green-dark);font-weight:900}.academy-tab-row a{display:inline-flex;align-items:center;min-height:36px;padding:8px 11px;border:1px solid transparent;border-radius:7px;background:#f8fbf9;color:var(--ink);font-weight:800}.academy-tab-row a.active,.academy-tab-row a:hover{background:#e8f5ed;border-color:#cae4d4;color:var(--green-dark);text-decoration:none}.academy-split{display:grid;grid-template-columns:360px minmax(0,1fr);gap:18px;align-items:start}.academy-create{padding:0}.academy-create>summary{padding:16px 18px;font-weight:900;color:var(--green-dark);cursor:pointer;list-style:none}.academy-create>summary::-webkit-details-marker{display:none}.academy-create>form,.academy-create>.panel-inner{padding:0 18px 18px}.academy-pillbox{display:flex;gap:6px;flex-wrap:wrap}.academy-pillbox label{margin:0;border:1px solid var(--line);border-radius:999px;padding:6px 9px;background:#fbfdfb;font-size:.85rem}.academy-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.academy-card-list{display:grid;gap:12px}.academy-card-list article{border:1px solid var(--line);border-radius:8px;background:#fff;padding:14px}.academy-mini{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}@media(max-width:1100px){.acad-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.acad-overview-grid,.acad-row,.acad-bottom{grid-template-columns:1fr}.acad-actions{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:900px){.academy-split,.academy-form-grid,.acad-kpis,.acad-actions{grid-template-columns:1fr}.academy-tab-label{width:100%;min-width:0}}',
 ]);
 define('NATCODEV_ACADEMY_WORKSPACE_VIEW', true);
 require __DIR__ . '/views/workspace.php';
+admin_page_end();
+

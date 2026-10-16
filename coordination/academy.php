@@ -4,7 +4,7 @@ require_once __DIR__ . '/_coordination.php';
 
 $pdo = coord_pdo();
 $user = coord_require($pdo);
-$scope = coord_state_filter($pdo, $user);
+$scope = coord_scope_filter($pdo, $user);
 $wallet = wallet_get_or_create($pdo, (int) $user['id']);
 $where = $scope['where'];
 $params = $scope['params'];
@@ -15,5 +15,5 @@ $recent = coord_rows($pdo, "SELECT a.app_ref, a.name, " . coord_app_state_expr()
 coord_header('Coordination Academy', 'Review governance training, coordinator readiness, and Academy pathways.', $user, 'academy');
 ?>
 <div class="kpis"><div class="kpi"><i class="fas fa-users"></i><b><?= number_format($apps) ?></b><span>Scoped registrations</span></div><div class="kpi"><i class="fas fa-hourglass-half"></i><b><?= number_format($pending) ?></b><span>Pending actions</span></div><div class="kpi"><i class="fas fa-headset"></i><b><?= number_format($support) ?></b><span>Support issues</span></div><div class="kpi"><i class="fas fa-wallet"></i><b>NGN <?= e(number_format((float) ($wallet['balance'] ?? 0), 2)) ?></b><span>Wallet balance</span></div><div class="kpi"><i class="fas fa-location-dot"></i><b><?= e((string) $scope['label']) ?></b><span>Operating scope</span></div></div>
-<div class="grid"><section class="card span-8"><h2>Current Activity</h2><div class="list"><?php foreach ($recent as $row): ?><div class="row"><span><strong><?= e((string) $row['name']) ?></strong><br><small><?= e((string) $row['app_ref']) ?> / <?= e((string) $row['state']) ?> / <?= e((string) $row['lga']) ?></small></span><span class="badge"><?= e((string) $row['status']) ?></span></div><?php endforeach; ?><?php if (!$recent): ?><div class="row">No scoped activity yet.</div><?php endif; ?></div></section><section class="card span-4"><h2>Leadership Actions</h2><p><a class="btn" href="operations.php">Operations</a></p><p><a class="btn light" href="reports.php">Reports</a></p><p><a class="btn light" href="support.php">Support</a></p><p><a class="btn light" href="logout.php">Logout</a></p></section></div>
+<div class="grid"><section class="card span-8"><h2>Current Activity</h2><div class="list"><?php foreach ($recent as $row): ?><div class="row"><span><strong><?= e((string) $row['name']) ?></strong><br><small><?= e((string) $row['app_ref']) ?> / <?= e((string) $row['state']) ?> / <?= e((string) $row['lga']) ?></small></span><span class="badge"><?= e((string) $row['status']) ?></span></div><?php endforeach; ?><?php if (!$recent): ?><div class="row">No scoped activity yet.</div><?php endif; ?></div></section><section class="card span-4"><h2>Leadership Actions</h2><p><a class="btn" href="operations.php">Operations</a></p><p><a class="btn light" href="reports.php">Reports</a></p><p><a class="btn light" href="support.php">Support</a></p><p><a class="btn light" href="logout.php?_csrf=<?= e(csrf_token()) ?>">Logout</a></p></section></div>
 <?php coord_footer(); ?>

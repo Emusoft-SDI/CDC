@@ -4,7 +4,7 @@ declare(strict_types=1);
 if (!defined('NATCODEV_REPORTS_LEGACY')) {
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         $query = $_GET;
-        $query['page'] = preg_replace('/[^a-z-]/', '', (string) ($query['page'] ?? 'overview')) ?: 'overview';
+        $query['page'] = preg_replace('/[^a-z_-]/', '', (string) ($query['page'] ?? 'overview')) ?: 'overview';
         header('Location: reports/?' . http_build_query($query), true, 302);
         exit;
     }
@@ -14,6 +14,7 @@ if (!defined('NATCODEV_REPORTS_LEGACY')) {
 require_once __DIR__ . '/_auth.php';
 require_once __DIR__ . '/../lib/platform-governance.php';
 require_once __DIR__ . '/../lib/marketplace.php';
+require_once __DIR__ . '/../coordination/_coordination.php';
 
 $pdo = db();
 admin_ensure_schema($pdo);
@@ -71,39 +72,86 @@ function report_money(float $amount): string
     return 'NGN ' . number_format($amount, 2);
 }
 
-function report_catalog_for_role(string $role): array
-{
-    $catalog = [
-        'executive' => ['Executive Intelligence', 'National performance, risk, growth, adoption, marketplace, finance, and compliance.'],
-        'state' => ['State Operations', 'State farmers, farms, accreditation, resources, field network, provider coverage, and actions.'],
-        'grower' => ['Grower Intelligence', 'Registration, documents, farms, accreditation, wallet, purchases, support, training, and farm health.'],
-        'field' => ['Field Team Reports', 'Tasks, visits, GPS confidence, pending verification, agronomy observations, and productivity.'],
-        'provider' => ['Provider Reports', 'Input/service providers, approvals, offerings, geography, inventory, inquiries, and delivery capacity.'],
-        'marketplace' => ['Marketplace Reports', 'Sellers, listings, orders, revenue, buyer demand, stock, disputes, and approvals.'],
-        'finance' => ['Finance Reports', 'Wallet funding, spend, pending payments, marketplace value, allocation budgets, and anomalies.'],
-        'support' => ['Support & Communication', 'Tickets, priority queues, response risk, broadcasts, notification delivery, and unresolved issues.'],
-        'compliance' => ['Compliance Reports', 'Document verification, certificates, accreditation, governance policy review, and audit events.'],
-    ];
-
-    return match ($role) {
-        'state_coordinator' => array_intersect_key($catalog, array_flip(['state', 'grower', 'field', 'provider', 'support', 'compliance'])),
-        'field_agent', 'agronomist', 'agric_extensionist' => array_intersect_key($catalog, array_flip(['field', 'grower', 'support'])),
-        'investor' => array_intersect_key($catalog, array_flip(['executive', 'marketplace', 'finance'])),
-        default => $catalog,
-    };
-}
-
 function report_csv(string $filename, array $rows): void
 {
     app_export_csv($filename, $rows ? array_keys($rows[0]) : [], $rows);
 }
 
-$role = admin_current_platform_role($pdo) ?: 'admin';
-$catalog = report_catalog_for_role($role);
-$selectedReport = (string) ($_GET['report'] ?? array_key_first($catalog));
-if (!isset($catalog[$selectedReport])) {
-    $selectedReport = (string) array_key_first($catalog);
+function report_fill_series(array $rows, int $days, string $valueField = 'c'): array
+{
+    $map = [];
+    foreach ($rows as $row) {
+        $key = (string) ($row['d'] ?? '');
+        if ($key === '') {
+            continue;
+        }
+        $map[$key] = $valueField === 'c' ? (int) ($row['c'] ?? 0) : (float) ($row[$valueField] ?? 0);
+    }
+    $labels = [];
+    $values = [];
+    for ($i = $days - 1; $i >= 0; $i--) {
+        $ts = strtotime("-{$i} days");
+        $labels[] = date('M j', $ts);
+        $values[] = $map[date('Y-m-d', $ts)] ?? 0;
+    }
+
+    return [$labels, $values];
 }
+
+function report_fill_monthly(array $rows, int $months, string $valueField = 'c'): array
+{
+    $map = [];
+    foreach ($rows as $row) {
+        $key = (string) ($row['m'] ?? '');
+        if ($key === '') {
+            continue;
+        }
+        $map[$key] = $valueField === 'c' ? (int) ($row['c'] ?? 0) : (float) ($row[$valueField] ?? 0);
+    }
+    $labels = [];
+    $values = [];
+    for ($i = $months - 1; $i >= 0; $i--) {
+        $ts = strtotime("-{$i} months");
+        $labels[] = date('M Y', $ts);
+        $values[] = $map[date('Y-m', $ts)] ?? 0;
+    }
+
+    return [$labels, $values];
+}
+
+function report_subpages(): array
+{
+    return [
+        'overview' => ['Executive Overview', 'National performance, growth, adoption, marketplace, finance, and risk signals.', 'fa-chart-pie'],
+        'growers' => ['Grower & Farm Intelligence', 'Registration, documents, farms, accreditation, geography, and farm health.', 'fa-seedling'],
+        'marketplace' => ['Marketplace Intelligence', 'Sellers, listings, orders, revenue, buyer demand, and seller performance.', 'fa-store'],
+        'finance' => ['Finance & Wallet', 'Wallet volume, budget burn, transaction mix, and daily cash movement.', 'fa-wallet'],
+        'field' => ['Field Operations', 'Visits, tasks, verification coverage, purpose mix, and agent workload.', 'fa-map-marked-alt'],
+        'providers' => ['Provider Ecosystem', 'Provider approvals, types, offerings, geography, and onboarding backlog.', 'fa-truck'],
+        'support' => ['Support & Communications', 'Ticket queues, priority risk, category load, and resolution status.', 'fa-headset'],
+        'compliance' => ['Compliance & Accreditation', 'Document verification queue, accreditation coverage, and audit posture.', 'fa-shield-halved'],
+        'coordinator_coverage' => ['Coordinator Coverage', 'Tiers, enrollment pipeline, and scope coverage gaps.', 'fa-users-crown'],
+    ];
+}
+
+function report_subpages_for_role(string $role): array
+{
+    return match ($role) {
+        'state_coordinator', 'lga_coordinator', 'district_coordinator', 'village_coordinator' => ['growers', 'field', 'providers', 'support', 'compliance'],
+        'national_coordinator', 'regional_coordinator' => array_keys(report_subpages()),
+        'field_agent', 'agronomist', 'agric_extensionist' => ['field', 'growers', 'support'],
+        'investor' => ['overview', 'marketplace', 'finance'],
+        default => array_keys(report_subpages()),
+    };
+}
+
+$role = admin_current_platform_role($pdo) ?: 'admin';
+$reportCatalog = report_subpages();
+$subpageKeys = report_subpages_for_role($role);
+$legacyAliases = ['executive' => 'overview', 'state' => 'growers', 'grower' => 'growers', 'provider' => 'providers'];
+$requested = strtolower(trim((string) ($_GET['page'] ?? $_GET['report'] ?? 'overview')));
+$requested = $legacyAliases[$requested] ?? $requested;
+$subpage = in_array($requested, $subpageKeys, true) ? $requested : $subpageKeys[0];
 
 $startDate = (string) ($_GET['start_date'] ?? date('Y-m-d', strtotime('-30 days')));
 $endDate = (string) ($_GET['end_date'] ?? date('Y-m-d'));
@@ -157,6 +205,13 @@ if ($selectedStateId > 0) {
 if ($selectedLgaId > 0) {
     $locationFilterSql .= " AND (gf.lga_id = ? OR a.lga_id = ? OR nl.id = ?)";
     array_push($locationFilterParams, $selectedLgaId, $selectedLgaId, $selectedLgaId);
+}
+
+// Coordinator enclave scoping — only narrows, never widens
+$coordScopeSql = report_coord_scope_sql($pdo, $currentReportUser);
+if ($coordScopeSql['sql'] !== '') {
+    $locationFilterSql .= ' AND ' . $coordScopeSql['sql'];
+    $locationFilterParams = array_merge($locationFilterParams, $coordScopeSql['params']);
 }
 
 $farmersTotal = report_count($pdo, "
@@ -269,28 +324,188 @@ $accreditationRate = report_pct($accredited, $farmersTotal);
 $verificationRate = report_pct($verifiedFarms, max(1, $farmsTotal));
 $budgetBurn = report_pct($spent, $budgeted);
 
-// Generate Real Chart Data (10 bars) for Marketplace Value
-$chartDataMarketplace = [];
-$chartDataProviders = [];
-$maxMarket = 0;
-$maxProv = 0;
-for ($i = 9; $i >= 0; $i--) {
-    $dayStart = date('Y-m-d 00:00:00', strtotime("-{$i} days"));
-    $dayEnd = date('Y-m-d 23:59:59', strtotime("-{$i} days"));
-    
-    $mVal = report_sum($pdo, "SELECT COALESCE(SUM(total_amount), 0) FROM marketplace_orders WHERE created_at BETWEEN ? AND ?", [$dayStart, $dayEnd]);
-    $pVal = report_count($pdo, "SELECT COUNT(*) FROM marketplace_orders WHERE created_at BETWEEN ? AND ?", [$dayStart, $dayEnd]) * 10; // rough representation of activity
-    
-    $maxMarket = max($maxMarket, $mVal);
-    $maxProv = max($maxProv, $pVal);
-    
-    $chartDataMarketplace[] = $mVal;
-    $chartDataProviders[] = $pVal;
+$prevStart = date('Y-m-d 00:00:00', strtotime('-60 days'));
+$prevEnd = date('Y-m-d 00:00:00', strtotime('-31 days'));
+$prevOrderCount = report_count($pdo, "SELECT COUNT(*) FROM marketplace_orders WHERE created_at BETWEEN ? AND ?", [$prevStart, $prevEnd]);
+$prevOrderValue = report_sum($pdo, "SELECT COALESCE(SUM(total_amount),0) FROM marketplace_orders WHERE created_at BETWEEN ? AND ?", [$prevStart, $prevEnd]);
+$prevFarmersNew = report_count($pdo, "SELECT COUNT(DISTINCT u.id) FROM users u WHERE u.role='grower' AND u.created_at BETWEEN ? AND ?", [$prevStart, $prevEnd]);
+$prevWalletVolume = report_sum($pdo, "SELECT COALESCE(SUM(amount),0) FROM wallet_transactions WHERE status IN ('success','completed','paid') AND created_at BETWEEN ? AND ?", [$prevStart, $prevEnd]);
+$prevFieldVisits = report_count($pdo, "SELECT COUNT(*) FROM farm_visits fv JOIN grower_farms gf ON gf.id=fv.farm_id WHERE fv.visited_at BETWEEN ? AND ?", [$prevStart, $prevEnd]);
+
+$growthRate = fn($curr, $prev) => $prev > 0 ? round((($curr - $prev) / $prev) * 100, 1) : ($curr > 0 ? 100.0 : 0.0);
+$enrollGrowth = $growthRate($farmersNew, $prevFarmersNew);
+$orderGrowth = $growthRate($orderCount, $prevOrderCount);
+$valueGrowth = $growthRate($orderValue, $prevOrderValue);
+$walletGrowth = $growthRate($walletVolume, $prevWalletVolume);
+$visitGrowth = $growthRate($fieldVisits, $prevFieldVisits);
+
+[$enrollLabels, $enrollCounts] = report_fill_series(report_rows($pdo, "SELECT DATE(created_at) d, COUNT(*) c FROM users WHERE role='grower' AND created_at BETWEEN ? AND ? GROUP BY DATE(created_at)", $dateParams), 30);
+[$orderLabels, $orderAmounts] = report_fill_series(report_rows($pdo, "SELECT DATE(created_at) d, COALESCE(SUM(total_amount),0) v FROM marketplace_orders WHERE created_at BETWEEN ? AND ? GROUP BY DATE(created_at)", $dateParams), 30, 'v');
+[$visitLabels, $visitCounts] = report_fill_series(report_rows($pdo, "SELECT DATE(fv.visited_at) d, COUNT(*) c FROM farm_visits fv JOIN grower_farms gf ON gf.id = fv.farm_id AND gf.deleted_at IS NULL WHERE fv.visited_at BETWEEN ? AND ? GROUP BY DATE(fv.visited_at)", $dateParams), 30);
+[$monthlyLabels, $monthlyOrders] = report_fill_monthly(report_rows($pdo, "SELECT DATE_FORMAT(created_at,'%Y-%m') m, COALESCE(SUM(total_amount),0) v FROM marketplace_orders WHERE created_at >= ? GROUP BY m", [date('Y-m-01', strtotime('-11 months'))]), 12, 'v');
+[, $monthlyEnroll] = report_fill_monthly(report_rows($pdo, "SELECT DATE_FORMAT(created_at,'%Y-%m') m, COUNT(*) c FROM users WHERE role='grower' AND created_at >= ? GROUP BY m", [date('Y-m-01', strtotime('-11 months'))]), 12);
+[$wlbl, $walletDaily] = report_fill_series(report_rows($pdo, "SELECT DATE(created_at) d, COALESCE(SUM(amount),0) v FROM wallet_transactions WHERE status IN ('success','completed','paid') AND created_at BETWEEN ? AND ? GROUP BY DATE(created_at)", $dateParams), 10, 'v');
+
+$roleBreakdown = report_rows($pdo, "SELECT role, COUNT(*) cnt FROM users GROUP BY role ORDER BY cnt DESC LIMIT 8");
+$roleLabels = [];
+$roleData = [];
+foreach ($roleBreakdown as $r) {
+    $roleLabels[] = ucwords(str_replace('_', ' ', (string) $r['role']));
+    $roleData[] = (int) $r['cnt'];
 }
 
-// Normalize to percentages
-$chartMarketplacePct = array_map(fn($v) => $maxMarket > 0 ? max(10, round(($v / $maxMarket) * 100)) : 10, $chartDataMarketplace);
-$chartProvidersPct = array_map(fn($v) => $maxProv > 0 ? max(10, round(($v / $maxProv) * 100)) : 10, $chartDataProviders);
+$accStatus = report_rows($pdo, "
+    SELECT COALESCE(accreditation_status, 'not_accredited') status, COUNT(*) cnt
+    FROM users WHERE role='grower'
+    GROUP BY accreditation_status
+    ORDER BY cnt DESC
+");
+$accLabels = [];
+$accData = [];
+foreach ($accStatus as $r) {
+    $status = $r['status'] ?? 'not_accredited';
+    $accLabels[] = ucfirst(str_replace('_', ' ', $status));
+    $accData[] = (int) $r['cnt'];
+}
+
+$topStates = report_rows($pdo, "
+    SELECT ns.state_name, COUNT(DISTINCT u.id) farmers, COUNT(DISTINCT gf.id) farms
+    FROM users u
+    LEFT JOIN applications a ON a.id = u.application_id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
+    LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
+    WHERE u.role = 'grower' AND ns.state_name IS NOT NULL
+    GROUP BY ns.state_name
+    ORDER BY farmers DESC
+    LIMIT 10
+");
+$stateLabels = [];
+$stateFarmers = [];
+$stateFarms = [];
+foreach ($topStates as $r) {
+    $stateLabels[] = (string) $r['state_name'];
+    $stateFarmers[] = (int) $r['farmers'];
+    $stateFarms[] = (int) $r['farms'];
+}
+
+$walletTypes = report_rows($pdo, "
+    SELECT type, status, COUNT(*) cnt, SUM(ABS(amount)) total
+    FROM wallet_transactions
+    WHERE created_at BETWEEN ? AND ?
+    GROUP BY type, status
+    ORDER BY cnt DESC
+    LIMIT 10
+", $dateParams);
+$wtLabels = [];
+$wtValues = [];
+foreach ($walletTypes as $r) {
+    $wtLabels[] = ucfirst((string) $r['type']) . ' – ' . ucfirst((string) $r['status']);
+    $wtValues[] = (float) $r['total'];
+}
+
+$sellerTiers = report_rows($pdo, "
+    SELECT ms.seller_type, COUNT(ms.id) sellers, COUNT(ml.id) listings
+    FROM marketplace_sellers ms
+    LEFT JOIN marketplace_listings ml ON ml.seller_id = ms.id AND ml.deleted_at IS NULL
+    WHERE ms.deleted_at IS NULL
+    GROUP BY ms.seller_type
+    ORDER BY sellers DESC
+");
+$stLabels = [];
+$stSellers = [];
+$stListings = [];
+foreach ($sellerTiers as $r) {
+    $stLabels[] = ucwords((string) $r['seller_type']);
+    $stSellers[] = (int) $r['sellers'];
+    $stListings[] = (int) $r['listings'];
+}
+
+$provStatus = report_rows($pdo, "SELECT status, COUNT(*) cnt FROM provider_registry WHERE deleted_at IS NULL GROUP BY status ORDER BY cnt DESC");
+$prLabels = [];
+$prData = [];
+foreach ($provStatus as $r) {
+    $prLabels[] = ucfirst((string) $r['status']);
+    $prData[] = (int) $r['cnt'];
+}
+
+$visitPurposes = report_rows($pdo, "
+    SELECT COALESCE(ft.task_type, fv.result, 'general') purpose, COUNT(*) cnt
+    FROM farm_visits fv
+    LEFT JOIN field_tasks ft ON ft.id = fv.task_id
+    JOIN grower_farms gf ON gf.id = fv.farm_id AND gf.deleted_at IS NULL
+    WHERE fv.visited_at BETWEEN ? AND ?
+    GROUP BY purpose ORDER BY cnt DESC
+    LIMIT 8
+", $dateParams);
+$vpLabels = [];
+$vpData = [];
+foreach ($visitPurposes as $r) {
+    $vpLabels[] = ucwords(str_replace('_', ' ', (string) $r['purpose']));
+    $vpData[] = (int) $r['cnt'];
+}
+
+$ticketPriorities = report_rows($pdo, "
+    SELECT COALESCE(priority,'normal') priority, COUNT(*) cnt
+    FROM messages m WHERE m.status IN ('open','in_progress','resolved')
+    GROUP BY priority ORDER BY cnt DESC
+");
+$tpLabels = [];
+$tpData = [];
+foreach ($ticketPriorities as $r) {
+    $tpLabels[] = ucfirst((string) $r['priority']);
+    $tpData[] = (int) $r['cnt'];
+}
+
+$orderStatuses = report_rows($pdo, "SELECT payment_status, COUNT(*) cnt FROM marketplace_orders GROUP BY payment_status ORDER BY cnt DESC");
+$osLabels = [];
+$osData = [];
+foreach ($orderStatuses as $r) {
+    $osLabels[] = str_replace('_', ' ', (string) $r['payment_status']);
+    $osData[] = (int) $r['cnt'];
+}
+
+$messageStatusCounts = [
+    (int) report_count($pdo, "SELECT COUNT(*) FROM messages WHERE status='open'"),
+    (int) report_count($pdo, "SELECT COUNT(*) FROM messages WHERE status='in_progress'"),
+    (int) report_count($pdo, "SELECT COUNT(*) FROM messages WHERE status='resolved'"),
+];
+$supportCategories = report_rows($pdo, "
+    SELECT COALESCE(category,'general') category, COUNT(*) cnt
+    FROM messages
+    GROUP BY category ORDER BY cnt DESC
+    LIMIT 8
+");
+$scLabels = [];
+$scData = [];
+foreach ($supportCategories as $r) {
+    $scLabels[] = ucwords(str_replace('_', ' ', (string) $r['category']));
+    $scData[] = (int) $r['cnt'];
+}
+
+$docStatusRows = report_rows($pdo, "
+    SELECT COALESCE(verification_status,'pending') status, COUNT(*) cnt
+    FROM document_requirements
+    WHERE deleted_at IS NULL
+    GROUP BY verification_status
+    ORDER BY cnt DESC
+");
+$docLabels = [];
+$docData = [];
+foreach ($docStatusRows as $r) {
+    $docLabels[] = ucfirst(str_replace('_', ' ', (string) $r['status']));
+    $docData[] = (int) $r['cnt'];
+}
+$pendingDocQueue = report_rows($pdo, "
+    SELECT dr.id, u.name, u.email, dr.document_type, dr.verification_status, dr.uploaded_at
+    FROM document_requirements dr
+    JOIN users u ON u.id = dr.user_id
+    WHERE dr.verification_status IN ('pending','submitted','under_review','needs_review') AND dr.deleted_at IS NULL
+    ORDER BY dr.uploaded_at DESC
+    LIMIT 25
+");
+$docVerified = report_count($pdo, "SELECT COUNT(*) FROM document_requirements WHERE verification_status='verified' AND deleted_at IS NULL");
+$docTotal = report_count($pdo, "SELECT COUNT(*) FROM document_requirements WHERE deleted_at IS NULL");
+$docVerifyRate = report_pct($docVerified, $docTotal);
 
 $areaNameSql = $selectedLgaId > 0 ? 'COALESCE(nl.lga_name, u.location, a.location, "Unspecified")' : 'COALESCE(ns.state_name, a.location, u.location, "Unspecified")';
 $areaLabel = $selectedLgaId > 0 ? 'LGA' : 'State';
@@ -323,41 +538,97 @@ $stateRows = report_rows($pdo, "
     LIMIT 20
 ", $locationFilterParams);
 
-$exportRows = [];
-$moduleFile = __DIR__ . '/reports/modules/' . basename($selectedReport) . '.php';
+$fieldRows = report_rows($pdo, "
+    SELECT u.name agent, COUNT(fv.id) visits,
+           SUM(CASE WHEN ft.status IN ('pending','assigned','in_progress') THEN 1 ELSE 0 END) open_tasks
+    FROM users u
+    LEFT JOIN farm_visits fv ON fv.agent_id = u.id AND fv.visited_at BETWEEN ? AND ?
+    LEFT JOIN field_tasks ft ON ft.assigned_to = u.id
+    WHERE u.role = 'field_agent' OR u.is_agronomist = 1 OR u.is_extensionist = 1
+    GROUP BY u.id, u.name
+    ORDER BY visits DESC, open_tasks DESC
+    LIMIT 12
+", $dateParams);
+
+$providerRows = report_rows($pdo, "
+    SELECT provider_type, status, COUNT(*) total
+    FROM provider_registry
+    WHERE deleted_at IS NULL
+    GROUP BY provider_type, status
+    ORDER BY provider_type, status
+");
+
+$supportRows = report_rows($pdo, "
+    SELECT category, priority, status, COUNT(*) total
+    FROM messages
+    GROUP BY category, priority, status
+    ORDER BY FIELD(priority, 'high','medium','low'), total DESC
+    LIMIT 14
+");
+
+$moduleMap = [
+    'overview' => 'executive.php',
+    'growers' => 'state.php',
+    'marketplace' => 'marketplace.php',
+    'finance' => 'finance.php',
+    'field' => 'field.php',
+    'providers' => 'provider.php',
+    'support' => 'support.php',
+    'compliance' => 'default.php',
+    'coordinator_coverage' => 'coordinator-coverage.php',
+];
+$moduleFile = __DIR__ . '/reports/modules/' . ($moduleMap[$subpage] ?? 'default.php');
 if (!is_file($moduleFile)) {
     $moduleFile = __DIR__ . '/reports/modules/default.php';
 }
-
 require $moduleFile;
 
 $marketRows = is_array($marketRows ?? null) ? $marketRows : [];
 $stateRows = is_array($stateRows ?? null) ? $stateRows : [];
-$reportMapPoints = [
-    'Abia' => [70, 72], 'Adamawa' => [76, 42], 'Akwa Ibom' => [70, 82], 'Anambra' => [62, 70], 'Bauchi' => [58, 35],
-    'Bayelsa' => [50, 82], 'Benue' => [60, 58], 'Borno' => [82, 23], 'Cross River' => [76, 75], 'Delta' => [52, 75],
-    'Ebonyi' => [68, 68], 'Edo' => [48, 68], 'Ekiti' => [39, 60], 'Enugu' => [64, 66], 'Federal Capital Territory' => [50, 51],
-    'FCT' => [50, 51], 'Gombe' => [64, 38], 'Imo' => [66, 74], 'Jigawa' => [54, 21], 'Kaduna' => [44, 35],
-    'Kano' => [47, 24], 'Katsina' => [40, 19], 'Kebbi' => [22, 29], 'Kogi' => [50, 61], 'Kwara' => [36, 52],
-    'Lagos' => [25, 74], 'Nasarawa' => [56, 52], 'Niger' => [36, 43], 'Ogun' => [29, 70], 'Ondo' => [42, 66],
-    'Osun' => [36, 64], 'Oyo' => [31, 61], 'Plateau' => [58, 44], 'Rivers' => [58, 80], 'Sokoto' => [25, 20],
-    'Taraba' => [72, 52], 'Yobe' => [72, 25], 'Zamfara' => [34, 27],
-];
-function report_map_point_for_area(string $area, array $points, int $index): array
-{
-    $area = trim($area);
-    if (isset($points[$area])) {
-        return $points[$area];
-    }
-
-    return [24 + (($index * 19) % 58), 24 + (($index * 23) % 58)];
-}
-$reportMapRows = array_slice($stateRows, 0, 10);
-$maxReportMapFarmers = max(1, ...array_map(static fn(array $row): int => (int) ($row['farmers'] ?? 0), $reportMapRows ?: [['farmers' => 1]]));
+$fieldRows = is_array($fieldRows ?? null) ? $fieldRows : [];
+$providerRows = is_array($providerRows ?? null) ? $providerRows : [];
+$supportRows = is_array($supportRows ?? null) ? $supportRows : [];
 $exportRows = is_array($exportRows ?? null) ? $exportRows : [];
 
+$reportTileLayout = [
+    ['Kebbi', 0, 0], ['Sokoto', 1, 0], ['Zamfara', 2, 0], ['Katsina', 3, 0], ['Kano', 4, 0], ['Jigawa', 5, 0], ['Yobe', 6, 0], ['Borno', 7, 0],
+    ['Niger', 1, 1], ['Kaduna', 2, 1], ['Bauchi', 4, 1], ['Gombe', 5, 1], ['Taraba', 6, 1], ['Adamawa', 7, 1],
+    ['Kwara', 0, 2], ['Federal Capital Territory', 1, 2], ['Kogi', 2, 2], ['Nasarawa', 3, 2], ['Plateau', 4, 2], ['Benue', 5, 2],
+    ['Lagos', 1, 3], ['Ogun', 2, 3], ['Oyo', 3, 3], ['Osun', 4, 3], ['Ekiti', 5, 3], ['Ondo', 6, 3],
+    ['Edo', 3, 4], ['Delta', 4, 4], ['Enugu', 5, 4], ['Anambra', 6, 4], ['Imo', 7, 4],
+    ['Bayelsa', 4, 5], ['Rivers', 5, 5], ['Abia', 6, 5], ['Ebonyi', 7, 5],
+    ['Akwa Ibom', 6, 6], ['Cross River', 7, 6],
+];
+$stateGrowerCounts = report_rows($pdo, "
+    SELECT COALESCE(ns.state_name, '') state_name, COUNT(DISTINCT u.id) farmers
+    FROM users u
+    LEFT JOIN applications a ON a.id = u.application_id
+    LEFT JOIN grower_farms gf ON gf.user_id = u.id AND gf.deleted_at IS NULL
+    LEFT JOIN nigeria_states ns ON ns.id = COALESCE(gf.state_id, a.state_id)
+    WHERE u.role = 'grower' AND ns.state_name IS NOT NULL AND ns.state_name <> ''
+    GROUP BY ns.state_name
+");
+$tileGrowerCounts = [];
+$tileStateIds = [];
+foreach ($stateGrowerCounts as $row) {
+    $tileGrowerCounts[mb_strtolower(trim((string) $row['state_name']))] = (int) $row['farmers'];
+}
+foreach ($states as $stateRow) {
+    $tileStateIds[mb_strtolower(trim((string) $stateRow['state_name']))] = (int) $stateRow['id'];
+}
+$tileLookup = static function (string $name) use ($tileGrowerCounts, $tileStateIds): array {
+    $key = mb_strtolower(trim($name));
+    $alt = $key === 'fct' ? 'federal capital territory' : ($key === 'federal capital territory' ? 'fct' : $key);
+    return [
+        $tileGrowerCounts[$key] ?? $tileGrowerCounts[$alt] ?? 0,
+        $tileStateIds[$key] ?? $tileStateIds[$alt] ?? 0,
+    ];
+};
+$tileDisplayName = static fn(string $name): string => $name === 'Federal Capital Territory' ? 'FCT' : $name;
+$maxTileFarmers = max(1, max(array_values($tileGrowerCounts) ?: [0]));
+
 if (($_GET['format'] ?? '') === 'csv') {
-    report_csv('natcodev-' . $selectedReport . '-report-' . date('Ymd') . '.csv', $exportRows);
+    report_csv('natcodev-' . $subpage . '-report-' . date('Ymd') . '.csv', $exportRows);
 }
 
 $insights = [];
@@ -383,311 +654,128 @@ if (!$insights) {
     $insights[] = ['ok', 'No critical report alerts', 'The selected scope has no major threshold breach from the available data.'];
 }
 
+$sidebarQuery = $_GET;
+unset($sidebarQuery['page'], $sidebarQuery['report'], $sidebarQuery['format']);
+$exportHref = '?' . e(http_build_query($sidebarQuery + ['page' => $subpage, 'format' => 'csv']));
+
+$subpageMeta = $reportCatalog[$subpage];
 admin_page_start('Reporting Intelligence', [
-    'active' => 'reports.php',
-    'description' => 'Smart, role-aware reporting across growers, field teams, providers, marketplace, finance, support, compliance, and operations.',
+    'active' => 'reports/',
+    'description' => 'Smart, role-aware reporting across growers, field teams, providers, marketplace, finance, support, and compliance.',
     'wide' => true,
     'topbar_only' => true,
     'breadcrumbs' => [
         ['label' => 'Insights & Reports'],
         ['label' => 'Reporting Intelligence'],
     ],
+    'head_html' => '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"><link rel="stylesheet" href="../../assets/css/admin-workspaces.css">',
     'css' => '
-      .report-shell{display:grid;grid-template-columns:300px 1fr;gap:22px;align-items:start}
-      .report-list{display:grid;gap:8px}
-      .report-list a{display:block;padding:11px 12px;border:1px solid var(--line);border-radius:7px;background:#fff;color:#344054}
-      .report-list a.active,.report-list a:hover{background:#eef7f1;color:var(--green-dark);text-decoration:none}
-      .intelligence-grid{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
-      .signal{border-left:5px solid var(--green)}
-      .signal.warning{border-left-color:var(--warn)}
-      .signal.danger{border-left-color:var(--danger)}
-      .kpi-small{font-size:.84rem;color:var(--muted);font-weight:750}
-      .ri-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:24px}
-      .ri-top h2{margin:0;color:#06451f;font-size:1.45rem}.ri-top p{margin:5px 0 0;color:var(--muted)}
-      .ri-assurance{display:flex;gap:10px;flex-wrap:wrap}.ri-assurance span{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:9px 11px;font-weight:850;font-size:.84rem;color:#12391f}
-      .ri-board{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:18px;margin-bottom:26px}
-      .ri-card{background:#fff;border:1px solid rgba(16,24,40,.08);border-radius:12px;box-shadow:var(--shadow);padding:20px;min-width:0}
-      .ri-card h2,.ri-card h3{margin:0;color:#06451f}.ri-card p{margin:6px 0 0;color:var(--muted);line-height:1.5}
-      .ri-span-3{grid-column:span 3}.ri-span-4{grid-column:span 4}.ri-span-5{grid-column:span 5}.ri-span-6{grid-column:span 6}.ri-span-7{grid-column:span 7}.ri-span-8{grid-column:span 8}.ri-span-12{grid-column:span 12}
-      .ri-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}.ri-num{font-size:1.55rem;font-weight:950;color:#06451f}.ri-mini-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:11px;margin-top:14px}.ri-mini{border:1px solid var(--line);border-radius:8px;background:#fbfdfb;padding:12px}.ri-mini strong{display:block;color:#06451f;font-size:1.2rem}.ri-mini span{display:block;color:var(--muted);font-size:.78rem;font-weight:850}
-      .ri-report-cats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;margin-top:14px}.ri-cat{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;background:#fbfdfb;padding:11px;color:#12391f}.ri-cat i{width:34px;height:34px;border-radius:8px;background:#eaf8f0;color:#0f6b3c;display:grid;place-items:center}.ri-cat strong{display:block}.ri-cat span{font-size:.78rem;color:var(--muted)}
-      .ri-tabs{display:flex;gap:8px;border-bottom:1px solid var(--line);margin:14px 0}.ri-tabs span{padding:8px 0;font-size:.78rem;font-weight:900;color:#475467}.ri-tabs span.active{color:#06451f;border-bottom:2px solid #06451f}
-      .ri-list{display:grid;gap:10px}.ri-row{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #edf1ea;padding:10px 0}.ri-row:last-child{border-bottom:0}.ri-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;background:#eaf8f0;color:#0f6b3c;padding:4px 8px;font-size:.74rem;font-weight:950}.ri-badge.warn{background:#fff7df;color:#8a5a00}.ri-badge.bad{background:#fff3f3;color:#a32020}
-      .ri-chart{height:150px;border-left:1px solid var(--line);border-bottom:1px solid var(--line);display:grid;grid-template-columns:repeat(10,1fr);gap:8px;align-items:end;padding:10px 10px 0;background:linear-gradient(#fff,#fbfdfb);margin-top:14px}.ri-bar{height:var(--h);min-height:12px;background:linear-gradient(180deg,#1f8a55,#cfe8d8);border-radius:5px 5px 0 0}
-      .ri-donut{width:112px;height:112px;border-radius:50%;background:conic-gradient(#0f6b3c 0 58%,#2374c6 58% 78%,#f79009 78% 91%,#d92d20 91%);display:grid;place-items:center;margin:auto}.ri-donut b{display:grid;place-items:center;width:64px;height:64px;border-radius:50%;background:#fff;color:#06451f}
-      .ri-map{height:210px;border:1px solid var(--line);border-radius:8px;background:linear-gradient(135deg,#eaf8f0,#f8fcfa);position:relative;overflow:hidden;color:#06451f;font-weight:850}.ri-map-shape{position:absolute;inset:16px 26px;background:rgba(15,107,60,.12);clip-path:polygon(10% 47%,24% 18%,45% 10%,69% 15%,88% 30%,94% 50%,82% 72%,57% 90%,33% 84%,17% 66%);border:1px solid rgba(15,107,60,.22)}.ri-map-point{position:absolute;left:var(--x);top:var(--y);width:var(--s);height:var(--s);transform:translate(-50%,-50%);border-radius:50%;background:#0f6b3c;border:3px solid #fff;box-shadow:0 8px 18px rgba(6,63,36,.2);display:grid;place-items:center;color:#fff;font-size:.68rem;line-height:1}.ri-map-point small{position:absolute;left:50%;top:calc(100% + 4px);transform:translateX(-50%);white-space:nowrap;background:#fff;color:#0b5131;border:1px solid #cfe8d8;border-radius:999px;padding:2px 6px;font-size:.64rem;font-weight:900;box-shadow:0 5px 12px rgba(6,63,36,.08)}.ri-map-empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:16px;color:#64748b}.ri-map-foot{position:absolute;left:12px;right:12px;bottom:9px;display:flex;justify-content:space-between;gap:10px;font-size:.72rem;color:#315342}.ri-map-foot b{color:#06451f}
-      .ri-flow{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px}.ri-step{text-align:center;border:1px solid var(--line);border-radius:8px;background:#fbfdfb;padding:14px}.ri-step i{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;margin:0 auto 8px;background:#eaf8f0;color:#0f6b3c}
-      .ri-page-sep{height:1px;background:var(--line);border:0;margin:26px 0}
-      @media(max-width:1200px){.ri-span-3,.ri-span-4,.ri-span-5,.ri-span-6,.ri-span-7,.ri-span-8{grid-column:span 12}.ri-mini-grid,.ri-report-cats{grid-template-columns:repeat(2,minmax(0,1fr))}.ri-flow{grid-template-columns:repeat(3,minmax(0,1fr))}}
-      @media(max-width:680px){.ri-board,.ri-mini-grid,.ri-report-cats,.ri-flow{grid-template-columns:1fr}.ri-span-3,.ri-span-4,.ri-span-5,.ri-span-6,.ri-span-7,.ri-span-8,.ri-span-12{grid-column:auto}.ri-top{display:block}}
-      @media(max-width:980px){.report-shell{grid-template-columns:1fr}}
-      .rep-brand{display:flex;align-items:center;gap:10px;padding-bottom:14px;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,.14);color:#fff}
-      .rep-brand img{width:44px;height:44px;border-radius:50%;background:#fff;object-fit:contain;padding:4px}
-      .rep-brand strong{display:block;line-height:1.1}
-      .rep-brand span{display:block;margin-top:3px;color:#dff5e8;font-size:.72rem;font-weight:750}
-      .rep-label{margin:14px 4px 7px;color:#aee4c4;font-size:.7rem;font-weight:950;text-transform:uppercase;letter-spacing:.03em}
-      .rep-rail nav{display:grid;gap:6px}
-      .rep-rail a strong{display:block}
-      .rep-rail a small{display:block;color:#a9ccb9;font-weight:600;margin-top:2px}
-      .rep-rail .muted{color:#a9ccb9}
+      .rp-shell,.rep-shell{display:contents}
+      .rep-rail,.rp-side{background:linear-gradient(180deg,#074b2a,#003719);color:#fff;padding:24px 18px}
+      .rep-rail a,.rp-side a{color:#d9e9e2;text-decoration:none;padding:11px 12px;border-radius:8px;display:flex;align-items:center;gap:10px;font-weight:600}
+      .rep-rail a.active,.rep-rail a:hover,.rp-side a.active,.rp-side a:hover{background:#28644d;color:#fff}
+      .rep-rail a.active *,.rp-side a.active *{color:#fff}
+      .rep-main,.rp-main{padding:28px;min-width:0}
+      .rp-brand{display:flex;align-items:center;gap:10px;padding-bottom:14px;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,.14);color:#fff}
+      .rp-brand img{width:44px;height:44px;border-radius:50%;background:#fff;object-fit:contain;padding:4px}
+      .rp-brand strong{display:block;line-height:1.1}
+      .rp-brand span{display:block;margin-top:3px;color:#dff5e8;font-size:.72rem;font-weight:750}
+      .rp-label{margin:14px 4px 7px;color:#aee4c4;font-size:.7rem;font-weight:950;text-transform:uppercase;letter-spacing:.03em}
+      .rep-rail nav,.rp-side nav{display:grid;gap:5px}
+      .rep-rail a small,.rp-side a small{display:block;font-size:.68rem;font-weight:500;color:inherit;opacity:.75;margin-top:1px}
+      .rp-kpi{border-top:4px solid var(--workspace-green-600,#198754)}
+      .rp-geo-dot{width:var(--size,24px);height:var(--size,24px);border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:.65rem;font-weight:800;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+      .rp-tilemap{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px}
+      .rp-tile{border:1px solid rgba(16,24,40,.10);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:5px 2px;text-decoration:none;transition:transform .12s ease,box-shadow .12s ease;min-width:0;min-height:56px}
+      .rp-tile:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(16,24,40,.18);z-index:1}
+      .rp-tile-name{font-size:.6rem;font-weight:800;line-height:1.05;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;opacity:.92}
+      .rp-tile-value{font-size:.74rem;font-weight:900;font-variant-numeric:tabular-nums}
+      .rp-tile-selected{outline:3px solid #f79009;outline-offset:1px;box-shadow:0 0 0 2px #fff}
+      .rp-tile-legend{display:inline-block;width:130px;height:10px;border-radius:999px;background:linear-gradient(90deg,#e8f6ec,#074b2a);border:1px solid rgba(16,24,40,.10)}
+      @media(max-width:768px){.rp-tilemap{gap:4px}.rp-tile{min-height:48px}.rp-tile-name{font-size:.52rem}.rp-tile-value{font-size:.64rem}}
+      .rp-meter{background:#e2e8f0;border-radius:999px;height:24px;overflow:hidden}
+      .rp-meter-fill{background:linear-gradient(90deg,#0f6b3c,#2374c6);height:100%;border-radius:999px;display:flex;align-items:center;justify-content:flex-end;padding-right:10px;color:#fff;font-size:.8rem;font-weight:800}
+      @media(max-width:1024px){.rp-shell,.rep-shell{display:block}.rep-main,.rp-main{padding:16px}}
     ',
 ]);
 ?>
-<div class="rep-shell">
-  <aside class="rep-rail" aria-label="Reports workspace navigation">
-    <div class="rep-brand"><img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV"><div><strong>NATCODEV</strong><span>Reporting Intelligence</span></div></div>
-    <div class="rep-label">Reportables By Role</div>
-    <p class="muted" style="margin:0 4px 8px">Your current role is <strong><?= e(ucwords(str_replace('_', ' ', $role))) ?></strong>.</p>
-    <nav>
-      <?php foreach ($catalog as $key => $item): ?>
-        <a class="<?= $selectedReport === $key ? 'active' : '' ?>" href="?<?= e(http_build_query(array_merge($_GET, ['report' => $key, 'format' => null]))) ?>">
-          <i class="fas fa-chart-simple"></i>
-          <span><strong><?= e($item[0]) ?></strong><small><?= e($item[1]) ?></small></span>
-        </a>
-      <?php endforeach; ?>
+<div class="rep-shell rp-shell">
+  <aside class="rep-rail rp-side" aria-label="Reporting workspace navigation">
+    <div class="rp-brand"><img src="<?= e(app_admin_logo_url()) ?>" alt="NATCODEV"><div><strong>NATCODEV</strong><span>Reporting Intelligence</span></div></div>
+    <div class="rp-label">Report Modules</div>
+    <nav aria-label="Report modules">
+      <?php foreach ($subpageKeys as $key): $meta = $reportCatalog[$key]; ?><a class="<?= $subpage === $key ? 'active' : '' ?>" href="?<?= e(http_build_query($sidebarQuery + ['page' => $key])) ?>"><i class="fas <?= e($meta[2]) ?>"></i><span><?= e($meta[0]) ?><small><?= e($meta[1]) ?></small></span></a><?php endforeach; ?>
     </nav>
-    <div class="rep-label">Exits</div>
-    <nav>
-      <a href="<?= e(admin_chrome_url('index.php')) ?>"><i class="fas fa-gauge-high"></i><span>Workspace Hub</span></a>
+    <div class="rp-label">Exits</div>
+    <nav aria-label="Reporting exits">
+      <a href="../index.php"><i class="fas fa-gauge-high"></i><span>Workspace Hub</span></a>
+      <a href="../analytics.php"><i class="fas fa-chart-line"></i><span>Analytics Console</span></a>
+      <a href="../dashboard/"><i class="fas fa-house"></i><span>Dashboard</span></a>
     </nav>
   </aside>
 
-  <div class="rep-main">
-<section class="ri-top">
-  <div><h2>Reporting Intelligence & Drilldowns</h2><p>Actionable insights for every stakeholder. Drill down by State, LGA, Date, Program, or Module.</p></div>
-  <div class="ri-assurance">
-    <span>Data is real-time or near real-time</span>
-    <span>Export CSV / Excel-safe</span>
-    <span>Drill down to records</span>
-    <span>Audit trail for every action</span>
-  </div>
-</section>
+  <div class="rep-main rp-main">
+    <form method="get" class="card card-body mb-4">
+      <input type="hidden" name="page" value="<?= e($subpage) ?>">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3"><label class="form-label">State</label><select class="form-select" name="state_id" id="dash_state_id"><option value="">All states</option><?php foreach ($states as $s): ?><option value="<?= (int) $s['id'] ?>" <?= $selectedStateId === (int) $s['id'] ? 'selected' : '' ?>><?= e((string) $s['state_name']) ?></option><?php endforeach; ?></select></div>
+        <?php if ($role !== 'state_coordinator'): ?>
+        <div class="col-md-3"><label class="form-label">LGA</label><select class="form-select" name="lga_id" id="dash_lga_id" <?= !$selectedStateId ? 'disabled' : '' ?>><option value="">All LGAs</option><?php foreach ($lgaOptions as $l): ?><option value="<?= (int) $l['id'] ?>" <?= $selectedLgaId === (int) $l['id'] ? 'selected' : '' ?>><?= e((string) $l['lga_name']) ?></option><?php endforeach; ?></select></div>
+        <?php endif; ?>
+        <div class="col-md-2"><label class="form-label">From</label><input class="form-control" type="date" name="start_date" value="<?= e($startDate) ?>"></div>
+        <div class="col-md-2"><label class="form-label">To</label><input class="form-control" type="date" name="end_date" value="<?= e($endDate) ?>"></div>
+        <div class="col-md-2 d-flex gap-2"><button class="btn btn-success w-100" type="submit"><i class="fas fa-filter"></i> Refresh</button></div>
+      </div>
+    </form>
 
-<section class="ri-board">
-  <article class="ri-card ri-span-3">
-    <div class="ri-head"><h3>Reports Home</h3><a href="?<?= e(http_build_query(array_merge($_GET, ['format' => 'csv']))) ?>">Export</a></div>
-    <p>Role-aware report summary across active modules.</p>
-    <div class="ri-report-cats">
-      <?php foreach ([['Registry', $farmersTotal, 'fa-user-shield'], ['Farm Ops', $farmsTotal, 'fa-seedling'], ['Marketplace', $orderCount, 'fa-cart-shopping'], ['Academy', $registered ?? 0, 'fa-graduation-cap'], ['Wallet', (int) $walletVolume, 'fa-wallet'], ['Support', $openSupport, 'fa-headset'], ['Certificates', $accredited, 'fa-award'], ['Field Network', $fieldVisits, 'fa-map-location-dot']] as $cat): ?>
-        <a class="ri-cat" href="#detail"><i class="fas <?= e($cat[2]) ?>"></i><span><strong><?= e((string) $cat[0]) ?></strong><span><?= e(number_format((float) $cat[1])) ?> records</span></span></a>
-      <?php endforeach; ?>
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+      <div>
+        <span class="small text-success fw-bold text-uppercase"><?= e($subpageMeta[0]) ?></span>
+        <h1 class="h3 mb-1"><?= e($subpageMeta[0]) ?></h1>
+        <p class="text-secondary mb-0"><?= e($subpageMeta[1]) ?><?= $scopeState !== '' ? ' · Scope: ' . e($scopeState) : '' ?><?= $selectedLgaName !== '' ? ' / ' . e($selectedLgaName) : '' ?>.</p>
+      </div>
+      <div class="d-flex gap-2">
+        <a class="btn btn-outline-success" href="<?= $exportHref ?>"><i class="fas fa-download"></i> Export CSV</a>
+      </div>
     </div>
-    <div class="ri-list" style="margin-top:14px">
-      <?php foreach (array_slice($catalog, 0, 4, true) as $key => $item): ?>
-        <div class="ri-row"><span><?= e($item[0]) ?></span><span class="ri-badge">Ready</span></div>
-      <?php endforeach; ?>
-    </div>
-  </article>
 
-  <article class="ri-card ri-span-5">
-    <div class="ri-head"><h3>Grower My Reports</h3><a href="?report=grower">Full Grower Report</a></div>
-    <p>Your farm, verification, training, wallet and marketplace insights.</p>
-    <div class="ri-mini-grid">
-      <div class="ri-mini"><strong><?= number_format($farmersTotal) ?></strong><span>Growers</span></div>
-      <div class="ri-mini"><strong><?= number_format($farmsTotal) ?></strong><span>Farms</span></div>
-      <div class="ri-mini"><strong><?= $accreditationRate ?>%</strong><span>Accreditation</span></div>
-      <div class="ri-mini"><strong><?= number_format($openSupport) ?></strong><span>Open Support</span></div>
-    </div>
-    <div class="ri-tabs"><span class="active">Farm Performance</span><span>Verification</span><span>Academy</span><span>Wallet</span><span>Orders</span></div>
-    <div class="ri-board" style="margin:0">
-      <div class="ri-card ri-span-6" style="box-shadow:none"><h3>Farm Activities</h3><div class="ri-donut"><b><?= number_format($fieldVisits) ?><small>Total</small></b></div></div>
-      <div class="ri-card ri-span-6" style="box-shadow:none"><h3>Value Bridge</h3><div class="ri-num"><?= e(report_money($orderValue)) ?></div><small>Marketplace value this period</small><div class="ri-chart"><?php foreach ($chartMarketplacePct as $h): ?><i class="ri-bar" style="--h:<?= $h ?>%"></i><?php endforeach; ?></div></div>
-    </div>
-  </article>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script>
+      Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      Chart.defaults.font.size = 12;
+      Chart.defaults.color = '#64748b';
+      window.rpColors = ['#0f6b3c','#2374c6','#f79009','#d92d20','#8b5cf6','#ec4899','#14b8a6','#64748b','#e11d48','#0891b2','#f59e0b','#10b981'];
+      window.rpMoneyTick = function (v) { return '₦' + (v >= 1000 ? (v / 1000).toFixed(0) + 'K' : v); };
+    </script>
 
-  <article class="ri-card ri-span-4">
-    <div class="ri-head"><h3>Provider / Seller Reports</h3><a href="?report=provider">Business Report</a></div>
-    <p>Business, products, services, sales, accreditation and settlement.</p>
-    <div class="ri-mini-grid">
-      <div class="ri-mini"><strong><?= number_format($orderCount) ?></strong><span>Orders</span></div>
-      <div class="ri-mini"><strong><?= e(report_money($orderValue)) ?></strong><span>Sales</span></div>
-      <div class="ri-mini"><strong><?= number_format($listingCount) ?></strong><span>Products</span></div>
-      <div class="ri-mini"><strong><?= number_format($providersApproved) ?></strong><span>Providers</span></div>
-    </div>
-    <div class="ri-chart"><?php foreach ($chartProvidersPct as $h): ?><i class="ri-bar" style="--h:<?= $h ?>%"></i><?php endforeach; ?></div>
-    <div class="ri-list">
-      <?php foreach (array_slice($marketRows, 0, 4) as $row): ?><div class="ri-row"><span><?= e((string) $row['store_name']) ?></span><strong><?= e(report_money((float) $row['order_value'])) ?></strong></div><?php endforeach; ?>
-    </div>
-  </article>
-
-  <article class="ri-card ri-span-4">
-    <div class="ri-head"><h3>Field Agent Reports</h3><a href="?report=field">Field Agent Report</a></div>
-    <p>Visits, verifications, evidence and assignments.</p>
-    <div class="ri-mini-grid">
-      <div class="ri-mini"><strong><?= number_format($pendingTasks) ?></strong><span>Assigned</span></div>
-      <div class="ri-mini"><strong><?= number_format($fieldVisits) ?></strong><span>Completed</span></div>
-      <div class="ri-mini"><strong><?= number_format($verifiedFarms) ?></strong><span>Verified</span></div>
-      <div class="ri-mini"><strong><?= number_format($pendingDocs) ?></strong><span>Queue</span></div>
-    </div>
-    <div class="ri-donut"><b><?= number_format($verifiedFarms) ?><small>Total</small></b></div>
-  </article>
-
-  <article class="ri-card ri-span-4">
-    <div class="ri-head"><h3>State Operations Report</h3><a href="?report=state">Full State Report</a></div>
-    <p>Overview by State and LGA with drilldowns.</p>
-    <div class="ri-mini-grid">
-      <div class="ri-mini"><strong><?= number_format($farmersTotal) ?></strong><span>Total Growers</span></div>
-      <div class="ri-mini"><strong><?= number_format($accredited) ?></strong><span>Verified Growers</span></div>
-      <div class="ri-mini"><strong><?= number_format($sellerCount + $providersApproved) ?></strong><span>Providers / Sellers</span></div>
-      <div class="ri-mini"><strong><?= number_format($registered ?? 0) ?></strong><span>Academy</span></div>
-    </div>
-        <div class="ri-map" role="img" aria-label="State and LGA drilldown activity map">
-      <div class="ri-map-shape" aria-hidden="true"></div>
-      <?php foreach ($reportMapRows as $index => $row): ?>
-        <?php
-          $areaName = (string) ($row['area_name'] ?? 'Unspecified');
-          [$x, $y] = report_map_point_for_area($areaName, $reportMapPoints, $index);
-          $farmers = max(1, (int) ($row['farmers'] ?? 0));
-          $size = 16 + (int) round(($farmers / $maxReportMapFarmers) * 20);
-        ?>
-        <span class="ri-map-point" style="--x:<?= (int) $x ?>%;--y:<?= (int) $y ?>%;--s:<?= (int) $size ?>px" title="<?= e($areaName) ?>: <?= number_format($farmers) ?> growers">
-          <?= number_format($farmers) ?>
-          <small><?= e($areaName) ?></small>
-        </span>
-      <?php endforeach; ?>
-      <?php if (!$reportMapRows): ?><div class="ri-map-empty">No <?= e(strtolower($areaLabel)) ?> drilldown data is available yet.</div><?php endif; ?>
-      <div class="ri-map-foot"><span><b><?= e($areaLabel) ?> Drilldown</b></span><span>Top areas by growers</span></div>
-    </div>
-  </article>
-
-  <article class="ri-card ri-span-4">
-    <div class="ri-head"><h3>National Intelligence</h3><a href="?report=executive">National Report</a></div>
-    <p>National level insights across states and programs.</p>
-    <div class="ri-mini-grid">
-      <div class="ri-mini"><strong><?= number_format($farmersTotal) ?></strong><span>Total Growers</span></div>
-      <div class="ri-mini"><strong><?= number_format($accredited) ?></strong><span>Verified Growers</span></div>
-      <div class="ri-mini"><strong><?= number_format($providersApproved + $sellerCount) ?></strong><span>Providers / Sellers</span></div>
-      <div class="ri-mini"><strong><?= e(report_money($walletVolume)) ?></strong><span>Finance</span></div>
-    </div>
-    <div class="ri-list"><?php foreach (array_slice($stateRows, 0, 6) as $row): ?><div class="ri-row"><span><?= e((string) $row['area_name']) ?></span><strong><?= number_format((int) $row['farmers']) ?></strong></div><?php endforeach; ?></div>
-  </article>
-
-  <article class="ri-card ri-span-4">
-    <div class="ri-head"><h3>Export Center</h3><a href="?<?= e(http_build_query(array_merge($_GET, ['format' => 'csv']))) ?>">Generate Export</a></div>
-    <p>Export, schedule, and manage report deliveries.</p>
-    <div class="ri-list">
-      <div class="ri-row"><span>Report Category</span><strong><?= e($catalog[$selectedReport][0]) ?></strong></div>
-      <div class="ri-row"><span>Scope</span><strong><?= e($scopeState ?: 'All States') ?><?= $selectedLgaName ? ' / ' . e($selectedLgaName) : '' ?></strong></div>
-      <div class="ri-row"><span>Date Range</span><strong><?= e($startDate) ?> - <?= e($endDate) ?></strong></div>
-      <div class="ri-row"><span>Format</span><strong>Excel-safe CSV</strong></div>
-    </div>
-    <a class="button" href="?<?= e(http_build_query(array_merge($_GET, ['format' => 'csv']))) ?>">Generate Export</a>
-  </article>
-
-  <article class="ri-card ri-span-6">
-    <h3>Reporting & Drilldown Flow</h3>
-    <div class="ri-flow" style="margin-top:12px">
-      <?php foreach ([['fa-file-lines','Select Report'],['fa-filter','Set Scope'],['fa-chart-column','View Summary'],['fa-magnifying-glass-chart','Drill Down'],['fa-file-export','Export / Share'],['fa-clipboard-check','Audit Log']] as [$icon,$label]): ?>
-        <div class="ri-step"><i class="fas <?= e($icon) ?>"></i><strong><?= e($label) ?></strong></div>
-      <?php endforeach; ?>
-    </div>
-  </article>
-
-  <article class="ri-card ri-span-3">
-    <h3>Export Assurance</h3>
-    <div class="ri-list"><div class="ri-row"><span>Excel-safe CSV</span><span class="ri-badge">Ready</span></div><div class="ri-row"><span>Clean headers</span><span class="ri-badge">Ready</span></div><div class="ri-row"><span>Large data handling</span><span class="ri-badge">Ready</span></div></div>
-  </article>
-
-  <article class="ri-card ri-span-3">
-    <h3>Who Gets What</h3>
-    <div class="ri-list"><div class="ri-row"><span>Growers</span><small>Farm insights</small></div><div class="ri-row"><span>Providers / Sellers</span><small>Sales, settlement</small></div><div class="ri-row"><span>Field Agents</span><small>Visits, evidence</small></div><div class="ri-row"><span>Admins</span><small>All reports</small></div></div>
-  </article>
-</section>
-
-<form class="panel toolbar" method="get">
-  <label>Report
-    <select name="report">
-      <?php foreach ($catalog as $key => $item): ?>
-        <option value="<?= e($key) ?>" <?= $selectedReport === $key ? 'selected' : '' ?>><?= e($item[0]) ?></option>
-      <?php endforeach; ?>
-    </select>
-  </label>
-  <label>State Scope
-    <select name="state_id" id="report_state_id" <?= $role === 'state_coordinator' && $selectedStateId > 0 ? 'data-locked="1"' : '' ?>>
-      <option value="">All states</option>
-      <?php foreach ($states as $state): ?>
-        <option value="<?= (int) $state['id'] ?>" <?= $selectedStateId === (int) $state['id'] ? 'selected' : '' ?>><?= e((string) $state['state_name']) ?></option>
-      <?php endforeach; ?>
-    </select>
-    <?php if ($role === 'state_coordinator' && $selectedStateId > 0): ?><input type="hidden" name="state_id" value="<?= (int) $selectedStateId ?>"><?php endif; ?>
-  </label>
-  <label>Local Government Area
-    <select name="lga_id" id="report_lga_id" <?= $selectedStateId <= 0 ? 'disabled' : '' ?>>
-      <option value="">All LGAs</option>
-      <?php foreach ($lgaOptions as $lga): ?>
-        <option value="<?= (int) $lga['id'] ?>" <?= $selectedLgaId === (int) $lga['id'] ? 'selected' : '' ?>><?= e((string) $lga['lga_name']) ?></option>
-      <?php endforeach; ?>
-    </select>
-  </label>
-  <label>Start
-    <input type="date" name="start_date" value="<?= e($startDate) ?>">
-  </label>
-  <label>End
-    <input type="date" name="end_date" value="<?= e($endDate) ?>">
-  </label>
-  <button type="submit">Refresh Intelligence</button>
-  <a class="button secondary" href="?<?= e(http_build_query(array_merge($_GET, ['report' => $selectedReport, 'format' => 'csv']))) ?>">Export CSV</a>
-</form>
-
-    <section class="stats" style="margin-top:0;">
-      <div class="stat"><div class="metric"><?= number_format($farmersTotal) ?></div><strong>Growers</strong><div class="kpi-small"><?= number_format($farmersNew) ?> new in period</div></div>
-      <div class="stat"><div class="metric"><?= number_format($farmsTotal) ?></div><strong>Farms</strong><div class="kpi-small"><?= number_format($hectares, 1) ?> hectares</div></div>
-      <div class="stat"><div class="metric"><?= $accreditationRate ?>%</div><strong>Accredited</strong><div class="kpi-small"><?= number_format($accredited) ?> accredited growers</div></div>
-      <div class="stat"><div class="metric"><?= number_format($pendingDocs) ?></div><strong>Document Queue</strong><div class="kpi-small">Pending or needs review</div></div>
-      <div class="stat"><div class="metric"><?= number_format($fieldVisits) ?></div><strong>Field Visits</strong><div class="kpi-small"><?= number_format($pendingTasks) ?> open tasks</div></div>
-      <div class="stat"><div class="metric"><?= report_money($orderValue) ?></div><strong>Marketplace Value</strong><div class="kpi-small"><?= number_format($orderCount) ?> orders in period</div></div>
-    </section>
-
-    <section class="grid intelligence-grid">
-      <?php foreach ($insights as $insight): ?>
-        <article class="card signal <?= e($insight[0]) ?>">
-          <h2><?= e($insight[1]) ?></h2>
-          <p class="muted"><?= e($insight[2]) ?></p>
-        </article>
-      <?php endforeach; ?>
-    </section>
-
-    <section class="panel" style="margin-top:18px;">
-      <h2><?= e($catalog[$selectedReport][0]) ?> Detail</h2>
-      <?php if (function_exists('render_module_table')) render_module_table(); ?>
-    </section>
+    <?php require __DIR__ . '/reports/views/' . $subpage . '.php'; ?>
   </div>
 </div>
 <script>
-(function () {
-  const stateSelect = document.getElementById('report_state_id');
-  const lgaSelect = document.getElementById('report_lga_id');
+document.addEventListener('DOMContentLoaded', function() {
+  const stateSelect = document.getElementById('dash_state_id');
+  const lgaSelect = document.getElementById('dash_lga_id');
   if (!stateSelect || !lgaSelect) return;
-
-  if (stateSelect.dataset.locked === '1') {
-    stateSelect.addEventListener('mousedown', (event) => event.preventDefault());
-    stateSelect.addEventListener('keydown', (event) => event.preventDefault());
-  }
-
   async function loadLgas() {
     const stateId = stateSelect.value;
     lgaSelect.innerHTML = '<option value="">All LGAs</option>';
     lgaSelect.disabled = !stateId;
     if (!stateId) return;
-    lgaSelect.innerHTML = '<option value="">Loading LGAs...</option>';
     try {
-      const response = await fetch('../api/get-lgas.php?state_id=' + encodeURIComponent(stateId));
-      const payload = await response.json();
-      const items = payload.items || [];
-      lgaSelect.innerHTML = '<option value="">All LGAs</option>';
-      items.forEach((item) => {
-        const option = document.createElement('option');
-        option.value = item.id;
-        option.textContent = item.lga_name;
-        lgaSelect.appendChild(option);
+      const resp = await fetch('../../api/get-lgas.php?state_id=' + encodeURIComponent(stateId));
+      const data = await resp.json();
+      (data.items || []).forEach(function(item) {
+        const opt = document.createElement('option');
+        opt.value = item.id;
+        opt.textContent = item.lga_name;
+        lgaSelect.appendChild(opt);
       });
-    } catch (error) {
-      lgaSelect.innerHTML = '<option value="">Unable to load LGAs</option>';
+    } catch(e) {
+      lgaSelect.innerHTML = '<option value="">Error loading LGAs</option>';
     }
   }
-
   stateSelect.addEventListener('change', loadLgas);
-})();
+  if (stateSelect.value) loadLgas();
+});
 </script>
 <?php admin_page_end(); ?>
-

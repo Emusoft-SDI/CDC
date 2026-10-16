@@ -12,12 +12,24 @@ if (!isset($_SESSION['otp_user_id'])) {
 
 function otp_safe_next_destination(string $next): string
 {
-    $next = trim(str_replace(["\0", '\\'], ['', '/'], $next));
-    if ($next === '' || preg_match('/^[a-z][a-z0-9+.-]*:/i', $next) || str_starts_with($next, '//') || str_starts_with($next, '/')) {
-        return '';
+    // Strip absolute URL prefixes (http://localhost/win/...)
+    if (preg_match('#^https?://[^/]+/(.+)$#', $next, $m)) {
+        $next = $m[1];
     }
+    $next = ltrim($next, '/');
     while (str_starts_with($next, '../')) {
         $next = substr($next, 3);
+    }
+    // Normalize trailing-slash directories to index.php
+    if (preg_match('#^[A-Za-z0-9_.\-]+/$#', $next)) {
+        $next = rtrim($next, '/') . '/index.php';
+    }
+    // Collapse over-segmented paths (e.g. "win/cooperatives/index.php"
+    // from a raw /win/... next value) down to the last workspace/file.php pair.
+    $segments = explode('/', $next);
+    if (count($segments) > 2) {
+        $segments = array_slice($segments, -2);
+        $next = implode('/', $segments);
     }
     return $next;
 }
@@ -41,8 +53,14 @@ function otp_login_destination(PDO $pdo, int $userId): string
     if ((int) ($user['is_super_admin'] ?? 0) === 1 || $platformRole === 'super_admin') {
         return 'super-admin/index.php';
     }
-    if (in_array($platformRole, ['national_coordinator', 'state_coordinator'], true)) {
-        return 'coordination/';
+    if (in_array($platformRole, ['national_coordinator', 'regional_coordinator', 'state_coordinator', 'lga_coordinator', 'district_coordinator', 'village_coordinator'], true)) {
+        return 'coordination/index.php';
+    }
+    if ($platformRole === 'cooperative_admin') {
+        return 'cooperatives/index.php';
+    }
+    if ($platformRole === 'support_agent') {
+        return (admin_feature_is_allowed($pdo, 'support')) ? 'support/agent.php' : 'dashboard/index.php';
     }
     if ($platformRole === 'admin' || $role === 'admin') {
         return 'admin/index.php';
@@ -51,10 +69,13 @@ function otp_login_destination(PDO $pdo, int $userId): string
         return 'field-agent/index.php';
     }
     if (in_array($platformRole, ['provider', 'input_provider', 'service_provider', 'seller'], true) || in_array($role, ['provider', 'seller'], true)) {
-        return 'provider/dashboard.php';
+        return (admin_feature_is_allowed($pdo, 'providers') && admin_feature_is_allowed($pdo, 'marketplace')) ? 'provider/dashboard.php' : 'dashboard/index.php';
+    }
+    if ($platformRole === 'buyer' || $role === 'buyer') {
+        return (admin_feature_is_allowed($pdo, 'marketplace')) ? 'buyer/index.php' : 'dashboard/index.php';
     }
     if ($platformRole === 'learner' || $role === 'learner') {
-        return 'academy/dashboard.php';
+        return (admin_feature_is_allowed($pdo, 'training')) ? 'academy/dashboard.php' : 'dashboard/index.php';
     }
 
     return 'dashboard/index.php';

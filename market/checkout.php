@@ -5,8 +5,7 @@ require_once __DIR__ . '/_market.php';
 
 $pdo = market_boot();
 if (!admin_feature_is_allowed($pdo, 'marketplace')) {
-    http_response_code(403);
-    exit('Forbidden: the marketplace module is disabled.');
+    app_render_error_page(403, 'The marketplace module is disabled for your role.');
 }
 $user = market_user($pdo);
 $rows = market_cart_rows($pdo);
@@ -172,10 +171,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'reference' => $paymentMethod === 'wallet' ? $checkoutRef : '',
                     'paid' => $paid,
                 ]);
-                $settlements = $created['settlements'];
                 $pdo->commit();
-                foreach ($settlements as $settlement) {
-                    market_settle_seller_wallet($pdo, (int) $settlement['seller_user_id'], (float) $settlement['amount'], (string) $settlement['reference'], (string) $settlement['description']);
+                // Settle through the shared path so sellers receive the net
+                // amount, the platform commission is recorded in the revenue
+                // ledger, and checkout fees are attributed — matching the
+                // Monnify direct-payment settlement path.
+                if ($paid) {
+                    market_settle_checkout_orders($pdo, $checkoutRef);
                 }
 
                 market_cart_clear();

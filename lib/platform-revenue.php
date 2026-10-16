@@ -92,6 +92,27 @@ function revenue_ensure_schema(PDO $pdo): void
     ");
     app_ensure_primary_auto_increment($pdo, 'seller_subscriptions');
 
+    // One subscription row per seller per plan. Two concurrent wizard
+    // finalizes could both pass the re-run guard and insert duplicate
+    // (seller_id, plan_id) rows; the unique key makes the second
+    // insert fail instead. Lazy, idempotent DDL: the ALTER only runs
+    // when the key is absent, and is skipped silently when legacy
+    // duplicate rows already block it (the finalize re-run guard keeps
+    // those harmless).
+    $subKeyStmt = $pdo->prepare("
+        SELECT COUNT(*)
+        FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'seller_subscriptions' AND INDEX_NAME = 'uniq_seller_subscriptions_seller_plan'
+    ");
+    $subKeyStmt->execute();
+    if ((int) $subKeyStmt->fetchColumn() === 0) {
+        try {
+            $pdo->exec('ALTER TABLE seller_subscriptions ADD UNIQUE KEY uniq_seller_subscriptions_seller_plan (seller_id, plan_id)');
+        } catch (Throwable $e) {
+            // Pre-existing duplicates block the key; leave the table as-is.
+        }
+    }
+
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS marketplace_promotion_campaigns (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -229,6 +250,248 @@ function revenue_default_seller_plans(): array
             'promotion_credits' => 20,
             'features' => ['priority_review', 'bulk_catalog', 'campaign_support', 'advanced_reports'],
         ],
+    ];
+}
+
+/**
+ * Resolve the subscription plan that governs a seller's marketplace limits.
+ *
+ * Joins the seller row to its active, unexpired seller_subscriptions row
+ * and the plan that row points at. A seller with no active subscription
+ * (or one whose plan row is missing) falls back to the seeded starter
+ * plan, which is also the default offered at sign-up.
+ *
+ * @return array{plan_key: string, title: string, product_limit: int, promotion_credits: int, subscription: array<string,mixed>|null}
+ */
+function seller_subscription_plan(PDO $pdo, int $sellerId): array
+{
+    revenue_ensure_schema($pdo);
+    $fallback = revenue_default_seller_plans()[0] ?? [
+        'plan_key' => 'seller_starter',
+        'title' => 'Seller Starter',
+        'monthly_fee' => 0,
+        'annual_fee' => 0,
+        'product_limit' => 25,
+        'promotion_credits' => 0,
+    ];
+    $plan = [
+        'plan_key' => (string) ($fallback['plan_key'] ?? 'seller_starter'),
+        'title' => (string) ($fallback['title'] ?? 'Seller Starter'),
+        'product_limit' => (int) ($fallback['product_limit'] ?? 25),
+        'promotion_credits' => (int) ($fallback['promotion_credits'] ?? 0),
+        'subscription' => null,
+    ];
+    if ($sellerId <= 0) {
+        return $plan;
+    }
+
+    $msSoft = app_column_exists($pdo, 'marketplace_sellers', 'deleted_at') ? ' AND s.deleted_at IS NULL' : '';
+    $stmt = $pdo->prepare("
+        SELECT ss.id AS subscription_id, ss.status AS subscription_status, ss.expires_at,
+               p.plan_key, p.title, p.product_limit, p.promotion_credits
+        FROM marketplace_sellers s
+        LEFT JOIN seller_subscriptions ss
+            ON ss.seller_id = s.id AND ss.status = 'active' AND ss.expires_at > NOW()
+        LEFT JOIN seller_subscription_plans p ON p.id = ss.plan_id
+        WHERE s.id = ?{$msSoft}
+        ORDER BY ss.expires_at DESC
+        LIMIT 1
+    ");
+    $stmt->execute([$sellerId]);
+    $row = $stmt->fetch();
+    if ($row && (string) ($row['plan_key'] ?? '') !== '' && (int) ($row['product_limit'] ?? 0) > 0) {
+        $plan['plan_key'] = (string) $row['plan_key'];
+        $plan['title'] = (string) $row['title'];
+        $plan['product_limit'] = (int) $row['product_limit'];
+        $plan['promotion_credits'] = (int) ($row['promotion_credits'] ?? 0);
+        $plan['subscription'] = [
+            'id' => (int) $row['subscription_id'],
+            'status' => (string) ($row['subscription_status'] ?? 'active'),
+            'expires_at' => (string) ($row['expires_at'] ?? ''),
+        ];
+    }
+
+    return $plan;
+}
+
+/**
+ * Listing-limit guard for a seller, or '' when a new listing is allowed.
+ *
+ * One shared check for every marketplace_listings insert path, so the
+ * product limit the seller's plan defines (25/150/1000) is enforced the
+ * same way whether the listing is created from Seller Central or written
+ * by the library. Platform-owned storefronts (the official NATCODEV
+ * seller, which has no user account) are not subscription customers and
+ * are exempt: applying a subscriber limit to them would break seeding.
+ */
+function seller_listing_limit_error(PDO $pdo, int $sellerId): string
+{
+    if ($sellerId <= 0) {
+        return '';
+    }
+    $ownerStmt = $pdo->prepare('SELECT user_id FROM marketplace_sellers WHERE id = ? LIMIT 1');
+    $ownerStmt->execute([$sellerId]);
+    $ownerId = $ownerStmt->fetchColumn();
+    if ($ownerId === false || (int) $ownerId === 0) {
+        return '';
+    }
+
+    $plan = seller_subscription_plan($pdo, $sellerId);
+    $mlSoft = app_column_exists($pdo, 'marketplace_listings', 'deleted_at') ? ' AND deleted_at IS NULL' : '';
+    $countStmt = $pdo->prepare("SELECT COUNT(*) FROM marketplace_listings WHERE seller_id = ?{$mlSoft}");
+    $countStmt->execute([$sellerId]);
+    $count = (int) $countStmt->fetchColumn();
+    if ($count < $plan['product_limit']) {
+        return '';
+    }
+
+    return 'Your ' . $plan['title'] . ' plan allows ' . $plan['product_limit'] . ' listings. Upgrade to list more.';
+}
+
+/**
+ * The seller's most recent unpaid subscription, if the wallet could not
+ * cover the plan at sign-up. Seller Central keeps the fund-wallet CTA up
+ * until the seller completes the Monnify funding flow.
+ *
+ * @return array<string,mixed>|null
+ */
+function seller_pending_subscription(PDO $pdo, int $sellerId): ?array
+{
+    revenue_ensure_schema($pdo);
+    $stmt = $pdo->prepare("
+        SELECT ss.*, p.title plan_title, p.annual_fee, p.monthly_fee
+        FROM seller_subscriptions ss
+        LEFT JOIN seller_subscription_plans p ON p.id = ss.plan_id
+        WHERE ss.seller_id = ? AND ss.status = 'pending_payment'
+        ORDER BY ss.id DESC
+        LIMIT 1
+    ");
+    $stmt->execute([$sellerId]);
+
+    return $stmt->fetch() ?: null;
+}
+
+/**
+ * Retry activation of the seller's latest pending_payment subscription.
+ *
+ * The registration finalize creates a pending_payment row when the wallet
+ * cannot cover the plan fee, but once the wizard draft is submitted there
+ * was no way to activate it: re-running the finalize only shows a done
+ * screen. This is that missing path — it repeats the finalize's wallet
+ * debit (SELECT ... FOR UPDATE on the wallet, balance check, wallets
+ * balance update, and a wallet_transactions entry with
+ * provider='seller_subscription') inside a transaction, then marks the
+ * pending row active, filling in amount_paid/started_at/expires_at only
+ * when the pending row lacks them.
+ *
+ * Never throws: an unfunded wallet returns ok=false with a fund-your-
+ * wallet message so the caller can re-show the funding CTA.
+ *
+ * @return array{ok: bool, message: string}
+ */
+function seller_retry_subscription_activation(PDO $pdo, int $sellerId): array
+{
+    revenue_ensure_schema($pdo);
+    if ($sellerId <= 0) {
+        return ['ok' => false, 'message' => 'Seller profile not found.'];
+    }
+
+    $pending = seller_pending_subscription($pdo, $sellerId);
+    if ($pending === null) {
+        return ['ok' => true, 'message' => 'No pending subscription payment to activate.'];
+    }
+
+    $fee = round((float) ($pending['annual_fee'] ?? 0), 2);
+    $planTitle = (string) ($pending['plan_title'] ?: 'seller plan');
+    $userId = (int) ($pending['user_id'] ?? 0);
+    if ($userId <= 0) {
+        $ownerStmt = $pdo->prepare('SELECT user_id FROM marketplace_sellers WHERE id = ? LIMIT 1');
+        $ownerStmt->execute([$sellerId]);
+        $userId = (int) ($ownerStmt->fetchColumn() ?: 0);
+    }
+
+    $reference = 'SUB-' . $sellerId . '-' . date('ymdHis') . '-' . strtoupper(bin2hex(random_bytes(3)));
+    // Preserve the term the finalize stamped; only fill in what the
+    // pending row is missing.
+    $startedAt = (string) ($pending['started_at'] ?? '');
+    if ($startedAt === '' || $startedAt === '0000-00-00 00:00:00') {
+        $startedAt = date('Y-m-d H:i:s');
+    }
+    $expiresAt = (string) ($pending['expires_at'] ?? '');
+    if ($expiresAt === '' || $expiresAt === '0000-00-00 00:00:00') {
+        $expiresAt = date('Y-m-d H:i:s', time() + 365 * 86400);
+    }
+
+    if (!function_exists('wallet_get_or_create')) {
+        require_once __DIR__ . '/wallet.php';
+    }
+
+    try {
+        $ownsTransaction = !$pdo->inTransaction();
+        if ($ownsTransaction) {
+            $pdo->beginTransaction();
+        }
+
+        $wallet = wallet_get_or_create($pdo, $userId);
+        if (!$wallet) {
+            throw new RuntimeException('Seller wallet is unavailable.');
+        }
+        // Lock the wallet row so two concurrent activations cannot spend
+        // the same balance twice (same idiom as the registration finalize).
+        $lock = $pdo->prepare('SELECT balance FROM wallets WHERE id = ? FOR UPDATE');
+        $lock->execute([(int) $wallet['id']]);
+        $balance = (float) ($lock->fetchColumn() ?? 0);
+
+        if ($fee > 0 && $balance < $fee) {
+            if ($ownsTransaction) {
+                $pdo->rollBack();
+            }
+            return [
+                'ok' => false,
+                'message' => 'Wallet balance ' . revenue_money($balance) . ' does not cover the ' . $planTitle . ' fee (' . revenue_money($fee) . '/year). Fund your wallet, then retry activation.',
+            ];
+        }
+
+        if ($fee > 0) {
+            $before = $balance;
+            $after = round($balance - $fee, 2);
+            $pdo->prepare('UPDATE wallets SET balance = ? WHERE id = ?')
+                ->execute([$after, (int) $wallet['id']]);
+            $pdo->prepare("
+                INSERT INTO wallet_transactions
+                    (wallet_id, user_id, amount, type, direction, description, reference, provider, status, balance_before, balance_after, completed_at)
+                VALUES (?, ?, ?, 'debit', 'outflow', ?, ?, 'seller_subscription', 'completed', ?, ?, NOW())
+            ")->execute([
+                (int) $wallet['id'],
+                $userId,
+                $fee,
+                'Seller subscription: ' . $planTitle . ' (annual)',
+                $reference,
+                $before,
+                $after,
+            ]);
+        }
+
+        $pdo->prepare("
+            UPDATE seller_subscriptions
+            SET status = 'active', billing_cycle = 'annual', amount_paid = ?,
+                started_at = ?, expires_at = ?, payment_reference = ?
+            WHERE id = ?
+        ")->execute([$fee, $startedAt, $expiresAt, $reference, (int) $pending['id']]);
+
+        if ($ownsTransaction) {
+            $pdo->commit();
+        }
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        return ['ok' => false, 'message' => 'Unable to activate the subscription: ' . $e->getMessage()];
+    }
+
+    return [
+        'ok' => true,
+        'message' => $planTitle . ' plan activated' . ($fee > 0 ? ' — ' . revenue_money($fee) . ' debited from your wallet.' : '.'),
     ];
 }
 function revenue_money(float $amount): string

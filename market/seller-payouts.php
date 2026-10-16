@@ -58,6 +58,24 @@ $transactions = $txStmt->fetchAll();
 $wdStmt = $pdo->prepare("SELECT * FROM wallet_withdrawals WHERE wallet_id = ? ORDER BY requested_at DESC LIMIT 20");
 $wdStmt->execute([(int) $wallet['id']]);
 $withdrawals = $wdStmt->fetchAll();
+// A paid plan the wallet could not cover at sign-up stays
+// pending_payment: after the seller funds the wallet here, the
+// retry action re-runs the finalize's debit to activate it.
+$pendingSubscription = $ctx['seller'] ? seller_pending_subscription($pdo, (int) $ctx['seller']['id']) : null;
+if (($_GET['activated'] ?? '') === '1') {
+    $notice = 'Subscription activated. Your plan is now live.';
+}
+if (($_POST['action'] ?? '') === 'retry_subscription_activation' && verify_csrf($_POST['_csrf'] ?? null)) {
+    if ($ctx['seller']) {
+        $retry = seller_retry_subscription_activation($pdo, (int) $ctx['seller']['id']);
+        if (!empty($retry['ok'])) {
+            redirect_to('seller-payouts.php?activated=1');
+        }
+        // Insufficient funds or a wallet error: the pending row is
+        // untouched, so the fund-wallet flow stays available.
+        $error = (string) ($retry['message'] ?? 'Unable to activate the subscription.');
+    }
+}
 $settled = array_sum(array_map(static fn(array $row): float => empty($row['settled_at']) ? 0.0 : (float) $row['total_amount'], $ctx['orders']));
 $pending = array_sum(array_map(static fn(array $row): float => empty($row['settled_at']) && (string) ($row['payment_status'] ?? '') === 'paid' ? (float) $row['total_amount'] : 0.0, $ctx['orders']));
 $refundCount = count(array_filter($transactions, static fn(array $tx): bool => stripos((string) ($tx['description'] ?? ''), 'refund') !== false));
@@ -67,19 +85,30 @@ seller_header('Payouts & Wallet', 'payouts', $user, $ctx['seller']);
 <?php if ($notice): ?><div class="alert ok"><?= e($notice) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="alert err"><?= e($error) ?></div><?php endif; ?>
 <?php if (!$monnifyConfigured): ?><div class="alert err"><?= e(monnify_configuration_error()) ?></div><?php endif; ?>
+<?php if ($pendingSubscription): ?>
+<div class="alert" style="background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:10px;padding:13px 15px;margin:0 0 16px;font-weight:700;line-height:1.5">
+  Your <?= e((string) ($pendingSubscription['plan_title'] ?: 'paid seller')) ?> plan (NGN <?= e(number_format((float) ($pendingSubscription['annual_fee'] ?? 0), 2)) ?>/year) is awaiting payment.
+  Fund your wallet above, then
+  <form method="post" style="display:inline;margin-left:4px">
+    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+    <input type="hidden" name="action" value="retry_subscription_activation">
+    <button class="sc-btn" type="submit" style="padding:5px 12px;font-size:.85rem">Retry subscription activation</button>
+  </form>
+</div>
+<?php endif; ?>
 <section class="sc-kpis">
-  <div class="sc-card sc-kpi"><span class="sc-icon gold"><i data-lucide="wallet"></i></span><div><small>Available Wallet</small><b><?= e(marketplace_money((float) $wallet['balance'])) ?></b><span>Withdrawable credits</span></div></div>
-  <div class="sc-card sc-kpi"><span class="sc-icon orange"><i data-lucide="lock"></i></span><div><small>Held Withdrawals</small><b><?= e(marketplace_money((float) ($wallet['hold_balance'] ?? 0))) ?></b><span>Awaiting admin payout</span></div></div>
-  <div class="sc-card sc-kpi"><span class="sc-icon blue"><i data-lucide="timer"></i></span><div><small>Pending Settlement</small><b><?= e(marketplace_money($pending)) ?></b><span>Paid orders pending release</span></div></div>
-  <div class="sc-card sc-kpi"><span class="sc-icon"><i data-lucide="circle-check"></i></span><div><small>Settled Sales</small><b><?= e(marketplace_money($settled)) ?></b><span>Credited seller revenue</span></div></div>
-  <div class="sc-card sc-kpi"><span class="sc-icon purple"><i data-lucide="receipt"></i></span><div><small>Wallet Entries</small><b><?= count($transactions) ?></b><span>Deposits, payouts, refunds</span></div></div>
-  <div class="sc-card sc-kpi"><span class="sc-icon red"><i data-lucide="rotate-ccw"></i></span><div><small>Refund Credits</small><b><?= (int) $refundCount ?></b><span>Buyer/seller adjustments</span></div></div>
+  <div class="sc-card sc-kpi"><span class="sc-icon gold"><i class="fa-solid fa-wallet"></i></span><div><small>Available Wallet</small><b><?= e(marketplace_money((float) $wallet['balance'])) ?></b><span>Withdrawable credits</span></div></div>
+  <div class="sc-card sc-kpi"><span class="sc-icon orange"><i class="fa-solid fa-lock"></i></span><div><small>Held Withdrawals</small><b><?= e(marketplace_money((float) ($wallet['hold_balance'] ?? 0))) ?></b><span>Awaiting admin payout</span></div></div>
+  <div class="sc-card sc-kpi"><span class="sc-icon blue"><i class="fa-solid fa-stopwatch"></i></span><div><small>Pending Settlement</small><b><?= e(marketplace_money($pending)) ?></b><span>Paid orders pending release</span></div></div>
+  <div class="sc-card sc-kpi"><span class="sc-icon"><i class="fa-solid fa-circle-check"></i></span><div><small>Settled Sales</small><b><?= e(marketplace_money($settled)) ?></b><span>Credited seller revenue</span></div></div>
+  <div class="sc-card sc-kpi"><span class="sc-icon purple"><i class="fa-solid fa-receipt"></i></span><div><small>Wallet Entries</small><b><?= count($transactions) ?></b><span>Deposits, payouts, refunds</span></div></div>
+  <div class="sc-card sc-kpi"><span class="sc-icon red"><i class="fa-solid fa-rotate-left"></i></span><div><small>Refund Credits</small><b><?= (int) $refundCount ?></b><span>Buyer/seller adjustments</span></div></div>
 </section>
 <section class="sc-grid">
-  <article class="sc-card sc-panel span-7"><div class="sc-panel-head"><h2>Wallet Ledger</h2><span class="badge good">Seller finance</span></div><div class="sc-list"><?php foreach ($transactions as $tx): ?><div class="sc-row"><span class="sc-icon"><i data-lucide="receipt"></i></span><div><strong><?= e((string) ($tx['description'] ?: $tx['reference'])) ?></strong><br><small class="muted"><?= e((string) $tx['created_at']) ?> / <?= e((string) $tx['reference']) ?></small></div><div><strong><?= e(marketplace_money((float) $tx['amount'])) ?></strong><br><span class="badge"><?= e((string) $tx['status']) ?></span></div></div><?php endforeach; ?><?php if (!$transactions): ?><div class="empty">No wallet transactions yet.</div><?php endif; ?></div></article>
+  <article class="sc-card sc-panel span-7"><div class="sc-panel-head"><h2>Wallet Ledger</h2><span class="badge good">Seller finance</span></div><div class="sc-list"><?php foreach ($transactions as $tx): ?><div class="sc-row"><span class="sc-icon"><i class="fa-solid fa-receipt"></i></span><div><strong><?= e((string) ($tx['description'] ?: $tx['reference'])) ?></strong><br><small class="muted"><?= e((string) $tx['created_at']) ?> / <?= e((string) $tx['reference']) ?></small></div><div><strong><?= e(marketplace_money((float) $tx['amount'])) ?></strong><br><span class="badge"><?= e((string) $tx['status']) ?></span></div></div><?php endforeach; ?><?php if (!$transactions): ?><div class="empty">No wallet transactions yet.</div><?php endif; ?></div></article>
   <article class="sc-card sc-panel span-5"><div class="sc-panel-head"><h2>Fund Wallet</h2><span class="badge">Monnify</span></div><form id="seller-fund-wallet" class="sc-form sc-form-grid"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="return_url" value="<?= e(app_base_url() . '/market/seller-payouts.php') ?>"><div class="wide"><label>Amount</label><input type="number" name="amount" min="100" step="50" value="5000" required></div><div class="wide"><button class="sc-btn" type="submit" <?= $monnifyConfigured ? '' : 'disabled' ?>>Fund With Monnify</button></div></form><div id="seller-wallet-result" class="alert ok" style="display:none"></div><div class="sc-panel-head" style="margin-top:14px"><h2>Reserved Transfer Account</h2></div><?php if (!empty($wallet['reserved_account_number'])): ?><p><strong><?= e((string) $wallet['reserved_account_bank_name']) ?></strong><br><span style="font-size:1.5rem;font-weight:950;color:var(--green)"><?= e((string) $wallet['reserved_account_number']) ?></span><br><?= e((string) $wallet['reserved_account_name']) ?></p><?php else: ?><form method="post"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><button class="sc-btn secondary" type="submit" name="create_reserved_account" <?= $monnifyConfigured ? '' : 'disabled' ?>>Create Reserved Account</button></form><?php endif; ?></article>
   <article class="sc-card sc-panel span-5"><div class="sc-panel-head"><h2>Withdraw Seller Funds</h2><span class="badge good">Monnify / Paystack</span></div><form method="post" class="sc-form sc-form-grid" data-withdrawal-form data-bank-url="../api/wallet-banks.php" data-resolve-url="../api/resolve-bank-account.php"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="bank_name" data-bank-name><input type="hidden" name="bank_code" data-bank-code><div><label>Amount</label><input type="number" name="withdraw_amount" min="<?= e((string) wallet_withdrawal_min_amount()) ?>" step="50" required></div><div><label>Withdrawal Method</label><select name="withdraw_provider" data-provider><option value="monnify">Monnify withdrawal</option><option value="paystack">Paystack withdrawal</option></select></div><div class="wide"><label>Receiving Bank</label><select data-bank-select required><option value="">Loading banks...</option></select></div><div><label>Account Number</label><input name="account_number" data-account-number inputmode="numeric" maxlength="10" required></div><div><label>Verified Name</label><input name="account_name" data-account-name readonly required></div><div class="wide alert ok" data-resolve-status>Verify bank account before withdrawal.</div><div class="wide"><label>Note</label><textarea name="withdraw_note"></textarea></div><div class="wide"><button class="sc-btn" type="submit" name="request_withdrawal" data-submit-withdrawal disabled>Submit Monnify/Paystack Withdrawal</button></div></form></article>
-  <article class="sc-card sc-panel span-7"><div class="sc-panel-head"><h2>Withdrawal Requests</h2><span class="badge"><?= count($withdrawals) ?></span></div><div class="sc-list"><?php foreach ($withdrawals as $wd): ?><div class="sc-row"><span class="sc-icon"><i data-lucide="banknote-arrow-up"></i></span><div><strong><?= e((string) $wd['reference']) ?></strong><br><small class="muted"><?= e((string) $wd['provider']) ?> / <?= e((string) $wd['requested_at']) ?></small></div><div><strong><?= e(marketplace_money((float) $wd['final_amount'])) ?></strong><br><span class="badge"><?= e((string) $wd['status']) ?></span></div></div><?php endforeach; ?><?php if (!$withdrawals): ?><div class="empty">No withdrawal requests yet.</div><?php endif; ?></div></article>
+  <article class="sc-card sc-panel span-7"><div class="sc-panel-head"><h2>Withdrawal Requests</h2><span class="badge"><?= count($withdrawals) ?></span></div><div class="sc-list"><?php foreach ($withdrawals as $wd): ?><div class="sc-row"><span class="sc-icon"><i class="fa-solid fa-money-bill-transfer"></i></span><div><strong><?= e((string) $wd['reference']) ?></strong><br><small class="muted"><?= e((string) $wd['provider']) ?> / <?= e((string) $wd['requested_at']) ?></small></div><div><strong><?= e(marketplace_money((float) $wd['final_amount'])) ?></strong><br><span class="badge"><?= e((string) $wd['status']) ?></span></div></div><?php endforeach; ?><?php if (!$withdrawals): ?><div class="empty">No withdrawal requests yet.</div><?php endif; ?></div></article>
   <article class="sc-card sc-panel span-12"><div class="sc-panel-head"><h2>Payout Activity</h2></div><table class="sc-table"><thead><tr><th>Order</th><th>Buyer</th><th>Amount</th><th>Payment</th><th>Settlement</th></tr></thead><tbody><?php foreach ($ctx['orders'] as $row): ?><tr><td><?= e((string) $row['order_ref']) ?></td><td><?= e((string) $row['buyer_name']) ?></td><td><?= e(marketplace_money((float) $row['total_amount'])) ?></td><td><?= e(marketplace_status_label((string) ($row['payment_status'] ?? 'unpaid'))) ?></td><td><?= empty($row['settled_at']) ? 'Pending' : e((string) $row['settled_at']) ?></td></tr><?php endforeach; ?><?php if (!$ctx['orders']): ?><tr><td colspan="5">No payout activity yet.</td></tr><?php endif; ?></tbody></table></article>
 </section>
 <script>

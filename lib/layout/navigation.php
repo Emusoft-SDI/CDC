@@ -67,6 +67,7 @@ function admin_nav_groups(): array
         ],
         'HR & People' => [
             ['href' => 'users.php', 'label' => 'Users & Roles', 'feature' => 'user_management', 'super_only' => true],
+            ['href' => 'coordinator-applications.php', 'label' => 'Enrollment Applications', 'feature' => 'user_management'],
             ['href' => 'recruitment.php', 'label' => 'Recruitment', 'feature' => 'field_network'],
             ['href' => 'import-users.php', 'label' => 'Import & Engagement', 'feature' => 'imports', 'super_only' => true],
         ],
@@ -118,6 +119,12 @@ function admin_nav_groups(): array
             ['href' => 'academy/?page=refunds', 'label' => 'Refunds', 'feature' => 'training'],
             ['href' => 'academy/?page=feedback', 'label' => 'Feedback', 'feature' => 'training'],
             ['href' => 'academy/?page=reports', 'label' => 'Academy Reports', 'feature' => 'training'],
+            ['href' => 'academy/?page=sponsorships', 'label' => 'Sponsorships & Recommendations', 'feature' => 'training'],
+        ],
+        'Coordinators & Enclaves' => [
+            ['href' => 'coordinators.php', 'label' => 'Coordinator Management', 'feature' => 'user_management'],
+            ['href' => 'reports/?page=coordinator_coverage', 'label' => 'Coordinator Coverage Report', 'feature' => 'reports'],
+            ['href' => 'coordinator-applications.php', 'label' => 'Enrollment Applications', 'feature' => 'user_management'],
         ],
         'Governance & Compliance' => [
             ['href' => 'governance.php', 'label' => 'Policies & Governance', 'feature' => 'governance'],

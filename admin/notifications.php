@@ -4,6 +4,10 @@ declare(strict_types=1);
 require_once __DIR__ . '/_auth.php';
 require_once __DIR__ . '/../lib/admin-layout.php';
 require_once __DIR__ . '/../lib/twilio.php';
+require_once __DIR__ . '/../lib/admin-jobs.php';
+if (!function_exists('admin_audit_event')) {
+    require_once __DIR__ . '/../lib/admin-audit-v2.php';
+}
 
 $pdo = db();
 admin_ensure_schema($pdo);
@@ -15,6 +19,25 @@ $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verify_csrf($_POST['_csrf'] ?? null)) {
         $error = 'Invalid security token.';
+    } elseif (!app_check_rate_limit('admin_notification_test', 5, 3600)) {
+        $error = 'Too many test notifications. Try again later.';
+    } elseif (isset($_POST['channels'])) {
+        // Schedule broadcast: validate at the boundary and enqueue the
+        // notification.broadcast job (drained by cron/admin-jobs.php).
+        if (!admin_can($pdo, 'communications.manage')) {
+            $error = 'You do not have permission to send broadcasts.';
+        } else {
+            $validated = admin_broadcast_payloads($_POST);
+            if (empty($validated['ok'])) {
+                $error = $validated['error'] ?? 'Invalid broadcast.';
+            } else {
+                foreach ($validated['payloads'] as $payload) {
+                    admin_enqueue($pdo, 'notification.broadcast', $payload);
+                }
+                $message = 'Broadcast queued — the worker will send it shortly.';
+                admin_audit_event($pdo, 'notification_broadcast', 'notifications', null, [], ['channels' => implode(',', array_column($validated['payloads'], 'channel')), 'recipients' => count($validated['payloads'][0]['recipients'] ?? [])], 'success', 'Admin broadcast queued');
+            }
+        }
     } else {
         $recipient = trim((string) ($_POST['recipient'] ?? ''));
         $channel = (string) ($_POST['channel'] ?? 'email');
@@ -33,6 +56,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = $ok ? 'WhatsApp test recorded/sent.' : 'WhatsApp test failed. Check the log below.';
         } else {
             $error = 'Choose a valid channel.';
+        }
+
+        if (!empty($ok)) {
+            admin_audit_event($pdo, 'notification_test', 'notifications', null, [], ['channel' => $channel, 'recipient' => $recipient], 'success', 'Admin test notification sent');
         }
     }
 }
@@ -84,6 +111,18 @@ $stmt = $pdo->prepare('SELECT * FROM notification_logs WHERE ' . implode(' AND '
 $stmt->execute($params);
 $logs = $stmt->fetchAll();
 
+// Single-record detail view (?view=ID) so operators can open a
+// notification and inspect its full payload, transport and errors.
+$detail = null;
+$viewId = (int) ($_GET['view'] ?? 0);
+if ($viewId > 0) {
+    $detailStmt = $pdo->prepare('SELECT * FROM notification_logs WHERE id = ? LIMIT 1');
+    $detailStmt->execute([$viewId]);
+    $detail = $detailStmt->fetch() ?: null;
+}
+
+$queueDepth = function_exists('admin_queue_depth') ? admin_queue_depth($pdo) : 0;
+
 admin_page_start('Notification Log', [
     'active' => 'notifications.php',
     'description' => 'Prove notification behavior across email, SMS, and WhatsApp. Every attempt is recorded with status, transport, and failure reason.',
@@ -100,7 +139,44 @@ admin_page_start('Notification Log', [
     ['Logged', number_format((int) $counts['logged']), 'Staging / log mode', 'fa-file-lines', 'blue'],
     ['Sent', number_format((int) $counts['sent']), 'Provider accepted', 'fa-paper-plane', 'purple'],
     ['Failed', number_format((int) $counts['failed']), 'Needs fixing', 'fa-triangle-exclamation', 'red'],
+    ['Queue Depth', number_format($queueDepth), 'Pending jobs', 'fa-list-check', ''],
 ]) ?>
+
+<?php if ($detail): ?>
+<section class="panel" style="margin-bottom:18px">
+  <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center">
+    <h2>Notification #<?= (int) $detail['id'] ?> Details</h2>
+    <a href="notifications.php<?= $status !== 'all' || $channel !== 'all' || $search !== '' ? '?' . http_build_query(array_filter(['status' => $status !== 'all' ? $status : null, 'channel' => $channel !== 'all' ? $channel : null, 'search' => $search !== '' ? $search : null])) : '' ?>"><i class="fas fa-arrow-left"></i> Back to list</a>
+  </div>
+  <div class="record-row" style="border:1px solid #e4e7ec;border-radius:10px;padding:14px;margin:8px 0">
+    <div class="record-main">
+      <div class="record-title">
+        <?= e((string) $detail['recipient']) ?>
+        <span class="tag <?= $detail['status'] === 'failed' ? 'bad' : ($detail['status'] === 'sent' ? 'ok' : 'warn') ?>"><?= e(ucfirst((string) $detail['status'])) ?></span>
+        <span class="tag muted"><?= e(strtoupper((string) $detail['channel'])) ?><?= !empty($detail['transport']) ? ' · ' . e((string) $detail['transport']) : '' ?></span>
+      </div>
+      <?php if (!empty($detail['subject'])): ?>
+        <div class="record-excerpt"><strong>Subject:</strong> <?= e((string) $detail['subject']) ?></div>
+      <?php endif; ?>
+      <?php if (!empty($detail['message_preview'])): ?>
+        <div class="record-excerpt"><strong>Message:</strong><br><?= nl2br(e((string) $detail['message_preview'])) ?></div>
+      <?php endif; ?>
+      <?php if (!empty($detail['provider_response'])): ?>
+        <div class="record-excerpt"><strong>Provider response:</strong> <?= nl2br(e((string) $detail['provider_response'])) ?></div>
+      <?php endif; ?>
+      <?php if (!empty($detail['error_message'])): ?>
+        <div class="record-excerpt" style="color:#b42318"><strong>Error:</strong> <?= nl2br(e((string) $detail['error_message'])) ?></div>
+      <?php endif; ?>
+      <?php if (!empty($detail['context'])): ?>
+        <div class="record-excerpt"><strong>Context:</strong> <?= e((string) $detail['context']) ?></div>
+      <?php endif; ?>
+    </div>
+    <div class="record-meta">
+      <span class="record-sub"><i class="far fa-clock"></i> <?= e(date('M j, Y H:i:s', strtotime((string) $detail['created_at']))) ?></span>
+    </div>
+  </div>
+</section>
+<?php endif; ?>
 
 <details class="collapse-card"<?= $error !== '' ? ' open' : '' ?>>
   <summary>
@@ -123,6 +199,34 @@ admin_page_start('Notification Log', [
       </div>
       <div class="actions"><button type="submit"><i class="fas fa-paper-plane"></i> Send Test</button></div>
       <p class="meta">In log mode this records proof without sending externally. In live mode it also records provider response or failure.</p>
+    </form>
+  </div>
+</details>
+
+<details class="collapse-card"<?= $error !== '' ? ' open' : '' ?>>
+  <summary>
+    <span class="cc-icon"><i class="fas fa-clock"></i></span>
+    <span class="collapse-title">Schedule Broadcast<small>Queue a bulk message for the worker to send</small></span>
+    <span class="caret"><i class="fas fa-chevron-down"></i></span>
+  </summary>
+  <div class="collapse-body">
+    <form method="post">
+      <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+      <label class="field"><span>Message</span>
+        <textarea name="message" rows="4" maxlength="500" required placeholder="Your message (max 500 characters)"></textarea>
+      </label>
+      <label class="field"><span>Channels</span>
+        <span style="display:flex;gap:16px;flex-wrap:wrap">
+          <label style="display:inline-flex;align-items:center;gap:6px;font-weight:400;cursor:pointer"><input type="checkbox" name="channels[]" value="email" checked> Email</label>
+          <label style="display:inline-flex;align-items:center;gap:6px;font-weight:400;cursor:pointer"><input type="checkbox" name="channels[]" value="sms"> SMS</label>
+          <label style="display:inline-flex;align-items:center;gap:6px;font-weight:400;cursor:pointer"><input type="checkbox" name="channels[]" value="whatsapp"> WhatsApp</label>
+        </span>
+      </label>
+      <label class="field"><span>Recipients</span>
+        <textarea name="recipients" rows="5" required placeholder="One recipient per line — email addresses for Email, phone numbers for SMS/WhatsApp"></textarea>
+      </label>
+      <div class="actions"><button type="submit"><i class="fas fa-clock"></i> Schedule Broadcast</button></div>
+      <p class="meta">Queued for the job worker (cron/admin-jobs.php) — the worker sends it shortly. Recipients must match every selected channel.</p>
     </form>
   </div>
 </details>
@@ -155,12 +259,13 @@ admin_page_start('Notification Log', [
         $logTone = $log['status'] === 'failed' ? 'bad' : ($log['status'] === 'sent' ? 'ok' : 'warn');
         $channelKey = strtolower((string) $log['channel']);
         $channelIcon = ['email' => 'fas fa-envelope', 'sms' => 'fas fa-comment-sms', 'whatsapp' => 'fab fa-whatsapp'][$channelKey] ?? 'fas fa-bell';
+        $rowHref = 'notifications.php?view=' . (int) $log['id'] . '&' . http_build_query(array_filter(['status' => $status !== 'all' ? $status : null, 'channel' => $channel !== 'all' ? $channel : null, 'search' => $search !== '' ? $search : null]));
       ?>
       <article class="record-row">
         <span class="record-avatar <?= $channelKey === 'email' ? 'mail' : 'log' ?>"><i class="<?= e($channelIcon) ?>"></i></span>
         <div class="record-main">
           <div class="record-title">
-            <?= e($log['recipient']) ?>
+            <a href="<?= e($rowHref) ?>" style="color:inherit;text-decoration:none"><?= e($log['recipient']) ?></a>
             <span class="tag <?= e($logTone) ?>"><?= e(ucfirst((string) $log['status'])) ?></span>
             <span class="tag muted"><?= e(strtoupper($channelKey)) ?><?= !empty($log['transport']) ? ' · ' . e((string) $log['transport']) : '' ?></span>
           </div>

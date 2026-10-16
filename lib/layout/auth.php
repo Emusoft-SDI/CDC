@@ -63,7 +63,7 @@ function admin_handle_logout_request(string $destination = 'login.php'): void
         }
         admin_logout($destination);
     }
-    if (isset($_GET['logout'])) {
+    if (isset($_GET['logout']) && verify_csrf((string) ($_GET['_csrf'] ?? ''))) {
         admin_logout($destination);
     }
 }
@@ -98,8 +98,7 @@ function admin_current_user_is_super_admin(PDO $pdo): bool
 function admin_require_feature(PDO $pdo, string $feature): void
 {
     if (!admin_feature_is_allowed($pdo, $feature)) {
-        http_response_code(403);
-        exit('Forbidden: this admin role does not have access to this feature.');
+        app_render_error_page(403, 'This admin role does not have access to this feature.');
     }
 }
 

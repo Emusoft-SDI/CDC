@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/lib/otp-delivery.php';
+require_once __DIR__ . '/lib/registration-wizard.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
@@ -26,11 +27,16 @@ function platform_safe_next(string $next): string
     return $next;
 }
 
-function platform_user_home(array $user, string $requestedNext = ''): string
+function platform_user_home(array $user, string $requestedNext = '', ?PDO $pdo = null): string
 {
     $safeNext = platform_safe_next($requestedNext);
     if ($safeNext !== '') {
         return $safeNext;
+    }
+
+    // Get PDO for module-aware routing (returns cached singleton).
+    if ($pdo === null) {
+        try { $pdo = db(); } catch (Throwable) {}
     }
 
     $role = strtolower((string) ($user['role'] ?? ''));
@@ -40,25 +46,28 @@ function platform_user_home(array $user, string $requestedNext = ''): string
         return 'super-admin/index.php';
     }
     if ($platformRole === 'support_agent') {
-        return 'support/agent.php';
+        return ($pdo && admin_feature_is_allowed($pdo, 'support')) ? 'support/agent.php' : 'dashboard/index.php';
     }
-    if (in_array($platformRole, ['national_coordinator', 'state_coordinator'], true)) {
-        return 'coordination/';
+    if (in_array($platformRole, ['national_coordinator', 'regional_coordinator', 'state_coordinator', 'lga_coordinator', 'district_coordinator', 'village_coordinator'], true)) {
+        return 'coordination/index.php';
+    }
+    if ($platformRole === 'cooperative_admin') {
+        return 'cooperatives/index.php';
     }
     if (in_array($platformRole, ['field_agent', 'agronomist', 'agric_extensionist', 'extensionist', 'farm_hand'], true) || $role === 'field_agent') {
-        return 'field-agent/';
+        return 'field-agent/index.php';
     }
     if (in_array($platformRole, ['seller', 'marketplace_seller'], true) || $role === 'seller') {
-        return 'market/seller-central.php';
+        return ($pdo && admin_feature_is_allowed($pdo, 'marketplace')) ? 'market/seller-central.php' : 'dashboard/index.php';
     }
     if ($platformRole === 'buyer' || $role === 'buyer') {
-        return 'buyer/index.php';
+        return ($pdo && admin_feature_is_allowed($pdo, 'marketplace')) ? 'buyer/index.php' : 'dashboard/index.php';
     }
     if (in_array($platformRole, ['provider', 'input_provider', 'service_provider'], true) || $role === 'provider') {
-        return 'provider/dashboard.php';
+        return ($pdo && admin_feature_is_allowed($pdo, 'providers')) ? 'provider/dashboard.php' : 'dashboard/index.php';
     }
     if ($platformRole === 'learner' || $role === 'learner') {
-        return 'academy/dashboard.php';
+        return ($pdo && admin_feature_is_allowed($pdo, 'training')) ? 'academy/dashboard.php' : 'dashboard/index.php';
     }
     if ($role === 'admin' || $platformRole === 'admin') {
         return 'admin/index.php';
@@ -94,6 +103,7 @@ function platform_password_matches(PDO $pdo, array $user, string $password): boo
 $error = '';
 $logoutNotice = isset($_GET['message']) ? 'You have logged out safely. Sign in again or choose a public area below.' : '';
 $accountHelp = null;
+$accountHelpSecondary = null;
 $lastEmail = strtolower(trim((string) ($_GET['email'] ?? '')));
 $next = platform_safe_next((string) ($_GET['next'] ?? $_POST['next'] ?? ''));
 
@@ -112,7 +122,7 @@ if (isset($_GET['social'])) {
 if (isset($_GET['oauth_callback'])) {
     try {
         $oauth = app_oauth_finish($pdo, (string) $_GET['oauth_callback'], 'login');
-        $stmt = $pdo->prepare('SELECT id, name, email, role, platform_role, account_status, email_verified_at, is_super_admin FROM users WHERE id = ? LIMIT 1');
+            $stmt = $pdo->prepare('SELECT id, name, email, phone, role, platform_role, account_status, email_verified_at, is_super_admin FROM users WHERE id = ? LIMIT 1');
         $stmt->execute([(int) $oauth['user_id']]);
         $oauthUser = $stmt->fetch() ?: null;
         unset($_SESSION['user_id']);
@@ -156,7 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $accountHelp = ['url' => 'forgot-password.php?email=' . urlencode((string) $email), 'label' => 'Reset password'];
             } else {
                 try {
-                    $stmt = $pdo->prepare('SELECT id, name, email, password, role, platform_role, account_status, email_verified_at, is_super_admin FROM users WHERE email = ? LIMIT 1');
+                    $stmt = $pdo->prepare('SELECT id, name, email, phone, password, role, platform_role, account_status, email_verified_at, is_super_admin FROM users WHERE email = ? LIMIT 1');
                     $stmt->execute([$email]);
                     $user = $stmt->fetch() ?: null;
                     if ($user && platform_password_matches($pdo, $user, $password)) {
@@ -164,6 +174,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (app_user_needs_email_verification($user)) {
                             $error = 'Your account needs email confirmation before login.';
                             $accountHelp = ['url' => 'resend-confirmation.php?email=' . urlencode((string) $email), 'label' => 'Resend confirmation email'];
+                            // A registration abandoned halfway can be resumed instead of restarted.
+                            $platformRole = strtolower((string) ($user['platform_role'] ?? ''));
+                            $boardSlug = in_array($platformRole, ['buyer', 'seller', 'learner', 'provider'], true) ? $platformRole : 'grower';
+                            try {
+                                $draft = registration_wizard_find_by_user($pdo, $boardSlug, (int) $user['id'], true);
+                                if ($draft !== null) {
+                                    $accountHelp = ['url' => 'register-wizard.php?board=' . urlencode($boardSlug) . '&resume=1', 'label' => 'Continue your registration'];
+                                    $accountHelpSecondary = ['url' => 'resend-confirmation.php?email=' . urlencode((string) $email), 'label' => 'Resend confirmation email'];
+                                }
+                            } catch (Throwable $e) {
+                                error_log('Registration draft lookup skipped: ' . $e->getMessage());
+                            }
                         } elseif (!in_array($status, ['active', 'verified'], true)) {
                             $error = 'This account is not active. Contact support or reset your password if you think this is wrong.';
                             $accountHelp = ['url' => 'forgot-password.php?email=' . urlencode((string) $email), 'label' => 'Reset password'];
@@ -221,7 +243,7 @@ $facebookEnabled = app_social_login_enabled('facebook');
   <p class="lead">Sign in with your registered NATCODEV account. Your verified role routes you to the right workspace.</p>
   <?php if ($logoutNotice): ?><div class="alert ok"><?= e($logoutNotice) ?></div><?php endif; ?>
   <?php if ($error): ?><div class="alert err"><?= e($error) ?></div><?php endif; ?>
-  <?php if ($accountHelp): ?><div class="alert help"><a href="<?= e($accountHelp['url']) ?>"><?= e($accountHelp['label']) ?></a></div><?php endif; ?>
+  <?php if ($accountHelp): ?><div class="alert help"><a href="<?= e($accountHelp['url']) ?>"><?= e($accountHelp['label']) ?></a><?php if ($accountHelpSecondary): ?> &nbsp;&middot;&nbsp; <a href="<?= e($accountHelpSecondary['url']) ?>"><?= e($accountHelpSecondary['label']) ?></a><?php endif; ?></div><?php endif; ?>
   <?php if ($googleEnabled || $facebookEnabled): ?>
     <div class="social">
       <?php if ($googleEnabled): ?><a href="login.php?social=google<?= $next !== '' ? '&next=' . urlencode($next) : '' ?>"><i class="fab fa-google"></i> Google</a><?php endif; ?>
@@ -237,7 +259,7 @@ $facebookEnabled = app_social_login_enabled('facebook');
     <button class="btn" type="submit">Login</button>
   </form>
   <div class="links"><a href="forgot-password.php<?= $lastEmail !== '' ? '?email=' . urlencode($lastEmail) : '' ?>">Forgot password?</a><a href="apply.php">Registration</a></div>
-  <div class="links"><a href="index.php">NATCODEV Home</a><a href="market/index.php">Marketplace</a><a href="academy/index.php">Academy</a><a href="support/index.php">Support</a></div>
+  <div class="links"><a href="index.php">NATCODEV Home</a><?php if (admin_feature_is_allowed($pdo, 'marketplace')): ?><a href="market/index.php">Marketplace</a><?php endif; ?><?php if (admin_feature_is_allowed($pdo, 'training')): ?><a href="academy/index.php">Academy</a><?php endif; ?><?php if (admin_feature_is_allowed($pdo, 'support')): ?><a href="support/index.php">Support</a><?php endif; ?></div>
   <p class="fine">Unconfirmed accounts cannot enter. After password verification, NATCODEV sends an OTP to the confirmed email before workspace access is granted.</p>
 </main>
 <script>

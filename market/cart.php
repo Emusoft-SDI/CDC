@@ -5,8 +5,7 @@ require_once __DIR__ . '/_market.php';
 
 $pdo = market_boot();
 if (!admin_feature_is_allowed($pdo, 'marketplace')) {
-    http_response_code(403);
-    exit('Forbidden: the marketplace module is disabled.');
+    app_render_error_page(403, 'The marketplace module is disabled for your role.');
 }
 $user = market_user($pdo); // Get the current user
 $message = '';
@@ -32,12 +31,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf($_POST['_csrf'] ?? null
         } else {
             $message = 'No items to save or failed to save cart.';
         }
+    } elseif ($action === 'save_one') {
+        if (!$user) {
+            redirect_to('../dashboard/login.php?next=' . rawurlencode('market/cart.php'));
+        }
+        if (market_cart_save_one_for_later($pdo, $user, $listingId)) {
+            $message = 'Item saved for later.';
+        } else {
+            $message = 'Item is not in your cart.';
+        }
+    } elseif ($action === 'restore_saved') {
+        if (!$user) {
+            redirect_to('../dashboard/login.php?next=' . rawurlencode('market/cart.php'));
+        }
+        $restored = market_saved_restore($pdo, $user, $listingId > 0 ? $listingId : null);
+        if ($restored > 0) {
+            $message = $listingId > 0 ? 'Item moved to cart.' : $restored . ' saved item(s) moved to cart.';
+        } else {
+            $message = 'No saved items could be restored.';
+        }
+    } elseif ($action === 'remove_saved') {
+        if (!$user) {
+            redirect_to('../dashboard/login.php?next=' . rawurlencode('market/cart.php'));
+        }
+        market_saved_remove($pdo, $user, $listingId);
+        $message = 'Item removed from saved list.';
+    } elseif ($action === 'remove_unavailable_saved') {
+        if (!$user) {
+            redirect_to('../dashboard/login.php?next=' . rawurlencode('market/cart.php'));
+        }
+        $removed = market_saved_remove_unavailable($pdo, $user);
+        $message = $removed > 0 ? $removed . ' unavailable item(s) removed.' : 'No unavailable items to remove.';
+    } elseif ($action === 'clear_saved') {
+        if (!$user) {
+            redirect_to('../dashboard/login.php?next=' . rawurlencode('market/cart.php'));
+        }
+        market_saved_clear($pdo, $user);
+        $message = 'Saved items cleared.';
     }
 }
 
 $rows = market_cart_rows($pdo);
 $totals = market_checkout_totals($rows);
 $total = (float) $totals['subtotal'];
+
+$savedRows = $user ? market_saved_rows($pdo, $user) : [];
+$savedAvailable = array_values(array_filter($savedRows, static fn(array $row): bool => $row['purchasable']));
+$savedUnavailable = array_values(array_filter($savedRows, static fn(array $row): bool => !$row['purchasable']));
+$savedValue = array_sum(array_map(static fn(array $row): float => (float) $row['saved_total'], $savedAvailable));
 
 $featuredInspiration = [];
 $suggestedCategories = [];
@@ -52,7 +93,8 @@ market_header('Cart', 'marketplace', $pdo);
 <style>
 .cart-hero{margin:-26px -26px 22px;padding:46px 32px;background:linear-gradient(90deg,rgba(255,255,255,.94),rgba(255,255,255,.78)),url("../assets/market/checkout-coconut-bg.png") center/cover no-repeat;border-bottom:1px solid var(--mk-line);display:flex;justify-content:space-between;gap:20px;align-items:center}.cart-hero h1{font-size:2.4rem;margin:0;color:#0b2414}.cart-shell{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:24px}.seller-block{background:#fff;border:1px solid var(--mk-line);border-radius:14px;margin-bottom:18px;box-shadow:var(--mk-shadow);overflow:hidden}.seller-head{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:16px 18px;border-bottom:1px solid var(--mk-line);font-weight:900}.cart-item{display:grid;grid-template-columns:28px 210px 1fr 120px 150px 120px 42px;gap:18px;align-items:center;padding:18px;border-bottom:1px solid var(--mk-line)}.cart-item:last-child{border-bottom:0}.cart-item img{width:210px;height:118px;border-radius:10px;object-fit:cover}.cart-check{width:22px;height:22px;accent-color:#0b6b33}.qty-mini{display:grid;grid-template-columns:36px 1fr 36px;border:1px solid var(--mk-line);border-radius:8px;overflow:hidden;height:42px}.qty-mini button{border:0;background:#fff;font-weight:950}.qty-mini input{border:0;text-align:center;font-weight:950}.cart-summary{position:sticky;top:112px}.summary-total{font-size:1.8rem;color:#0b6b33;font-weight:950}.coupon{border:1px solid #f3d391;background:#fffdf3;border-radius:12px;padding:14px;margin-top:14px}.protection li{display:flex;gap:10px;align-items:flex-start;margin:12px 0}.wallet-note{border:1px solid #f3d391;background:#fff8e6;border-radius:12px;padding:16px;margin-top:14px}.cart-assurance{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;background:#fff;border:1px solid var(--mk-line);border-radius:14px;padding:18px;margin-top:16px}.cart-assurance div{display:flex;gap:12px;align-items:center;font-weight:900}.cart-assurance i,.seller-head i,.protection i{color:#0b6b33}
 .empty-hero{text-align:center;padding:60px 20px;background:#fff;border:1px solid var(--mk-line);border-radius:18px;margin-bottom:24px;box-shadow:var(--mk-shadow)}.empty-icon{font-size:5rem;color:#e2e8f0;margin-bottom:20px;display:inline-block;padding:30px;background:#f8fafc;border-radius:50%}.empty-hero h2{font-size:2rem;color:#1e293b;margin-bottom:10px}.empty-hero p{color:#64748b;font-size:1.1rem;max-width:500px;margin:0 auto 24px}.inspiration-section{margin-top:40px}.inspiration-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.inspiration-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px}.insp-card{background:#fff;border:1px solid var(--mk-line);border-radius:12px;padding:12px;transition:0.2s;text-align:center;display:block;color:inherit}.insp-card:hover{transform:translateY(-3px);box-shadow:var(--mk-shadow);text-decoration:none}.insp-card img{width:100%;height:120px;border-radius:8px;object-fit:cover;margin-bottom:10px}.insp-card h4{font-size:0.95rem;margin:0 0 5px;color:#1e293b}.cat-pills{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.cat-pill{padding:8px 16px;background:#fff;border:1px solid var(--mk-line);border-radius:999px;font-weight:800;font-size:0.9rem;color:#475569;transition:0.2s}.cat-pill:hover{background:#f0fdf4;color:#0b6b33;border-color:#bbf7d0;text-decoration:none}
-@media(max-width:1200px){.cart-shell,.cart-assurance{grid-template-columns:1fr}.cart-summary{position:static}.cart-item{grid-template-columns:28px 140px 1fr}.cart-item img{width:140px;height:100px}.cart-item>*:nth-child(n+5){grid-column:auto}}@media(max-width:700px){.cart-item{grid-template-columns:1fr}.cart-item img{width:100%;height:190px}}
+@media(max-width:1200px){.cart-shell,.cart-assurance{grid-template-columns:1fr}.cart-summary{position:static}.cart-item{grid-template-columns:28px 140px 1fr}.cart-item img{width:140px;height:100px}.cart-item>*:nth-child(n+5){grid-column:auto}.saved-item{grid-template-columns:140px 1fr}.saved-item img,.saved-gone{width:140px;height:100px}.saved-item>*:nth-child(n+4){grid-column:auto}}@media(max-width:700px){.cart-item{grid-template-columns:1fr}.cart-item img{width:100%;height:190px}.saved-item{grid-template-columns:1fr}.saved-item img,.saved-gone{width:100%;height:190px}}
+.saved-item{display:grid;grid-template-columns:minmax(140px,210px) 1fr 130px 90px 120px 150px 42px;gap:18px;align-items:center;padding:18px;border-bottom:1px solid var(--mk-line)}.saved-item:last-child{border-bottom:0}.saved-item img{width:210px;height:118px;border-radius:10px;object-fit:cover}.saved-item h3{margin:0 0 4px;font-size:1.05rem}.saved-item h3 a{color:inherit}.saved-qty{font-weight:900;color:#667085}.saved-unavailable{opacity:.65;background:#fafafa}.saved-gone{width:210px;height:118px;border-radius:10px;background:#f1f5f4;display:grid;place-items:center;color:#94a3b8;font-size:1.6rem}
 </style>
 <section class="cart-hero">
   <div><h1><i class="fas fa-shopping-cart" style="color:#0b6b33"></i> Your Cart</h1><p>Review your items, check delivery, and proceed to secure checkout.</p></div>
@@ -76,6 +118,12 @@ market_header('Cart', 'marketplace', $pdo);
                 <div class="qty-mini"><button type="button" onclick="this.nextElementSibling.stepDown()">-</button><input type="number" min="1" name="quantity" value="<?= (int) $row['cart_quantity'] ?>"><button type="button" onclick="this.previousElementSibling.stepUp()">+</button></div>
                 <button class="mk-btn secondary" style="margin-top:6px;width:100%" type="submit">Update</button>
           </form>
+          <form method="post">
+                <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+                <input type="hidden" name="action" value="save_one">
+                <input type="hidden" name="listing_id" value="<?= (int) $row['id'] ?>">
+                <button class="mk-btn secondary" style="margin-top:6px;width:100%" type="submit" title="Save this item for later"><i class="far fa-heart"></i> Save</button>
+          </form>
           <strong style="color:#0b6b33;font-size:1.25rem"><?= e(marketplace_money((float) $row['cart_total'])) ?></strong>
           <form method="post">
                 <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
@@ -88,6 +136,12 @@ market_header('Cart', 'marketplace', $pdo);
     <?php endforeach; ?>
     <div style="display:flex;justify-content:space-between;gap:12px"><a class="mk-btn secondary" href="index.php"><i class="fas fa-arrow-left"></i> Continue Shopping</a><form method="post"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="action" value="clear"><button class="mk-btn secondary"><i class="fas fa-trash"></i> Clear Cart</button></form></div>
   <?php else: ?>
+    <?php if ($savedAvailable): ?>
+    <div class="mk-alert ok" style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
+      <span><i class="far fa-heart" style="color:#dc2626"></i> <strong><?= count($savedAvailable) ?> item(s) saved for later</strong> &mdash; estimated value <?= e(marketplace_money($savedValue)) ?>. Ready when you are.</span>
+      <form method="post"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="action" value="restore_saved"><button class="mk-btn" type="submit"><i class="fas fa-shopping-cart"></i> Move All to Cart</button></form>
+    </div>
+    <?php endif; ?>
     <div class="empty-hero">
         <div class="empty-icon"><i class="fas fa-shopping-basket"></i></div>
         <h2>Your cart is feeling a bit lonely</h2>
@@ -123,6 +177,59 @@ market_header('Cart', 'marketplace', $pdo);
         </div>
     </div>
   <?php endif; ?>
+
+  <?php if ($savedRows): ?>
+  <section class="seller-block" id="saved">
+    <div class="seller-head"><span><i class="far fa-heart" style="color:#dc2626"></i> Saved for Later <span class="mk-badge"><?= count($savedRows) ?> item(s)</span></span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <?php if ($savedAvailable): ?>
+        <form method="post"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="action" value="restore_saved"><button class="mk-btn secondary" type="submit"><i class="fas fa-shopping-cart"></i> Move All to Cart</button></form>
+        <?php endif; ?>
+        <?php if ($savedUnavailable): ?>
+        <form method="post"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="action" value="remove_unavailable_saved"><button class="mk-btn secondary" type="submit"><i class="fas fa-broom"></i> Remove Unavailable</button></form>
+        <?php endif; ?>
+        <form method="post"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="action" value="clear_saved"><button class="mk-btn secondary" type="submit"><i class="fas fa-trash"></i> Clear Saved</button></form>
+      </div>
+    </div>
+    <?php foreach ($savedAvailable as $srow): ?>
+      <div class="saved-item">
+        <a href="product.php?id=<?= (int) $srow['listing_id'] ?>"><img src="<?= e(market_listing_image_url($srow)) ?>" alt="<?= e((string) $srow['title']) ?>"></a>
+        <div><h3><a href="product.php?id=<?= (int) $srow['listing_id'] ?>"><?= e((string) $srow['title']) ?></a></h3><p class="mk-meta"><?= e((string) ($srow['summary'] ?: $srow['category_name'] ?: 'Marketplace item')) ?></p><span class="mk-badge">Seller: <?= e((string) $srow['store_name']) ?></span></div>
+        <div><strong><?= e(marketplace_money((float) $srow['price'])) ?></strong><br><small>/ <?= e((string) ($srow['unit'] ?: 'unit')) ?></small></div>
+        <div class="saved-qty">Qty: <?= (int) $srow['saved_quantity'] ?></div>
+        <strong style="color:#0b6b33;font-size:1.15rem"><?= e(marketplace_money((float) $srow['saved_total'])) ?></strong>
+        <form method="post">
+              <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+              <input type="hidden" name="action" value="restore_saved">
+              <input type="hidden" name="listing_id" value="<?= (int) $srow['listing_id'] ?>">
+              <button class="mk-btn secondary" style="width:100%" type="submit"><i class="fas fa-shopping-cart"></i> Move to Cart</button>
+        </form>
+        <form method="post">
+              <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+              <input type="hidden" name="action" value="remove_saved">
+              <input type="hidden" name="listing_id" value="<?= (int) $srow['listing_id'] ?>">
+              <button class="mk-btn secondary" title="Remove" type="submit"><i class="fas fa-trash"></i></button>
+        </form>
+      </div>
+    <?php endforeach; ?>
+    <?php foreach ($savedUnavailable as $srow): ?>
+      <div class="saved-item saved-unavailable">
+        <div class="saved-gone"><i class="fas fa-unlink"></i></div>
+        <div><h3><?= e((string) ($srow['title'] ?: 'Listing #' . $srow['listing_id'])) ?></h3><p class="mk-meta">This item is no longer available.</p><span class="mk-badge red">Unavailable</span></div>
+        <div>&mdash;</div>
+        <div class="saved-qty">Qty: <?= (int) $srow['saved_quantity'] ?></div>
+        <strong>&mdash;</strong>
+        <div></div>
+        <form method="post">
+              <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+              <input type="hidden" name="action" value="remove_saved">
+              <input type="hidden" name="listing_id" value="<?= (int) $srow['listing_id'] ?>">
+              <button class="mk-btn secondary" title="Remove" type="submit"><i class="fas fa-trash"></i></button>
+        </form>
+      </div>
+    <?php endforeach; ?>
+  </section>
+  <?php endif; ?>
   </div>
   <aside class="mk-section cart-summary">
     <?php if ($rows): ?>
@@ -138,6 +245,9 @@ market_header('Cart', 'marketplace', $pdo);
             <input type="hidden" name="action" value="save_for_later">
             <button class="mk-btn secondary" style="width:100%" type="submit"><i class="far fa-heart"></i> Save Cart for Later</button>
         </form>
+        <?php if ($savedRows): ?>
+        <div class="wallet-note" style="margin-top:14px"><strong><i class="far fa-heart" style="color:#dc2626"></i> Saved for later</strong><p><?= count($savedRows) ?> item(s) &middot; est. value <?= e(marketplace_money($savedValue)) ?></p><a href="#saved" style="font-weight:900">Manage saved items &rarr;</a></div>
+        <?php endif; ?>
         <div class="coupon"><strong>Have a discount code?</strong><div style="display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:10px"><input placeholder="Enter code"><button class="mk-btn secondary">Apply</button></div></div>
     <?php else: ?>
         <h2>Marketplace Trust</h2>

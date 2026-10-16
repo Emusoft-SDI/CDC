@@ -128,9 +128,7 @@ try {
 
   <main>
     <section class="news-hero">
-      <div class="breadcrumb">
-        <a href="index.php">Home</a> &gt; <span>News & Insights</span>
-      </div>
+      <?= page_breadcrumbs([['label' => 'News & Insights']], 'NATCODEV', '../index.php') ?>
       <h1>News, Releases & Announcements</h1>
       <p>Stay informed with policy briefings, training notifications, market off-take reports, and operational updates from the national coconut desk.</p>
     </section>

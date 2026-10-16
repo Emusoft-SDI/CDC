@@ -28,6 +28,11 @@ function rr_allowed_roles(): array
         'agric_extensionist' => 'Agric Extensionist',
         'state_coordinator' => 'State Coordinator',
         'national_coordinator' => 'National Coordinator',
+        'regional_coordinator' => 'Regional Coordinator',
+        'lga_coordinator' => 'LGA Coordinator',
+        'district_coordinator' => 'District Coordinator',
+        'village_coordinator' => 'Village Coordinator',
+        'cooperative_admin' => 'Cooperative Admin',
         'support_agent' => 'Support Agent',
     ];
 }
@@ -67,6 +72,11 @@ function rr_internal_roles(): array
         'extensionist',
         'state_coordinator',
         'national_coordinator',
+        'regional_coordinator',
+        'lga_coordinator',
+        'district_coordinator',
+        'village_coordinator',
+        'cooperative_admin',
     ];
 }
 
@@ -140,7 +150,14 @@ function rr_role_form(int $userId): string
     foreach (rr_allowed_roles() as $key => $label) {
         $html .= '<option value="' . rx_e($key) . '">' . rx_e($label) . '</option>';
     }
-    $html .= '</select><button class="btn btn-sm btn-secondary">Grant</button></form>';
+    $html .= '</select>';
+    $html .= '<select name="scope_type" class="form-select" style="width:104px;padding:6px 8px" title="Scope type">';
+    foreach (['global' => 'Global', 'state' => 'State', 'lga' => 'LGA', 'district' => 'District', 'village' => 'Village'] as $scopeKey => $scopeLabel) {
+        $html .= '<option value="' . rx_e($scopeKey) . '">' . rx_e($scopeLabel) . '</option>';
+    }
+    $html .= '</select>';
+    $html .= '<input name="scope_value" class="form-input" style="width:150px;padding:6px 8px" placeholder="Scope value" title="State, LGA, district, or village name (ignored for Global)">';
+    $html .= '<button class="btn btn-sm btn-secondary">Grant</button></form>';
     return $html;
 }
 
@@ -177,7 +194,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($userId <= 0 || !array_key_exists($role, rr_allowed_roles())) {
                 throw new RuntimeException('Invalid RBAC role.');
             }
-            $pdo->prepare("INSERT INTO user_role_assignments (user_id, role_key, scope_type, scope_value, status, notes, assigned_by) VALUES (?, ?, 'global', '', 'active', 'Granted from registry control center', ?) ON DUPLICATE KEY UPDATE status='active', revoked_at=NULL, notes=VALUES(notes), assigned_by=VALUES(assigned_by)")->execute([$userId, $role, (int) ($_SESSION['user_id'] ?? 0)]);
+            $scopeType = (string) ($_POST['scope_type'] ?? 'global');
+            if (!in_array($scopeType, ['global', 'state', 'lga', 'district', 'village'], true)) {
+                $scopeType = 'global';
+            }
+            $scopeValue = trim((string) ($_POST['scope_value'] ?? ''));
+            if ($scopeType === 'global') {
+                $scopeValue = '';
+            }
+            $pdo->prepare("INSERT INTO user_role_assignments (user_id, role_key, scope_type, scope_value, status, notes, assigned_by) VALUES (?, ?, ?, ?, 'active', 'Granted from registry control center', ?) ON DUPLICATE KEY UPDATE status='active', revoked_at=NULL, scope_type=VALUES(scope_type), scope_value=VALUES(scope_value), notes=VALUES(notes), assigned_by=VALUES(assigned_by)")->execute([$userId, $role, $scopeType, $scopeValue, (int) ($_SESSION['user_id'] ?? 0)]);
             $redirect .= '?message=' . urlencode('RBAC role granted.');
         } elseif ($action === 'revoke_role') {
             $userId = (int) ($_POST['user_id'] ?? 0);

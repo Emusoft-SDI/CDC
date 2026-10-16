@@ -10,6 +10,16 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 }
 
 $pdo = db();
+
+// Gate by module state.
+if (!admin_feature_is_allowed($pdo, 'training')) {
+    http_response_code(403);
+    echo '<!DOCTYPE html><html><head><meta charset="utf-8"><title>NATCODEV Academy</title></head>';
+    echo '<body style="font-family:system-ui;padding:60px;text-align:center;color:#555">';
+    echo '<h1>Academy Currently Unavailable</h1><p>This module is temporarily disabled.</p></body></html>';
+    exit;
+}
+
 app_ensure_core_schema($pdo);
 academy_ensure_schema($pdo);
 app_add_column_if_missing($pdo, 'users', 'platform_role', "VARCHAR(60) NULL");

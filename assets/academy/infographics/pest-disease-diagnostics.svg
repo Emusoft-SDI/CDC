@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" width="100%" height="100%">
+  <defs>
+    <linearGradient id="pestBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1A1C23"/>
+      <stop offset="100%" stop-color="#2D3748"/>
+    </linearGradient>
+    <filter id="pShadow" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="6" stdDeviation="5" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <rect width="960" height="480" rx="16" fill="url(#pestBg)"/>
+
+  <!-- Title Header -->
+  <text x="480" y="44" text-anchor="middle" fill="#F87171" font-family="Arial, sans-serif" font-weight="900" font-size="13" letter-spacing="2">FIELD DIAGNOSTIC IDENTIFIER</text>
+  <text x="480" y="76" text-anchor="middle" fill="#FFFFFF" font-family="Georgia, serif" font-weight="bold" font-size="24">Coconut Pest &amp; Disease Diagnostic Matrix</text>
+  <text x="480" y="100" text-anchor="middle" fill="#CBD5E1" font-family="Arial, sans-serif" font-size="13">Visual field symptoms, identification traits, and immediate integrated pest management actions</text>
+
+  <!-- PEST 1: Rhinoceros Beetle -->
+  <g transform="translate(45, 130)" filter="url(#pShadow)">
+    <rect width="270" height="275" rx="12" fill="#FFFFFF" stroke="#F59E0B" stroke-width="2"/>
+    <rect x="0" y="0" width="270" height="46" rx="12" fill="#D97706"/>
+    <text x="135" y="28" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-weight="bold" font-size="14">🪲 Rhinoceros Beetle</text>
+    
+    <rect x="20" y="58" width="230" height="65" rx="6" fill="#FEF3C7"/>
+    <text x="135" y="82" text-anchor="middle" fill="#92400E" font-weight="bold" font-size="12">Oryctes monoceros</text>
+    <text x="135" y="104" text-anchor="middle" fill="#B45309" font-size="10.5">Symptom: Geometric V-shaped cuts on fronds</text>
+
+    <text x="20" y="148" fill="#334155" font-family="Arial, sans-serif" font-size="11">
+      <tspan x="20" dy="0">• Bores through central crown spindle</tspan>
+      <tspan x="20" dy="16">• Leaves appear cut like scissors</tspan>
+      <tspan x="20" dy="16">• Breeds in decaying dead coconut trunks</tspan>
+      <tspan x="20" dy="16">• Major cause of crown rot entry</tspan>
+    </text>
+    <rect x="18" y="235" width="234" height="26" rx="4" fill="#FEF3C7"/>
+    <text x="135" y="252" text-anchor="middle" fill="#92400E" font-family="Arial, sans-serif" font-weight="bold" font-size="10.5">Action: Pheromone Traps + Trunk Hygiene</text>
+  </g>
+
+  <!-- PEST 2: Coconut Mite -->
+  <g transform="translate(345, 130)" filter="url(#pShadow)">
+    <rect width="270" height="275" rx="12" fill="#FFFFFF" stroke="#60A5FA" stroke-width="2"/>
+    <rect x="0" y="0" width="270" height="46" rx="12" fill="#2563EB"/>
+    <text x="135" y="28" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-weight="bold" font-size="14">🔬 Coconut Eriophyid Mite</text>
+    
+    <rect x="20" y="58" width="230" height="65" rx="6" fill="#EFF6FF"/>
+    <text x="135" y="82" text-anchor="middle" fill="#1E40AF" font-weight="bold" font-size="12">Aceria guerreronis</text>
+    <text x="135" y="104" text-anchor="middle" fill="#1D4ED8" font-size="10.5">Symptom: Brown scarring beneath button calyx</text>
+
+    <text x="20" y="148" fill="#334155" font-family="Arial, sans-serif" font-size="11">
+      <tspan x="20" dy="0">• Microscopic mites feed on tender nut tissue</tspan>
+      <tspan x="20" dy="16">• Triangular pale/brown lesions on 2–6 mo nuts</tspan>
+      <tspan x="20" dy="16">• Severe nut deformation &amp; copra loss</tspan>
+      <tspan x="20" dy="16">• High premature nut drop rate</tspan>
+    </text>
+    <rect x="18" y="235" width="234" height="26" rx="4" fill="#DBEAFE"/>
+    <text x="135" y="252" text-anchor="middle" fill="#1E40AF" font-family="Arial, sans-serif" font-weight="bold" font-size="10.5">Action: Organic Neem Oil Spray (2%)</text>
+  </g>
+
+  <!-- DISEASE: Lethal Yellowing Syndrome -->
+  <g transform="translate(645, 130)" filter="url(#pShadow)">
+    <rect width="270" height="275" rx="12" fill="#FFFFFF" stroke="#EF4444" stroke-width="2"/>
+    <rect x="0" y="0" width="270" height="46" rx="12" fill="#DC2626"/>
+    <text x="135" y="28" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-weight="bold" font-size="14">⚠️ Lethal Yellowing Disease</text>
+    
+    <rect x="20" y="58" width="230" height="65" rx="6" fill="#FEF2F2"/>
+    <text x="135" y="82" text-anchor="middle" fill="#991B1B" font-weight="bold" font-size="12">Phytoplasma Syndrome</text>
+    <text x="135" y="104" text-anchor="middle" fill="#B91C1C" font-size="10.5">Symptom: Rapid yellowing &amp; flower necrosis</text>
+
+    <text x="20" y="148" fill="#7F1D1D" font-family="Arial, sans-serif" font-size="11">
+      <tspan x="20" dy="0">• Premature drop of all coconut bunches</tspan>
+      <tspan x="20" dy="16">• Inflorescences turn blackened/dead</tspan>
+      <tspan x="20" dy="16">• Crown collapses to 'telephone pole' in 3 mos</tspan>
+      <tspan x="20" dy="16">• Vector: Planthopper insects</tspan>
+    </text>
+    <rect x="18" y="235" width="234" height="26" rx="4" fill="#FEE2E2"/>
+    <text x="135" y="252" text-anchor="middle" fill="#991B1B" font-family="Arial, sans-serif" font-weight="bold" font-size="10.5">Action: Quarantine, Eradicate, Hybrid Trees</text>
+  </g>
+
+  <text x="480" y="445" text-anchor="middle" fill="#FCA5A5" font-family="Arial, sans-serif" font-size="12">🚨 Immediate Action: If Lethal Yellowing symptoms are spotted, immediately lodge an in-app Agronomy Escalation Ticket for quarantine inspection.</text>
+</svg>

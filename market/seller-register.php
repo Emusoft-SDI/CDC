@@ -38,32 +38,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Too many seller registration attempts. Please try again in an hour.';
     } elseif (!verify_csrf($_POST['_csrf'] ?? null)) {
         $error = 'Invalid security token. Refresh and try again.';
-    } elseif ($currentUser && (string) ($_POST['action'] ?? '') === 'activate_seller') {
-        if (app_user_needs_email_verification($currentUser)) {
-            $error = 'Please confirm your email before activating Seller Central.';
-        } else {
-            market_activate_seller_access($pdo, $currentUser);
-            redirect_to('seller-central.php');
-        }
     } else {
-        $name = trim((string) ($_POST['name'] ?? ''));
-        $email = filter_var(trim((string) ($_POST['email'] ?? '')), FILTER_VALIDATE_EMAIL);
-        $phone = trim((string) ($_POST['phone'] ?? ''));
-        $password = (string) ($_POST['password'] ?? '');
-        if ($name === '' || !$email || strlen($password) < 6) {
-            $error = 'Enter your name, valid email, and a password of at least 6 characters.';
-        } else {
-            try {
-                app_ensure_user_verification_schema($pdo);
-                $stmt = $pdo->prepare("INSERT INTO users (name, email, password, phone, role, platform_role, account_status) VALUES (?, ?, ?, ?, 'grower', 'seller', 'needs_confirmation')");
-                $stmt->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $phone]);
-                $userId = (int) $pdo->lastInsertId();
-                market_activate_seller_access($pdo, ['id' => $userId]);
-                app_send_user_verification($pdo, $userId, 'NATCODEV Marketplace Seller');
-                $message = 'Seller account created. Check your email and verify before logging in to Seller Central.';
-            } catch (Throwable $e) {
-                $error = 'Unable to create seller account now. If this email already exists, login and activate seller access.';
+        // Every public sign-up goes through the shared registration wizard:
+        // the account is created as needs_confirmation and seller access is
+        // activated by the marketplace flow once the wizard completes.
+        try {
+            app_ensure_user_verification_schema($pdo);
+            $result = registration_wizard_begin($pdo, 'seller', $_POST);
+            if (!empty($result['ok'])) {
+                redirect_to('../verify-otp.php');
             }
+            $error = (string) $result['message'];
+        } catch (Throwable $e) {
+            error_log('Seller registration error: ' . $e->getMessage());
+            $error = 'Unable to create seller account now. If this email already exists, login and activate seller access.';
         }
     }
 }
@@ -88,12 +76,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?php if ($message): ?><div class="alert ok"><?= e($message) ?></div><?php endif; ?>
 
     <?php if ($currentUser): ?>
-      <h2>Activate Seller Central</h2>
-      <p>You are logged in as <?= e((string) ($currentUser['name'] ?? 'NATCODEV user')) ?>. Add seller access to this account to open a marketplace store.</p>
-      <div class="choice"><strong>Marketplace Seller</strong><span class="fineprint">For product sellers, traders, processors, cooperatives, growers selling produce, and general commerce users.</span></div>
-      <div class="choice"><strong>Provider Accreditation</strong><span class="fineprint">For input/service providers seeking NATCODEV accreditation and network recognition.</span></div>
-      <form method="post"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="action" value="activate_seller"><button class="btn">Activate Seller Central</button></form>
-      <div class="links"><a href="seller-central.php">Open Seller Central</a><a href="../provider/index.php">Provider accreditation instead</a><a href="logout.php">Logout</a></div>
+      <?php $sellerAccess = market_user_can_sell($pdo, $currentUser); ?>
+      <?php if ($sellerAccess): ?>
+        <h2>Seller access active</h2>
+        <p>Your account already has Seller Central access.</p>
+        <a class="btn" href="seller-central.php">Open Seller Central</a>
+      <?php else: ?>
+        <h2>Activate Seller Central</h2>
+        <p>You are logged in as <?= e((string) ($currentUser['name'] ?? 'NATCODEV user')) ?>. Continue your seller registration to open a marketplace store.</p>
+        <div class="choice"><strong>Marketplace Seller</strong><span class="fineprint">For product sellers, traders, processors, cooperatives, growers selling produce, and general commerce users.</span></div>
+        <div class="choice"><strong>Provider Accreditation</strong><span class="fineprint">For input/service providers seeking NATCODEV accreditation and network recognition.</span></div>
+        <a class="btn" href="../register-wizard.php?board=seller">Start / continue seller registration</a>
+      <?php endif; ?>
+      <div class="links"><a href="../provider/index.php">Provider accreditation instead</a><a href="logout.php?_csrf=<?= e(csrf_token()) ?>">Logout</a></div>
     <?php else: ?>
       <h2>Create seller account</h2>
       <p>Use this for a public seller account. You can create your store profile after email verification.</p>

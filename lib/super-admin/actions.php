@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../admin-approvals.php';
+
 function super_admin_create_user(PDO $pdo, array $roles): void
 {
     $name = trim((string) ($_POST['name'] ?? ''));
@@ -10,12 +12,17 @@ function super_admin_create_user(PDO $pdo, array $roles): void
     $password = trim((string) ($_POST['password'] ?? ''));
     $location = trim((string) ($_POST['location'] ?? ''));
 
-    if ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL) || $password === '') {
-        throw new RuntimeException('Name, valid email, and temporary password are required.');
+    if ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        throw new RuntimeException('Name and valid email are required.');
     }
     if (!isset($roles[$platformRole])) {
         throw new RuntimeException('Invalid platform role.');
     }
+
+    // When the admin supplies a password it is emailed as before; when the
+    // field is left blank the account is activated by the staff member via a
+    // claim link, so only an opaque placeholder hash is stored.
+    $initialPassword = $password !== '' ? $password : bin2hex(random_bytes(16));
 
     $stmt = $pdo->prepare("
         INSERT INTO users
@@ -24,7 +31,7 @@ function super_admin_create_user(PDO $pdo, array $roles): void
     ");
     $stmt->execute([
         $email,
-        password_hash($password, PASSWORD_DEFAULT),
+        password_hash($initialPassword, PASSWORD_DEFAULT),
         $name,
         $phone !== '' ? $phone : null,
         $location !== '' ? $location : null,
@@ -37,8 +44,22 @@ function super_admin_create_user(PDO $pdo, array $roles): void
         isset($_POST['profile_verified']) ? 1 : 0,
     ]);
 
-    $loginUrl = app_base_url() . '/dashboard/login.php';
-    app_send_mail($email, 'NATCODEV account created', "Hello {$name},\n\nYour NATCODEV {$roles[$platformRole]} account is ready.\n\nLogin: {$loginUrl}\nUsername: {$email}\nTemporary password: {$password}\n\nPlease sign in and update your password/profile immediately.");
+    if ($password !== '') {
+        // Fallback path: the admin supplied a password, so email it as before.
+        $loginUrl = app_base_url() . '/dashboard/login.php';
+        app_send_mail($email, 'NATCODEV account created', "Hello {$name},\n\nYour NATCODEV {$roles[$platformRole]} account is ready.\n\nLogin: {$loginUrl}\nUsername: {$email}\nTemporary password: {$password}\n\nPlease sign in and update your password/profile immediately.");
+    } else {
+        // Claim path: no password was supplied, so the claim link is the
+        // only activation path and no plain-text password is ever emailed.
+        $claim = staff_account_claim_begin($pdo, (int) $pdo->lastInsertId());
+        if (empty($claim['ok'])) {
+            // The account exists, but the staff member never received the
+            // only activation path. Surface the partial failure instead
+            // of letting the console report a plain success.
+            super_admin_audit($pdo, 'user_created', "Created {$roles[$platformRole]} account for {$email} (claim email failed: " . trim((string) ($claim['message'] ?? '')) . ").");
+            throw new RuntimeException('Account created for ' . $email . ', but the claim email failed: ' . trim((string) ($claim['message'] ?? '')));
+        }
+    }
     super_admin_audit($pdo, 'user_created', "Created {$roles[$platformRole]} account for {$email}.");
 }
 
@@ -298,6 +319,16 @@ function super_admin_save_controls(PDO $pdo): void
     super_admin_audit($pdo, 'system_controls_updated', 'Updated system announcement/security/access controls.');
 }
 
+function super_admin_save_wallet_controls(PDO $pdo): void
+{
+    $enabled = !empty($_POST['wallet_dual_control_enabled']) ? '1' : '0';
+    $limit = (string) max(0, round((float) ($_POST['wallet_dual_control_limit'] ?? 0), 2));
+    $stmt = $pdo->prepare("INSERT INTO settings (key_name, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)");
+    $stmt->execute(['wallet_dual_control_enabled', $enabled]);
+    $stmt->execute(['wallet_dual_control_limit', $limit]);
+    super_admin_audit($pdo, 'wallet_controls_updated', 'Updated wallet dual-control policy: ' . ($enabled === '1' ? 'enabled' : 'disabled') . ', approval threshold NGN ' . number_format((float) $limit, 2) . '.');
+}
+
 function super_admin_review_certificate_revocation(PDO $pdo): string
 {
     admin_ensure_action_request_schema($pdo);
@@ -316,34 +347,56 @@ function super_admin_review_certificate_revocation(PDO $pdo): string
         throw new RuntimeException('Revocation request was not found or has already been reviewed.');
     }
 
-    $reviewedBy = $_SESSION['super_admin_user_id'] ?? admin_current_user_id($pdo);
-    if ($decision === 'reject') {
-        $pdo->prepare("UPDATE admin_action_requests SET status = 'rejected', reviewed_by = ?, reviewed_at = NOW(), review_note = ? WHERE id = ?")
-            ->execute([$reviewedBy, $note !== '' ? $note : 'Rejected by Super Admin.', $requestId]);
-        super_admin_audit($pdo, 'certificate_revocation_rejected', 'Rejected certificate revocation request for ' . (string) ($request['certificate_ref'] ?? ('#' . $request['target_id'])) . '.');
-        return 'Certificate revocation request rejected.';
+    // Execution lives in the registered approval handler so the same logic is
+    // reachable via admin_apply_approval() (jobs, CLI, other surfaces).
+    admin_apply_approval($pdo, $request, $decision, $note);
+
+    return $decision === 'approve'
+        ? 'Certificate revoked after Super Admin approval.'
+        : 'Certificate revocation request rejected.';
+}
+
+/**
+ * Review handler for the certificate-family approval queues beyond plain
+ * grower revocations: restore_certificate (queued by the registry when a
+ * non-super admin restores a revoked certificate) and the provider
+ * accreditation requests (revoke/suspend/reinstate) queued by
+ * admin/manage_certificate.php. Execution lives in the registered approval
+ * handlers so admin_apply_approval() stays the single dispatch path.
+ */
+function super_admin_review_certificate_request(PDO $pdo): string
+{
+    admin_ensure_action_request_schema($pdo);
+    $requestId = (int) ($_POST['request_id'] ?? 0);
+    $decision = (string) ($_POST['decision'] ?? '');
+    $note = trim((string) ($_POST['review_note'] ?? ''));
+    if ($requestId <= 0 || !in_array($decision, ['approve', 'reject'], true)) {
+        throw new RuntimeException('Select a valid certificate request and decision.');
     }
 
-    $payload = json_decode((string) ($request['payload_json'] ?? ''), true);
-    $reason = trim((string) ($payload['reason'] ?? $request['reason'] ?? 'Super Admin approved certificate revocation.'));
-
-    $pdo->beginTransaction();
-    try {
-        $update = $pdo->prepare("UPDATE certificates SET status = 'revoked', revoked_at = NOW(), revoked_reason = ? WHERE id = ? AND status = 'issued'");
-        $update->execute([$reason, (int) $request['target_id']]);
-        if ($update->rowCount() !== 1) {
-            throw new RuntimeException('Certificate is no longer issued or could not be revoked.');
-        }
-        $pdo->prepare("UPDATE admin_action_requests SET status = 'approved', reviewed_by = ?, reviewed_at = NOW(), review_note = ? WHERE id = ?")
-            ->execute([$reviewedBy, $note !== '' ? $note : 'Approved by Super Admin.', $requestId]);
-        $pdo->commit();
-    } catch (Throwable $e) {
-        $pdo->rollBack();
-        throw $e;
+    $stmt = $pdo->prepare("SELECT * FROM admin_action_requests WHERE id = ? AND status = 'pending' AND request_type IN ('revoke_certificate', 'restore_certificate', 'revoke_provider_certification', 'suspend_provider_certification', 'reinstate_provider_certification') LIMIT 1");
+    $stmt->execute([$requestId]);
+    $request = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$request) {
+        throw new RuntimeException('Certificate request was not found or has already been reviewed.');
     }
 
-    super_admin_audit($pdo, 'certificate_revoked', 'Approved and revoked certificate ' . (string) ($request['certificate_ref'] ?? ('#' . $request['target_id'])) . '.');
-    return 'Certificate revoked after Super Admin approval.';
+    // Execution lives in the registered approval handler so the same logic is
+    // reachable via admin_apply_approval() (jobs, CLI, other surfaces).
+    admin_apply_approval($pdo, $request, $decision, $note);
+
+    $labels = [
+        'revoke_certificate' => 'Certificate revocation',
+        'restore_certificate' => 'Certificate restoration',
+        'revoke_provider_certification' => 'Provider accreditation revocation',
+        'suspend_provider_certification' => 'Provider accreditation suspension',
+        'reinstate_provider_certification' => 'Provider accreditation reinstatement',
+    ];
+    $label = $labels[(string) $request['request_type']] ?? 'Certificate request';
+
+    return $decision === 'approve'
+        ? $label . ' applied after Super Admin approval.'
+        : $label . ' request rejected.';
 }
 
 function super_admin_save_access_controls(PDO $pdo, array $roles): void
@@ -398,9 +451,11 @@ function super_admin_save_module_settings(PDO $pdo): void
         $mode = in_array((string) ($data['mode'] ?? $module['mode']), ['active', 'pilot', 'setup', 'paused'], true)
             ? (string) ($data['mode'] ?? $module['mode'])
             : (string) $module['mode'];
+        $enabled = !empty($data['enabled']) ? '1' : '0';
         $owner = trim((string) ($data['owner'] ?? $module['owner']));
         $notes = trim((string) ($data['notes'] ?? $module['setup']));
 
+        $stmt->execute(['module_' . $feature . '_enabled', $enabled]);
         $stmt->execute(['module_' . $feature . '_mode', $mode]);
         $stmt->execute(['module_' . $feature . '_owner', $owner !== '' ? $owner : (string) $module['owner']]);
         $stmt->execute(['module_' . $feature . '_notes', $notes !== '' ? $notes : (string) $module['setup']]);
@@ -452,6 +507,52 @@ function super_admin_toggle_announcement(PDO $pdo): void
     }
     $pdo->prepare("UPDATE system_announcements SET is_active = 1 - is_active WHERE id = ?")->execute([$id]);
     super_admin_audit($pdo, 'announcement_toggled', 'Toggled announcement #' . $id . '.');
+}
+
+function super_admin_update_announcement(PDO $pdo, array $roles): void
+{
+    $id = (int) ($_POST['announcement_id'] ?? 0);
+    $title = trim((string) ($_POST['title'] ?? ''));
+    $body = trim((string) ($_POST['body'] ?? ''));
+    $audience = trim((string) ($_POST['audience_role'] ?? 'all'));
+    $validAudiences = array_merge(['all'], array_keys($roles));
+
+    if ($id <= 0) {
+        throw new RuntimeException('Announcement not found.');
+    }
+    if ($title === '' || $body === '') {
+        throw new RuntimeException('Announcement title and message are required.');
+    }
+    if (!in_array($audience, $validAudiences, true)) {
+        throw new RuntimeException('Invalid announcement audience.');
+    }
+    $stmt = $pdo->prepare("SELECT id FROM system_announcements WHERE id = ? LIMIT 1");
+    $stmt->execute([$id]);
+    if (!$stmt->fetchColumn()) {
+        throw new RuntimeException('Announcement not found.');
+    }
+
+    $pdo->prepare("UPDATE system_announcements SET title = ?, body = ?, audience_role = ?, is_active = ? WHERE id = ?")
+        ->execute([$title, $body, $audience, isset($_POST['is_active']) ? 1 : 0, $id]);
+    super_admin_audit($pdo, 'announcement_updated', "Updated announcement {$id}: {$title}.");
+}
+
+function super_admin_delete_announcement(PDO $pdo): void
+{
+    $id = (int) ($_POST['announcement_id'] ?? 0);
+    if ($id <= 0) {
+        throw new RuntimeException('Announcement not found.');
+    }
+    // system_announcements has no deleted_at column, so deletion is permanent.
+    $stmt = $pdo->prepare("SELECT title FROM system_announcements WHERE id = ? LIMIT 1");
+    $stmt->execute([$id]);
+    $title = (string) ($stmt->fetchColumn() ?: '');
+    if ($title === '') {
+        throw new RuntimeException('Announcement not found.');
+    }
+
+    $pdo->prepare("DELETE FROM system_announcements WHERE id = ?")->execute([$id]);
+    super_admin_audit($pdo, 'announcement_deleted', "Deleted announcement {$id}: {$title}.");
 }
 
 function super_admin_save_dr_settings(PDO $pdo): void

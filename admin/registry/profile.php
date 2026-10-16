@@ -138,7 +138,7 @@ require __DIR__ . '/layout/header.php';
         <a href="growers.php">Growers</a>
         <a href="applications.php">Applications</a>
         <a href="documents.php">Documents</a>
-        <a href="logout.php" style="color:#b91c1c; border-color:#fecaca; background:#fef2f2;">Logout</a>
+        <a href="logout.php?_csrf=<?= e(csrf_token()) ?>" style="color:#b91c1c; border-color:#fecaca; background:#fef2f2;">Logout</a>
       </div>
     </div>
   </aside>

@@ -2,7 +2,9 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../lib/gateway-manager.php';
 require_once __DIR__ . '/../lib/monnify.php';
+require_once __DIR__ . '/../lib/paystack.php';
 
 session_start();
 $pdo = db();
@@ -34,9 +36,10 @@ if ($amount > $maxFundingAmount) {
 }
 
 $returnUrl = !empty($_POST['return_url']) ? (string) $_POST['return_url'] : null;
+$method = strtolower((string) ($_POST['payment_method'] ?? 'monnify'));
 
 try {
-    $result = monnify_initialize_wallet_funding($pdo, $user, $amount, $returnUrl);
+    $result = gateway_initialize_deposit($pdo, $user, $amount, $method, $returnUrl);
     json_response($result, $result['success'] ? 200 : 422);
 } catch (Throwable $e) {
     error_log('Wallet error: ' . $e->getMessage());

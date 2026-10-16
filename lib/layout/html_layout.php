@@ -318,6 +318,10 @@ $GLOBALS['admin_page_topbar_only'] = $topbarOnly;
       <span class="nc-avatar"><?php if ($avatarUrl !== ''): ?><img src="<?= e($avatarUrl) ?>" alt=""><?php else: ?><?= e($initial) ?><?php endif; ?></span>
       <span><b><?= e($userName) ?></b><span><?= e($roleLabel) ?></span><span class="nc-online"><i class="fas fa-circle"></i> Online</span></span>
     </div>
+    <form action="<?= e(admin_chrome_url('search-results.php')) ?>" method="get" style="margin:0 0 14px 0;display:flex;align-items:center;background:rgba(255,255,255,.08);border-radius:10px;border:1px solid rgba(255,255,255,.12)">
+      <span style="padding:0 10px;color:rgba(255,255,255,.45)"><i class="fas fa-search"></i></span>
+      <input name="q" type="text" placeholder="Search..." aria-label="Search" style="background:transparent;border:0;color:#fff;padding:10px 12px;width:100%;font:inherit;font-size:13px;outline:none;flex:1">
+    </form>
     <div class="nc-nav-title">Main Navigation</div>
     <nav class="nc-nav" aria-label="Admin navigation">
       <a class="<?= $active === 'index.php' ? 'nc-active' : '' ?>" href="<?= e(admin_chrome_url('index.php')) ?>"><i class="fas fa-house"></i> Workspace Hub</a>
@@ -400,6 +404,14 @@ $GLOBALS['admin_page_topbar_only'] = $topbarOnly;
     <main class="admin-main <?= $topbarOnly ? 'nc-topbar-content' : 'nc-content' ?>">
       <?php if (!empty($options['breadcrumbs']) && is_array($options['breadcrumbs'])): ?>
         <?= admin_breadcrumbs($options['breadcrumbs']) ?>
+      <?php elseif (!$topbarOnly && $navGroups !== []): ?>
+        <?php
+        $autoTrail = auto_breadcrumbs($navGroups, $active, 'Admin Console', 'index.php');
+        if (count($autoTrail) > 1 && (string) ($autoTrail[count($autoTrail) - 1]['href'] ?? '') === 'index.php') {
+            $autoTrail = [];
+        }
+        echo admin_breadcrumbs($autoTrail);
+        ?>
       <?php endif; ?>
       <?php if (!$topbarOnly): ?>
       <section class="nc-head">

@@ -85,8 +85,7 @@ if (isset($_GET['download'])) {
     $realPath = $path !== '' ? realpath($path) : false;
     $exportRoot = realpath(app_private_storage_path('exports'));
     if (!$job || !$realPath || !$exportRoot || !str_starts_with($realPath, $exportRoot . DIRECTORY_SEPARATOR) || !is_file($realPath)) {
-        http_response_code(404);
-        exit('Export not found.');
+        app_render_error_page(404, 'This export could not be found.');
     }
     header('Content-Type: text/csv');
     header('Content-Disposition: attachment; filename="' . basename($realPath) . '"');

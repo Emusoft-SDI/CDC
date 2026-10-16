@@ -132,7 +132,7 @@ admin_page_start(
     <nav aria-label="Registry account">
       <a class="<?= $registryActiveKey === 'profile' ? 'active' : '' ?>" href="profile.php"><span><i class="fas fa-user-gear"></i> Profile</span></a>
       <a href="../index.php"><span><i class="fas fa-gauge-high"></i> Workspace Hub</span></a>
-      <a href="logout.php"><span><i class="fas fa-right-from-bracket"></i> Logout</span></a>
+      <a href="logout.php?_csrf=<?= e(csrf_token()) ?>"><span><i class="fas fa-right-from-bracket"></i> Logout</span></a>
     </nav>
   </aside>
   <div class="registry-content">

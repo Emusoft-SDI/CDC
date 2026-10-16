@@ -18,6 +18,7 @@ declare(strict_types=1);
  */
 
 require_once __DIR__ . '/programs.php';
+require_once __DIR__ . '/assignments.php';
 
 function academy_material_backfill_version(): string
 {
@@ -90,25 +91,30 @@ function academy_course_material_profile(array $course): array
  */
 function academy_profile_questions(array $profile, int $limit = 10): array
 {
+    $pack = function_exists('academy_assignment_pack_questions') ? academy_assignment_pack_questions($profile, $limit) : [];
+    if (count($pack) >= $limit) {
+        return array_slice($pack, 0, $limit);
+    }
+    $questions = $pack;
+
     $statements = array_values(array_merge(
-        array_slice((array) ($profile['objectives'] ?? []), 0, 4),
-        array_slice((array) ($profile['checklist'] ?? []), 0, 6)
+        array_slice((array) ($profile['objectives'] ?? []), 0, 8),
+        array_slice((array) ($profile['checklist'] ?? []), 0, 16)
     ));
     $statements = array_values(array_unique(array_filter(
         array_map('trim', $statements),
         static fn (string $value): bool => $value !== ''
     )));
     if (!$statements) {
-        $statements = ['Complete the required course material before the assessment.'];
+        $statements = ['Complete the required course material before attempting the assessment.'];
     }
 
     $distractors = [
-        'Skip the requirement and continue.',
-        'Ignore the documented process.',
-        'Bypass the approved NATCODEV workflow.',
+        'Skip the verification requirement and continue without approval.',
+        'Ignore the documented process and operate via informal side-channels.',
+        'Bypass the approved NATCODEV workflow and compliance standards.',
     ];
     $letters = ['A', 'B', 'C', 'D'];
-    $questions = [];
 
     foreach ($statements as $statement) {
         if (count($questions) >= $limit) {
@@ -118,17 +124,20 @@ function academy_profile_questions(array $profile, int $limit = 10): array
         $correctIndex = count($questions) % 4;
         array_splice($options, $correctIndex, 0, [$statement]);
         $options = array_slice($options, 0, 4);
+        $correctLetter = $letters[$correctIndex] ?? 'A';
         $questions[] = [
-            'question' => 'Which statement matches the required ' . (string) ($profile['title'] ?? 'course') . ' practice? (' . (count($questions) + 1) . ')',
+            'question' => 'According to ' . (string) ($profile['title'] ?? 'course') . ' standards, which practice is required? (' . (count($questions) + 1) . ')',
             'a' => $options[0] ?? '',
             'b' => $options[1] ?? '',
             'c' => $options[2] ?? '',
             'd' => $options[3] ?? '',
-            'correct' => $letters[$correctIndex] ?? 'A',
+            'correct' => $correctLetter,
+            'points' => 1.0,
+            'rationale' => "Option {$correctLetter} is correct because standard operating guidelines mandate strict adherence to verifiable compliance and documented workflows.",
         ];
     }
 
-    return $questions;
+    return array_slice($questions, 0, $limit);
 }
 
 /**
@@ -357,18 +366,22 @@ function academy_backfill_one_course(PDO $pdo, array $course, bool $apply, bool 
         }
     }
 
+    $isFree = (int) ($course['is_free'] ?? 0) === 1;
+    $requiredMin = $isFree ? 10 : 25;
+
     $assessmentStmt = $pdo->prepare("SELECT id FROM academy_assessments WHERE webinar_id = ? AND status = 'active' ORDER BY id ASC LIMIT 1");
     $assessmentStmt->execute([$courseId]);
     $assessmentId = (int) ($assessmentStmt->fetchColumn() ?: 0);
     $questionCountStmt = $pdo->prepare('SELECT COUNT(*) FROM academy_questions WHERE assessment_id = ? AND status = ?');
     $questionInsert = $pdo->prepare("
         INSERT INTO academy_questions
-            (assessment_id, question_text, option_a, option_b, option_c, option_d, correct_option, points, sort_order, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 'active')
+            (assessment_id, question_text, option_a, option_b, option_c, option_d, correct_option, points, sort_order, rationale, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
         ON DUPLICATE KEY UPDATE
             option_a = VALUES(option_a), option_b = VALUES(option_b),
             option_c = VALUES(option_c), option_d = VALUES(option_d),
-            correct_option = VALUES(correct_option), sort_order = VALUES(sort_order), status = 'active'
+            correct_option = VALUES(correct_option), points = VALUES(points),
+            rationale = VALUES(rationale), sort_order = VALUES(sort_order), status = 'active'
     ");
 
     $profileQuestions = array_values((array) ($profile['questions'] ?? []));
@@ -378,15 +391,10 @@ function academy_backfill_one_course(PDO $pdo, array $course, bool $apply, bool 
         $questionCountStmt->execute([$assessmentId, 'active']);
         $existingQuestions = (int) $questionCountStmt->fetchColumn();
     }
-    // Top up when there is no question yet, or when a curated bank exists and the
-    // course still holds fewer questions than that bank.
-    $needsQuestions = !$needsAssessment
-        && ($existingQuestions === 0 || ($profileQuestions && $existingQuestions < count($profileQuestions)));
+    $targetCount = max($requiredMin, count($profileQuestions));
+    $needsQuestions = !$needsAssessment && ($existingQuestions < $targetCount);
 
     if ($needsAssessment || $needsQuestions) {
-        $questions = $profileQuestions ?: academy_profile_questions($profile);
-        $stats['questions_created'] += count($questions);
-
         if ($needsAssessment) {
             $stats['assessments_created']++;
             if ($apply) {
@@ -401,19 +409,57 @@ function academy_backfill_one_course(PDO $pdo, array $course, bool $apply, bool 
             }
         }
 
+        $questions = $profileQuestions ?: academy_profile_questions($profile, $targetCount);
+        if (count($questions) < $targetCount) {
+            $pack = academy_profile_questions($profile, $targetCount);
+            $existingTexts = array_map(static fn($q) => mb_substr(mb_strtolower(trim((string)($q['question'] ?? ''))), 0, 180), $questions);
+            foreach ($pack as $pq) {
+                if (count($questions) >= $targetCount) {
+                    break;
+                }
+                $t = mb_substr(mb_strtolower(trim((string)($pq['question'] ?? ''))), 0, 180);
+                if (!in_array($t, $existingTexts, true)) {
+                    $existingTexts[] = $t;
+                    $questions[] = $pq;
+                }
+            }
+        }
+
         if ($apply && $assessmentId > 0) {
+            $sort = ($existingQuestions * 10) + 10;
+            $added = 0;
             foreach ($questions as $index => $question) {
+                if ($existingQuestions + $added >= $targetCount) {
+                    break;
+                }
+                $qText = (string) $question['question'];
+                $chk = $pdo->prepare("SELECT id FROM academy_questions WHERE assessment_id = ? AND LEFT(question_text, 180) = LEFT(?, 180) LIMIT 1");
+                $chk->execute([$assessmentId, $qText]);
+                if ($chk->fetchColumn()) {
+                    continue;
+                }
+                $optC = (string) ($question['c'] ?? 'Follow standard operational procedures with immediate supervisor notification');
+                $optD = (string) ($question['d'] ?? 'Document discrepancy and escalate according to governance guidelines');
+                $correct = strtoupper((string) ($question['correct'] ?? 'A'));
+                $points = (float) ($question['points'] ?? 1.0);
+                $rationale = (string) ($question['rationale'] ?? "Option {$correct} is correct according to platform curriculum.");
+
                 $questionInsert->execute([
                     $assessmentId,
-                    (string) $question['question'],
+                    $qText,
                     (string) $question['a'],
                     (string) $question['b'],
-                    (string) $question['c'],
-                    (string) $question['d'],
-                    (string) $question['correct'],
-                    ($index + 1) * 10,
+                    $optC,
+                    $optD,
+                    $correct,
+                    $points > 0 ? $points : 1.0,
+                    $sort,
+                    $rationale,
                 ]);
+                $sort += 10;
+                $added++;
             }
+            $stats['questions_created'] += $added;
         }
     }
 

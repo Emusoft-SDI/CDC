@@ -11,8 +11,7 @@ $docSoft = app_column_exists($pdo, 'document_requirements', 'deleted_at') ? ' AN
 $user = current_user($pdo);
 $isAdmin = admin_session_is_authenticated($pdo);
 if (!$user && !$isAdmin) {
-    http_response_code(403);
-    exit('Forbidden');
+    app_render_error_page(403, 'Sign in to view documents.');
 }
 if ($user && !$isAdmin) {
     dashboard_redirect_learner_only($pdo, $user);
@@ -39,20 +38,17 @@ if ($id) {
 }
 
 if (!$file) {
-    http_response_code(404);
-    exit('Document not found');
+    app_render_error_page(404, 'The requested document could not be found.');
 }
 
 $ownerId = (int) ($file['user_id'] ?? 0);
 if (!$isAdmin && (!$user || $ownerId !== (int) $user['id'])) {
-    http_response_code(403);
-    exit('Forbidden');
+    app_render_error_page(403, 'You do not own this document.');
 }
 
 $documentsDir = realpath(dirname(__DIR__) . '/documents');
 if (!$documentsDir) {
-    http_response_code(404);
-    exit('Document storage not found');
+    app_render_error_page(404, 'Document storage is not available right now.');
 }
 
 $relativePath = str_replace(['\\', "\0"], ['/', ''], (string) ($file['file_path'] ?? ''));

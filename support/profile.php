@@ -59,17 +59,17 @@ $avatar = $picture !== '' ? '../' . ltrim($picture, '/') : $logo;
   <aside class="side">
     <a class="brand" href="agent.php"><img src="<?= e($logo) ?>" alt="NATCODEV"><span><strong>NATCODEV</strong><small>Support Agent Desk</small></span></a>
     <div class="agent"><img src="<?= e($avatar) ?>" alt=""><span><strong><?= e((string) ($user['name'] ?? 'Support Agent')) ?></strong><br><small><?= e((string) ($user['email'] ?? '')) ?></small></span></div>
-    <nav class="nav"><a href="agent.php"><i class="fa-solid fa-ticket"></i> My Tickets</a><a class="active" href="profile.php"><i class="fa-solid fa-user"></i> Profile</a><a href="profile.php#account"><i class="fa-solid fa-lock"></i> Account</a><a href="../index.php"><i class="fa-solid fa-house"></i> NATCODEV Home</a><a href="../logout.php?next=support%2Fagent.php"><i class="fa-solid fa-right-from-bracket"></i> Logout</a></nav>
+    <nav class="nav"><a href="agent.php"><i class="fa-solid fa-ticket"></i> My Tickets</a><a class="active" href="profile.php"><i class="fa-solid fa-user"></i> Profile</a><a href="profile.php#account"><i class="fa-solid fa-lock"></i> Account</a><a href="../index.php"><i class="fa-solid fa-house"></i> NATCODEV Home</a><a href="../logout.php?next=support%2Fagent.php&amp;_csrf=<?= e(csrf_token()) ?>"><i class="fa-solid fa-right-from-bracket"></i> Logout</a></nav>
   </aside>
   <main class="main">
-    <header class="top"><span class="chip"><i class="fa-solid fa-user-shield"></i> Support Agent Profile</span><a class="chip" href="agent.php">Tickets</a><a class="chip" href="../logout.php?next=support%2Fagent.php">Logout</a></header>
+    <header class="top"><span class="chip"><i class="fa-solid fa-user-shield"></i> Support Agent Profile</span><a class="chip" href="agent.php">Tickets</a><a class="chip" href="../logout.php?next=support%2Fagent.php&amp;_csrf=<?= e(csrf_token()) ?>">Logout</a></header>
     <section class="content">
       <div class="page-head"><div><h1>Profile & Security</h1><p>Manage your support identity, profile picture, account details, password, and safe exit.</p></div><a class="btn light" href="agent.php">Back To Tickets</a></div>
       <?php if ($msg): ?><div class="alert ok"><?= e($msg) ?></div><?php endif; ?>
       <?php if ($error): ?><div class="alert bad"><?= e($error) ?></div><?php endif; ?>
       <div class="grid">
         <?php workspace_account_render_profile_forms($user, 'support', 'Support Agent Profile', 'Change Password'); ?>
-        <section class="card wide"><h2>Workspace Exit</h2><p><a class="btn" href="agent.php">Back to Support Desk</a> <a class="btn light" href="../index.php">NATCODEV Home</a> <a class="btn light" href="../logout.php?next=support%2Fagent.php">Logout</a></p></section>
+        <section class="card wide"><h2>Workspace Exit</h2><p><a class="btn" href="agent.php">Back to Support Desk</a> <a class="btn light" href="../index.php">NATCODEV Home</a> <a class="btn light" href="../logout.php?next=support%2Fagent.php&amp;_csrf=<?= e(csrf_token()) ?>">Logout</a></p></section>
       </div>
     </section>
   </main>

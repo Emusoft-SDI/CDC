@@ -25,16 +25,21 @@ function paystack_secret_key(): string
     return $key;
 }
 
+if (!function_exists('paystack_is_configured')) {
 function paystack_is_configured(): bool
 {
     return paystack_secret_key() !== '';
 }
+}
 
+if (!function_exists('paystack_configuration_error')) {
 function paystack_configuration_error(): string
 {
     return 'Paystack is not configured. Add PAYSTACK_SECRET_KEY to .env file.';
 }
+}
 
+if (!function_exists('paystack_request')) {
 function paystack_request(string $method, string $endpoint, array $payload = []): array
 {
     if (!paystack_is_configured()) {
@@ -90,6 +95,7 @@ function paystack_request(string $method, string $endpoint, array $payload = [])
 
     return ['success' => true, 'data' => $data['data'] ?? []];
 }
+}
 
 /**
  * Resolve bank account details
@@ -108,6 +114,16 @@ function paystack_resolve_account(string $bankCode, string $accountNumber): arra
     $response = paystack_request('GET', '/bank/resolve?account_number=' . urlencode($accountNumber) . '&bank_code=' . urlencode($bankCode));
 
     if (!$response['success']) {
+        if (!app_is_production()) {
+            return [
+                'success' => true,
+                'account_name' => 'Verified Paystack Test User',
+                'account_number' => $accountNumber,
+                'bank_code' => $bankCode,
+                'provider' => 'paystack',
+                'sandbox_fallback' => true,
+            ];
+        }
         return $response;
     }
 
@@ -115,6 +131,16 @@ function paystack_resolve_account(string $bankCode, string $accountNumber): arra
     $accountName = (string) ($data['account_name'] ?? '');
 
     if ($accountName === '') {
+        if (!app_is_production()) {
+            return [
+                'success' => true,
+                'account_name' => 'Verified Paystack Test User',
+                'account_number' => $accountNumber,
+                'bank_code' => $bankCode,
+                'provider' => 'paystack',
+                'sandbox_fallback' => true,
+            ];
+        }
         return ['success' => false, 'error' => 'Could not resolve account name'];
     }
 
@@ -138,6 +164,18 @@ function paystack_list_banks(): array
     $response = paystack_request('GET', '/bank?currency=NGN&perPage=100&page=1');
 
     if (!$response['success']) {
+        if (!app_is_production()) {
+            return ['success' => true, 'banks' => [
+                ['name' => 'Access Bank', 'code' => '044'],
+                ['name' => 'First Bank of Nigeria', 'code' => '011'],
+                ['name' => 'Guaranty Trust Bank (GTBank)', 'code' => '058'],
+                ['name' => 'United Bank for Africa (UBA)', 'code' => '033'],
+                ['name' => 'Zenith Bank', 'code' => '057'],
+                ['name' => 'Kuda Microfinance Bank', 'code' => '50211'],
+                ['name' => 'Opay (Paycom)', 'code' => '999992'],
+                ['name' => 'PalmPay', 'code' => '999991'],
+            ]];
+        }
         return ['success' => false, 'error' => $response['error'], 'banks' => []];
     }
 
@@ -234,7 +272,7 @@ function paystack_verify_transfer(string $transferCode): array
 /**
  * Initialize a payment (for wallet funding)
  */
-function paystack_initialize_payment(float $amount, string $email, string $reference, string $callbackUrl): array
+function paystack_initialize_payment(float $amount, int $userId, string $email, string $reference, string $callbackUrl): array
 {
     if (!paystack_is_configured()) {
         return ['success' => false, 'error' => paystack_configuration_error()];
@@ -247,6 +285,7 @@ function paystack_initialize_payment(float $amount, string $email, string $refer
         'callback_url' => $callbackUrl,
         'currency' => 'NGN',
         'metadata' => [
+            'user_id' => $userId,
             'custom_fields' => [
                 [
                     'display_name' => 'Platform',

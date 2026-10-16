@@ -59,13 +59,13 @@ function monnify_ensure_reserved_account(PDO $pdo, array $user): array
     return ['success' => true, 'wallet' => wallet_get_or_create($pdo, (int) $user['id']), 'created' => true];
 }
 
-function monnify_initialize_wallet_funding(PDO $pdo, array $user, float $amount, ?string $redirectUrl = null): array
+function monnify_initialize_wallet_funding(PDO $pdo, array $user, float $amount, ?string $redirectUrl = null, ?string $reference = null): array
 {
     if (!monnify_is_configured()) {
         return ['success' => false, 'error' => monnify_configuration_error()];
     }
     $wallet = wallet_get_or_create($pdo, (int) $user['id']);
-    $reference = 'NAT-FUND-' . (int) $user['id'] . '-' . date('ymdHis') . '-' . strtoupper(bin2hex(random_bytes(3)));
+    $reference = trim((string) ($reference ?: ('NAT-FUND-' . (int) $user['id'] . '-' . date('ymdHis') . '-' . strtoupper(bin2hex(random_bytes(3))))));
     
     if (!$redirectUrl) {
         $redirectUrl = app_base_url() . '/dashboard/wallet.php';
@@ -87,18 +87,36 @@ function monnify_initialize_wallet_funding(PDO $pdo, array $user, float $amount,
         return ['success' => false, 'error' => $res['error'] ?? 'Unable to initialize Monnify payment'];
     }
     $body = $res['data']['responseBody'] ?? [];
-    $pdo->prepare("
-        INSERT INTO wallet_transactions
-            (wallet_id, user_id, amount, type, direction, description, reference, provider, provider_reference, provider_payload, status)
-        VALUES (?, ?, ?, 'credit', 'inflow', 'Wallet funding via Monnify checkout', ?, 'monnify', ?, ?, 'pending')
-    ")->execute([
-        (int) $wallet['id'],
-        (int) $user['id'],
-        $amount,
-        $reference,
-        (string) ($body['transactionReference'] ?? ''),
-        json_encode($body, JSON_UNESCAPED_SLASHES),
-    ]);
+
+    $existingStmt = $pdo->prepare("SELECT id FROM wallet_transactions WHERE reference = ? LIMIT 1");
+    $existingStmt->execute([$reference]);
+    $existingTx = $existingStmt->fetch();
+
+    if ($existingTx) {
+        $pdo->prepare("
+            UPDATE wallet_transactions
+            SET provider = 'monnify', provider_reference = ?, provider_payload = ?
+            WHERE id = ?
+        ")->execute([
+            (string) ($body['transactionReference'] ?? ''),
+            json_encode($body, JSON_UNESCAPED_SLASHES),
+            (int) $existingTx['id'],
+        ]);
+    } else {
+        $pdo->prepare("
+            INSERT INTO wallet_transactions
+                (wallet_id, user_id, amount, type, direction, description, reference, provider, provider_reference, provider_payload, status)
+            VALUES (?, ?, ?, 'funding', 'inflow', 'Wallet funding via Monnify checkout', ?, 'monnify', ?, ?, 'pending')
+        ")->execute([
+            (int) $wallet['id'],
+            (int) $user['id'],
+            $amount,
+            $reference,
+            (string) ($body['transactionReference'] ?? ''),
+            json_encode($body, JSON_UNESCAPED_SLASHES),
+        ]);
+    }
+
     return [
         'success' => true,
         'reference' => $reference,

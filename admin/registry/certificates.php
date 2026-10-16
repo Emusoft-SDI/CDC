@@ -44,8 +44,7 @@ if ($downloadRef !== '') {
     $stmt->execute([$downloadRef, $downloadRef]);
     $certificate = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$certificate || ($certificate['status'] ?? '') !== 'issued') {
-        http_response_code(404);
-        exit('Certificate is unavailable.');
+        app_render_error_page(404, 'This certificate is unavailable.');
     }
     $relativePath = ltrim((string) ($certificate['certificate_pdf_path'] ?? ''), '/');
     $absolutePath = $relativePath !== '' ? dirname(__DIR__, 2) . '/' . $relativePath : '';
@@ -128,7 +127,7 @@ $groupCounts = app_table_exists($pdo, 'academy_group_certificates') ? [
     'issued' => rx_scalar($pdo, "SELECT COUNT(*) FROM academy_group_certificates WHERE status='issued'"),
     'revoked' => rx_scalar($pdo, "SELECT COUNT(*) FROM academy_group_certificates WHERE status='revoked'"),
 ] : ['total' => 0, 'issued' => 0, 'revoked' => 0];
-$pendingRevocations = rx_scalar($pdo, "SELECT COUNT(*) FROM admin_action_requests WHERE request_type='revoke_certificate' AND target_table='certificates' AND status='pending'");
+$pendingRevocations = rx_scalar($pdo, "SELECT COUNT(*) FROM admin_action_requests WHERE request_type IN ('revoke_certificate','restore_certificate') AND target_table='certificates' AND status='pending'");
 
 $rows = [];
 $totalRows = 0;
@@ -152,7 +151,7 @@ if ($tab === 'grower') {
     $totalRows = rx_scalar($pdo, "SELECT COUNT(*) FROM academy_group_certificates c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN academy_certificate_groups g ON g.id=c.group_id WHERE {$where}", $params);
     $rows = rx_rows($pdo, "SELECT c.*, u.name, u.email, g.title group_title FROM academy_group_certificates c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN academy_certificate_groups g ON g.id=c.group_id WHERE {$where} ORDER BY c.issued_at DESC, c.id DESC LIMIT {$limit} OFFSET {$offset}", $params);
 } elseif ($tab === 'revocations') {
-    $where = "ar.request_type='revoke_certificate' AND ar.target_table='certificates'";
+    $where = "ar.request_type IN ('revoke_certificate','restore_certificate') AND ar.target_table='certificates'";
     if ($statusFilter !== '') {
         $where .= ' AND ar.status = ?';
         $params[] = $statusFilter;

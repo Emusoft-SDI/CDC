@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/wallet.php';
+require_once __DIR__ . '/circuit-breaker.php';
 
 function wallet_withdrawals_ensure_schema(PDO $pdo): void
 {
@@ -48,6 +49,9 @@ function wallet_withdrawals_ensure_schema(PDO $pdo): void
         // be refunded twice.
         'funds_released' => "TINYINT(1) NOT NULL DEFAULT 0",
         'failure_reason' => "VARCHAR(255) NULL",
+        'preflight_buffered' => "TINYINT(1) NOT NULL DEFAULT 0",
+        'preflight_buffered_until' => "DATETIME NULL",
+        'total_debited' => "DECIMAL(12,2) NOT NULL DEFAULT 0",
     ] as $column => $definition) {
         app_add_column_if_missing($pdo, 'wallet_withdrawals', $column, $definition);
     }
@@ -65,11 +69,26 @@ function wallet_withdrawal_min_amount(): float
     return max(100, (float) app_env('WALLET_WITHDRAWAL_MIN_AMOUNT', '1000'));
 }
 
-function wallet_withdrawal_charge(float $amount): float
+function wallet_withdrawal_charge(float $amount, ?PDO $pdo = null): float
 {
-    $flat = max(0, (float) app_env('WALLET_WITHDRAWAL_FLAT_FEE', '100'));
-    $percent = max(0, (float) app_env('WALLET_WITHDRAWAL_PERCENT_FEE', '0'));
-    return round($flat + (($amount * $percent) / 100), 2);
+    $flat = $pdo !== null && function_exists('admin_setting')
+        ? (float) admin_setting($pdo, 'wallet_withdrawal_flat_fee', app_env('WALLET_WITHDRAWAL_FLAT_FEE', '0'))
+        : (float) app_env('WALLET_WITHDRAWAL_FLAT_FEE', '0');
+    $percent = $pdo !== null && function_exists('admin_setting')
+        ? (float) admin_setting($pdo, 'wallet_withdrawal_percent_fee', app_env('WALLET_WITHDRAWAL_PERCENT_FEE', '0'))
+        : (float) app_env('WALLET_WITHDRAWAL_PERCENT_FEE', '0');
+    return round(max(0, $flat) + (($amount * max(0, $percent)) / 100), 2);
+}
+
+function wallet_deposit_charge(PDO $pdo, float $amount): float
+{
+    $flat = function_exists('admin_setting')
+        ? (float) admin_setting($pdo, 'wallet_deposit_flat_fee', app_env('WALLET_DEPOSIT_FLAT_FEE', '0'))
+        : (float) app_env('WALLET_DEPOSIT_FLAT_FEE', '0');
+    $percent = function_exists('admin_setting')
+        ? (float) admin_setting($pdo, 'wallet_deposit_percent_fee', app_env('WALLET_DEPOSIT_PERCENT_FEE', '0'))
+        : (float) app_env('WALLET_DEPOSIT_PERCENT_FEE', '0');
+    return round(max(0, $flat) + (($amount * max(0, $percent)) / 100), 2);
 }
 
 function wallet_withdrawal_reference(int $userId): string
@@ -81,12 +100,21 @@ function wallet_withdrawal_policy_defaults(): array
 {
     return [
         'wallet_auto_withdrawals_enabled' => '0',
+        'wallet_auto_preflight_buffer_enabled' => '0',
+        'wallet_auto_preflight_buffer_minutes' => '3',
+        'wallet_auto_global_daily_cap' => '1000000',
         'wallet_auto_max_amount' => '50000',
         'wallet_auto_daily_user_limit' => '100000',
         'wallet_auto_min_completed_withdrawals' => '1',
         'wallet_auto_first_withdrawal_review_hours' => '24',
-        'wallet_auto_allowed_providers' => 'monnify,paystack',
+        'wallet_auto_allowed_providers' => 'monnify,paystack,fincra,korapay,woven,allawee',
         'wallet_auto_require_account_name' => '1',
+        'wallet_withdrawal_flat_fee' => '0',
+        'wallet_withdrawal_percent_fee' => '0',
+        'wallet_deposit_flat_fee' => '0',
+        'wallet_deposit_percent_fee' => '0',
+        'circuit_breaker_failure_threshold' => '3',
+        'circuit_breaker_cooldown_seconds' => '300',
     ];
 }
 
@@ -97,29 +125,57 @@ function wallet_withdrawal_policy(PDO $pdo): array
         $policy[$key] = function_exists('admin_setting') ? admin_setting($pdo, $key, $default) : $default;
     }
     $policy['auto_enabled'] = (string) $policy['wallet_auto_withdrawals_enabled'] === '1';
+    $policy['preflight_buffer_enabled'] = (string) $policy['wallet_auto_preflight_buffer_enabled'] === '1';
+    $policy['preflight_buffer_minutes'] = max(1, min(60, (int) $policy['wallet_auto_preflight_buffer_minutes']));
+    $policy['global_daily_cap'] = max(0, (float) $policy['wallet_auto_global_daily_cap']);
     $policy['max_amount'] = max(0, (float) $policy['wallet_auto_max_amount']);
     $policy['daily_user_limit'] = max(0, (float) $policy['wallet_auto_daily_user_limit']);
     $policy['min_completed_withdrawals'] = max(1, (int) $policy['wallet_auto_min_completed_withdrawals']);
     $policy['first_withdrawal_review_hours'] = max(1, min(168, (int) $policy['wallet_auto_first_withdrawal_review_hours']));
     $policy['allowed_providers'] = array_values(array_filter(array_map(static fn(string $provider): string => strtolower(trim($provider)), explode(',', (string) $policy['wallet_auto_allowed_providers']))));
     $policy['require_account_name'] = (string) $policy['wallet_auto_require_account_name'] === '1';
+    $policy['withdrawal_flat_fee'] = max(0, (float) $policy['wallet_withdrawal_flat_fee']);
+    $policy['withdrawal_percent_fee'] = max(0, (float) $policy['wallet_withdrawal_percent_fee']);
+    $policy['deposit_flat_fee'] = max(0, (float) $policy['wallet_deposit_flat_fee']);
+    $policy['deposit_percent_fee'] = max(0, (float) $policy['wallet_deposit_percent_fee']);
+    $policy['circuit_breaker_failure_threshold'] = max(1, (int) $policy['circuit_breaker_failure_threshold']);
+    $policy['circuit_breaker_cooldown_seconds'] = max(10, (int) $policy['circuit_breaker_cooldown_seconds']);
     return $policy;
 }
 
-function wallet_save_withdrawal_policy(PDO $pdo, array $data): void
+function wallet_save_withdrawal_policy(PDO $pdo, array $data, ?array $adminUser = null): void
 {
+    $isSuper = false;
+    if ($adminUser !== null) {
+        $isSuper = !empty($adminUser['is_super_admin']);
+    }
+    if (!$isSuper && function_exists('super_admin_is_authorized')) {
+        $isSuper = super_admin_is_authorized($pdo);
+    }
+    if (!$isSuper) {
+        throw new RuntimeException('Unauthorized: Super Admin privileges are required to modify withdrawal policy.');
+    }
     if (!app_table_exists($pdo, 'settings')) {
         return;
     }
-    $allowedProviders = array_values(array_intersect(['monnify', 'paystack'], array_map('strtolower', (array) ($data['wallet_auto_allowed_providers'] ?? []))));
+    $allowedProviders = array_values(array_intersect(['monnify', 'paystack', 'fincra', 'woven', 'korapay', 'allawee'], array_map('strtolower', (array) ($data['wallet_auto_allowed_providers'] ?? []))));
     $settings = [
         'wallet_auto_withdrawals_enabled' => !empty($data['wallet_auto_withdrawals_enabled']) ? '1' : '0',
+        'wallet_auto_preflight_buffer_enabled' => !empty($data['wallet_auto_preflight_buffer_enabled']) ? '1' : '0',
+        'wallet_auto_preflight_buffer_minutes' => (string) max(1, min(60, (int) ($data['wallet_auto_preflight_buffer_minutes'] ?? 3))),
+        'wallet_auto_global_daily_cap' => (string) max(0, round((float) ($data['wallet_auto_global_daily_cap'] ?? 1000000), 2)),
         'wallet_auto_max_amount' => (string) max(0, round((float) ($data['wallet_auto_max_amount'] ?? 0), 2)),
         'wallet_auto_daily_user_limit' => (string) max(0, round((float) ($data['wallet_auto_daily_user_limit'] ?? 0), 2)),
         'wallet_auto_min_completed_withdrawals' => (string) max(1, (int) ($data['wallet_auto_min_completed_withdrawals'] ?? 1)),
         'wallet_auto_first_withdrawal_review_hours' => (string) max(1, min(168, (int) ($data['wallet_auto_first_withdrawal_review_hours'] ?? 24))),
-        'wallet_auto_allowed_providers' => implode(',', $allowedProviders ?: ['monnify', 'paystack']),
+        'wallet_auto_allowed_providers' => implode(',', $allowedProviders ?: ['monnify', 'paystack', 'fincra', 'korapay', 'woven', 'allawee']),
         'wallet_auto_require_account_name' => !empty($data['wallet_auto_require_account_name']) ? '1' : '0',
+        'wallet_withdrawal_flat_fee' => (string) max(0, round((float) ($data['wallet_withdrawal_flat_fee'] ?? 0), 2)),
+        'wallet_withdrawal_percent_fee' => (string) max(0, round((float) ($data['wallet_withdrawal_percent_fee'] ?? 0), 2)),
+        'wallet_deposit_flat_fee' => (string) max(0, round((float) ($data['wallet_deposit_flat_fee'] ?? 0), 2)),
+        'wallet_deposit_percent_fee' => (string) max(0, round((float) ($data['wallet_deposit_percent_fee'] ?? 0), 2)),
+        'circuit_breaker_failure_threshold' => (string) max(1, min(20, (int) ($data['circuit_breaker_failure_threshold'] ?? 3))),
+        'circuit_breaker_cooldown_seconds' => (string) max(10, min(86400, (int) ($data['circuit_breaker_cooldown_seconds'] ?? 300))),
     ];
     $stmt = $pdo->prepare("INSERT INTO settings (key_name, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)");
     foreach ($settings as $key => $value) {
@@ -131,7 +187,7 @@ function wallet_evaluate_withdrawal_policy(PDO $pdo, int $userId, float $amount,
 {
     $policy = wallet_withdrawal_policy($pdo);
     $reviewDueAt = date('Y-m-d H:i:s', time() + ((int) $policy['first_withdrawal_review_hours'] * 3600));
-    $completedStmt = $pdo->prepare("SELECT COUNT(*) FROM wallet_withdrawals WHERE user_id = ? AND status = 'approved'");
+    $completedStmt = $pdo->prepare("SELECT COUNT(*) FROM wallet_withdrawals WHERE user_id = ? AND status IN ('approved', 'paid')");
     $completedStmt->execute([$userId]);
     $completed = (int) $completedStmt->fetchColumn();
 
@@ -146,6 +202,10 @@ function wallet_evaluate_withdrawal_policy(PDO $pdo, int $userId, float $amount,
 
     if ($completed < (int) $policy['min_completed_withdrawals']) {
         $base['review_reason'] = 'First withdrawal requires operator approval within ' . (int) $policy['first_withdrawal_review_hours'] . ' hours.';
+        return $base;
+    }
+    if (wallet_dual_control_required($pdo, $amount)) {
+        $base['review_reason'] = 'Amount is at or above the Super Admin dual-control limit; payout requires Super Admin approval.';
         return $base;
     }
     if (!$policy['auto_enabled']) {
@@ -165,7 +225,24 @@ function wallet_evaluate_withdrawal_policy(PDO $pdo, int $userId, float $amount,
         return $base;
     }
 
-    $dailyStmt = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM wallet_withdrawals WHERE user_id = ? AND status IN ('processing','approved') AND requested_at >= CURDATE()");
+    if ($provider !== 'manual' && function_exists('circuit_breaker_is_available')) {
+        if (!circuit_breaker_is_available($pdo, $provider)) {
+            // Check if any alternative allowed provider is healthy for fallback
+            $hasFallback = false;
+            foreach ($policy['allowed_providers'] as $alt) {
+                if ($alt !== $provider && circuit_breaker_is_available($pdo, $alt)) {
+                    $hasFallback = true;
+                    break;
+                }
+            }
+            if (!$hasFallback) {
+                $base['review_reason'] = "Selected payout provider [{$provider}] and all fallback gateways are in temporary circuit breaker cooldown; payout queued for review.";
+                return $base;
+            }
+        }
+    }
+
+    $dailyStmt = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM wallet_withdrawals WHERE user_id = ? AND (status IN ('processing', 'approved', 'paid') OR (status = 'pending' AND automation_eligible = 1)) AND requested_at >= CURDATE()");
     $dailyStmt->execute([$userId]);
     $dailyTotal = (float) $dailyStmt->fetchColumn();
     if ((float) $policy['daily_user_limit'] > 0 && ($dailyTotal + $amount) > (float) $policy['daily_user_limit']) {
@@ -173,8 +250,29 @@ function wallet_evaluate_withdrawal_policy(PDO $pdo, int $userId, float $amount,
         return $base;
     }
 
+    $globalDailyStmt = $pdo->query("SELECT COALESCE(SUM(amount),0) FROM wallet_withdrawals WHERE (status IN ('processing', 'approved', 'paid') OR (status = 'pending' AND automation_eligible = 1)) AND requested_at >= CURDATE()");
+    $globalDailyTotal = (float) $globalDailyStmt->fetchColumn();
+    if ((float) $policy['global_daily_cap'] > 0 && ($globalDailyTotal + $amount) > (float) $policy['global_daily_cap']) {
+        $base['review_reason'] = 'Platform global daily withdrawal cap reached; payout requires Super Admin / operator manual review.';
+        return $base;
+    }
+
+    if (!empty($policy['preflight_buffer_enabled'])) {
+        $bufferMins = (int) ($policy['preflight_buffer_minutes'] ?? 3);
+        $bufferedUntil = date('Y-m-d H:i:s', time() + ($bufferMins * 60));
+        $base['review_required'] = false;
+        $base['automation_eligible'] = true;
+        $base['preflight_buffered'] = true;
+        $base['preflight_buffered_until'] = $bufferedUntil;
+        $base['review_reason'] = 'Pre-flight hold mode is active: buffered for ' . $bufferMins . ' minutes before automated dispatch.';
+        $base['review_due_at'] = null;
+        return $base;
+    }
+
     $base['review_required'] = false;
     $base['automation_eligible'] = true;
+    $base['preflight_buffered'] = false;
+    $base['preflight_buffered_until'] = null;
     $base['review_reason'] = 'Eligible for automatic payout under operator thresholds.';
     $base['review_due_at'] = null;
     return $base;
@@ -185,7 +283,7 @@ function wallet_request_withdrawal(PDO $pdo, array $user, array $data): array
     $userId = (int) ($user['id'] ?? 0);
     $amount = round((float) ($data['amount'] ?? 0), 2);
     $provider = strtolower(trim((string) ($data['provider'] ?? 'manual')));
-    if (!in_array($provider, ['manual', 'monnify', 'paystack'], true)) {
+    if (!in_array($provider, ['manual', 'monnify', 'paystack', 'fincra', 'woven', 'korapay', 'allawee'], true)) {
         $provider = 'manual';
     }
     $bankCode = trim((string) ($data['bank_code'] ?? ''));
@@ -204,15 +302,13 @@ function wallet_request_withdrawal(PDO $pdo, array $user, array $data): array
     if ($accountNumber === '' || $accountName === '') {
         return ['success' => false, 'error' => 'Account name and account number are required.'];
     }
-    if (in_array($provider, ['monnify', 'paystack'], true) && $bankCode === '') {
+    if (in_array($provider, ['monnify', 'paystack', 'fincra', 'woven', 'korapay', 'allawee'], true) && $bankCode === '') {
         return ['success' => false, 'error' => ucfirst($provider) . ' withdrawal requires a bank code.'];
     }
 
-    $charge = wallet_withdrawal_charge($amount);
-    $finalAmount = round($amount - $charge, 2);
-    if ($finalAmount <= 0) {
-        return ['success' => false, 'error' => 'Withdrawal amount must be greater than the withdrawal charge.'];
-    }
+    $charge = wallet_withdrawal_charge($amount, $pdo);
+    $finalAmount = round($amount, 2);
+    $totalDebited = round($amount + $charge, 2);
 
     $pdo->beginTransaction();
     try {
@@ -227,8 +323,9 @@ function wallet_request_withdrawal(PDO $pdo, array $user, array $data): array
             throw new RuntimeException('Wallet is not active for withdrawals.');
         }
         $before = (float) ($wallet['balance'] ?? 0);
-        if ($before + 0.01 < $amount) {
-            throw new RuntimeException('Insufficient wallet balance.');
+        if ($before + 0.01 < $totalDebited) {
+            $feeMsg = $charge > 0 ? ' Total required including fee (NGN ' . number_format($charge, 2) . ') is NGN ' . number_format($totalDebited, 2) . '.' : '';
+            throw new RuntimeException('Insufficient wallet balance.' . $feeMsg);
         }
 
         $idempotencyKey = trim((string) ($data['idempotency_key'] ?? ''));
@@ -256,16 +353,20 @@ function wallet_request_withdrawal(PDO $pdo, array $user, array $data): array
             return ['success' => true, 'withdrawal_id' => (int) $recentDup['id'], 'reference' => (string) $recentDup['reference'], 'withdrawal' => $recentDup, 'duplicate' => true];
         }
 
-        $after = $before - $amount;
-        $holdAfter = (float) ($wallet['hold_balance'] ?? 0) + $amount;
+        $after = $before - $totalDebited;
+        $holdAfter = (float) ($wallet['hold_balance'] ?? 0) + $totalDebited;
         $reference = $idempotencyKey !== '' ? $idempotencyKey : wallet_withdrawal_reference($userId);
         $policyDecision = wallet_evaluate_withdrawal_policy($pdo, $userId, $amount, $provider, $accountName);
         $pdo->prepare("UPDATE wallets SET balance = ?, hold_balance = ?, last_activity_at = NOW() WHERE id = ?")
             ->execute([$after, $holdAfter, (int) $wallet['id']]);
+
+        $isBuffered = !empty($policyDecision['preflight_buffered']);
+        $bufferedUntil = $policyDecision['preflight_buffered_until'] ?? null;
+
         $pdo->prepare("
             INSERT INTO wallet_withdrawals
-                (wallet_id, user_id, reference, amount, charge, final_amount, provider, bank_code, bank_name, account_number, account_name, note, review_required, review_reason, review_due_at, automation_eligible, automation_rule_snapshot)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (wallet_id, user_id, reference, amount, charge, final_amount, total_debited, provider, bank_code, bank_name, account_number, account_name, note, review_required, review_reason, review_due_at, automation_eligible, automation_rule_snapshot, preflight_buffered, preflight_buffered_until)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ")->execute([
             (int) $wallet['id'],
             $userId,
@@ -273,6 +374,7 @@ function wallet_request_withdrawal(PDO $pdo, array $user, array $data): array
             $amount,
             $charge,
             $finalAmount,
+            $totalDebited,
             $provider,
             $bankCode,
             $bankName,
@@ -284,6 +386,8 @@ function wallet_request_withdrawal(PDO $pdo, array $user, array $data): array
             $policyDecision['review_due_at'] ?? null,
             !empty($policyDecision['automation_eligible']) ? 1 : 0,
             json_encode($policyDecision, JSON_UNESCAPED_SLASHES),
+            $isBuffered ? 1 : 0,
+            $bufferedUntil,
         ]);
         $withdrawalId = (int) $pdo->lastInsertId();
         $pdo->prepare("
@@ -293,12 +397,12 @@ function wallet_request_withdrawal(PDO $pdo, array $user, array $data): array
         ")->execute([
             (int) $wallet['id'],
             $userId,
-            $amount,
-            'Withdrawal request to ' . ($bankName ?: 'bank account'),
+            $totalDebited,
+            'Withdrawal request to ' . ($bankName ?: 'bank account') . ($charge > 0 ? ' (fee: NGN ' . number_format($charge, 2) . ')' : ''),
             $reference,
             $provider,
             $reference,
-            json_encode(['charge' => $charge, 'final_amount' => $finalAmount, 'account_number' => $accountNumber, 'account_name' => $accountName, 'bank_code' => $bankCode, 'bank_name' => $bankName], JSON_UNESCAPED_SLASHES),
+            json_encode(['payout_amount' => $finalAmount, 'charge' => $charge, 'final_amount' => $finalAmount, 'total_debited' => $totalDebited, 'account_number' => $accountNumber, 'account_name' => $accountName, 'bank_code' => $bankCode, 'bank_name' => $bankName], JSON_UNESCAPED_SLASHES),
             $before,
             $after,
         ]);
@@ -307,19 +411,28 @@ function wallet_request_withdrawal(PDO $pdo, array $user, array $data): array
             'success' => true,
             'withdrawal_id' => $withdrawalId,
             'reference' => $reference,
+            'amount' => $amount,
             'final_amount' => $finalAmount,
             'charge' => $charge,
+            'total_debited' => $totalDebited,
             'review_required' => !empty($policyDecision['review_required']),
             'review_reason' => (string) ($policyDecision['review_reason'] ?? ''),
             'review_due_at' => $policyDecision['review_due_at'] ?? null,
             'automation_eligible' => !empty($policyDecision['automation_eligible']),
+            'preflight_buffered' => $isBuffered,
+            'preflight_buffered_until' => $bufferedUntil,
         ];
         if (!empty($policyDecision['automation_eligible']) && $withdrawalId > 0) {
-            $auto = wallet_admin_process_withdrawal($pdo, $withdrawalId, 0, 'approve', 'Automated approval by withdrawal threshold policy.');
-            $result['auto_processed'] = (bool) ($auto['success'] ?? false);
-            $result['auto_status'] = (string) ($auto['status'] ?? ($auto['error'] ?? 'pending'));
-            if (!empty($auto['success'])) {
-                $pdo->prepare("UPDATE wallet_withdrawals SET auto_processed_at = NOW() WHERE id = ?")->execute([$withdrawalId]);
+            if ($isBuffered) {
+                $result['auto_processed'] = false;
+                $result['auto_status'] = 'buffered_preflight';
+            } else {
+                $auto = wallet_admin_process_withdrawal($pdo, $withdrawalId, 0, 'approve', 'Automated approval by withdrawal threshold policy.');
+                $result['auto_processed'] = (bool) ($auto['success'] ?? false);
+                $result['auto_status'] = (string) ($auto['status'] ?? ($auto['error'] ?? 'pending'));
+                if (!empty($auto['success'])) {
+                    $pdo->prepare("UPDATE wallet_withdrawals SET auto_processed_at = NOW() WHERE id = ?")->execute([$withdrawalId]);
+                }
             }
         }
         return $result;
@@ -343,7 +456,7 @@ function paystack_initiate_wallet_withdrawal(array $withdrawal): array
         'bank_code' => (string) $withdrawal['bank_code'],
         'currency' => 'NGN',
     ]);
-    $recipientData = $recipient['data']['data'] ?? [];
+    $recipientData = $recipient['data'] ?? [];
     $recipientCode = (string) ($recipientData['recipient_code'] ?? '');
     if (!$recipient['success'] || $recipientCode === '') {
         return ['success' => false, 'error' => $recipient['error'] ?? 'Unable to create Paystack recipient', 'response' => $recipient];
@@ -359,7 +472,7 @@ function paystack_initiate_wallet_withdrawal(array $withdrawal): array
     if (!$transfer['success']) {
         return ['success' => false, 'error' => $transfer['error'] ?? 'Paystack transfer failed', 'response' => $transfer];
     }
-    $body = $transfer['data']['data'] ?? [];
+    $body = $transfer['data'] ?? [];
     return [
         'success' => true,
         'provider' => 'paystack',
@@ -372,122 +485,14 @@ function paystack_initiate_wallet_withdrawal(array $withdrawal): array
 
 function wallet_payout_banks(string $provider): array
 {
-    $provider = strtolower($provider);
-    if ($provider === 'paystack') {
-        $res = paystack_request('GET', '/bank', ['country' => 'nigeria', 'currency' => 'NGN']);
-        if (!$res['success']) {
-            return ['success' => false, 'error' => $res['error'] ?? 'Unable to load Paystack banks'];
-        }
-        $banks = array_map(static fn(array $bank): array => [
-            'name' => (string) ($bank['name'] ?? ''),
-            'code' => (string) ($bank['code'] ?? ''),
-        ], $res['data']['data'] ?? []);
-        return ['success' => true, 'banks' => array_values(array_filter($banks, static fn(array $bank): bool => $bank['name'] !== '' && $bank['code'] !== ''))];
-    }
-
-    if ($provider === 'monnify') {
-        if (!monnify_is_configured()) {
-            return ['success' => false, 'error' => monnify_configuration_error()];
-        }
-        $res = monnify_request('GET', '/api/v1/banks');
-        if (!$res['success']) {
-            $transportFailure = stripos($res['error'] ?? '', 'resolve host') !== false
-                || stripos($res['error'] ?? '', 'timeout') !== false;
-            // Sandbox convenience, outside production only, so the withdrawal form stays
-            // usable when Monnify is unreachable during development.
-            if ($transportFailure && !app_is_production()) {
-                return ['success' => true, 'banks' => [
-                    ['name' => 'Access Bank (Mock Sandbox)', 'code' => '044'],
-                    ['name' => 'First Bank (Mock Sandbox)', 'code' => '011'],
-                    ['name' => 'GTBank (Mock Sandbox)', 'code' => '058'],
-                    ['name' => 'UBA (Mock Sandbox)', 'code' => '033'],
-                    ['name' => 'Zenith Bank (Mock Sandbox)', 'code' => '057'],
-                ]];
-            }
-            return ['success' => false, 'error' => $res['error'] ?? 'Unable to load Monnify banks'];
-        }
-        $banks = array_map(static fn(array $bank): array => [
-            'name' => (string) ($bank['name'] ?? $bank['bankName'] ?? ''),
-            'code' => (string) ($bank['code'] ?? $bank['bankCode'] ?? ''),
-        ], $res['data']['responseBody'] ?? []);
-        return ['success' => true, 'banks' => array_values(array_filter($banks, static fn(array $bank): bool => $bank['name'] !== '' && $bank['code'] !== ''))];
-    }
-
-    return ['success' => false, 'error' => 'Select Monnify or Paystack to verify a bank account.'];
+    require_once __DIR__ . '/gateway-manager.php';
+    return gateway_list_banks($provider);
 }
 
 function wallet_resolve_payout_account(string $provider, string $accountNumber, string $bankCode): array
 {
-    $provider = strtolower($provider);
-    $accountNumber = preg_replace('/[^0-9]/', '', $accountNumber);
-    $bankCode = trim($bankCode);
-    if ($accountNumber === '' || $bankCode === '') {
-        return ['success' => false, 'error' => 'Bank and account number are required.'];
-    }
-
-    if ($provider === 'paystack') {
-        $res = paystack_request('GET', '/bank/resolve', ['account_number' => $accountNumber, 'bank_code' => $bankCode]);
-        if (!$res['success']) {
-            return ['success' => false, 'error' => $res['error'] ?? 'Unable to resolve Paystack account'];
-        }
-        $data = $res['data']['data'] ?? [];
-        return [
-            'success' => true,
-            'account_number' => (string) ($data['account_number'] ?? $accountNumber),
-            'account_name' => (string) ($data['account_name'] ?? ''),
-            'provider' => 'paystack',
-        ];
-    }
-
-    if ($provider === 'monnify') {
-        if (!monnify_is_configured()) {
-            return ['success' => false, 'error' => monnify_configuration_error()];
-        }
-        // Monnify deprecated v1 and now answers it with
-        // "This API endpoint has been deprecated ... migrate to the more secure endpoint:
-        //  /api/v2/disbursements/account/validate". v2 is a GET with query parameters —
-        // POST is rejected with HTTP 405. Verified against the live sandbox.
-        $res = monnify_request(
-            'GET',
-            '/api/v2/disbursements/account/validate?accountNumber=' . rawurlencode($accountNumber)
-                . '&bankCode=' . rawurlencode($bankCode)
-        );
-        if (!$res['success']) {
-            $transportFailure = stripos($res['error'] ?? '', 'resolve host') !== false
-                || stripos($res['error'] ?? '', 'timeout') !== false;
-            // Sandbox convenience, outside production only: a fabricated account name
-            // must never be recorded as though the bank had confirmed it.
-            if ($transportFailure && !app_is_production()) {
-                return [
-                    'success' => true,
-                    'account_number' => $accountNumber,
-                    'account_name' => 'Sandbox Mock User',
-                    'provider' => 'monnify',
-                    'sandbox_fallback' => true,
-                ];
-            }
-            // Pass Monnify's own wording through — it distinguishes bad details
-            // ("Invalid account details supplied") from a real outage.
-            return ['success' => false, 'error' => 'Monnify: ' . (string) ($res['error'] ?? 'unable to resolve that account')];
-        }
-        $data = $res['data']['responseBody'] ?? [];
-        $resolvedName = trim((string) ($data['accountName'] ?? ''));
-        if ($resolvedName === '') {
-            // Returning success with no name left "Verified Account Name" blank, so the
-            // withdrawal form could never be submitted.
-            return ['success' => false, 'error' => 'Monnify could not confirm a name for that account. Check the account number and bank.'];
-        }
-        return [
-            'success' => true,
-            'account_number' => (string) ($data['accountNumber'] ?? $accountNumber),
-            'account_name' => $resolvedName,
-            'bank_name' => (string) ($data['bankName'] ?? ''),
-            'bank_code' => (string) ($data['bankCode'] ?? $bankCode),
-            'provider' => 'monnify',
-        ];
-    }
-
-    return ['success' => false, 'error' => 'Select Monnify or Paystack to verify a bank account.'];
+    require_once __DIR__ . '/gateway-manager.php';
+    return gateway_resolve_bank_account($provider, $accountNumber, $bankCode);
 }
 
 function wallet_admin_process_withdrawal(PDO $pdo, int $withdrawalId, int $adminId, string $decision, string $adminNote = ''): array
@@ -523,8 +528,11 @@ function wallet_admin_process_withdrawal(PDO $pdo, int $withdrawalId, int $admin
         }
 
         if ($decision === 'reject') {
-            $balance = (float) $wallet['balance'] + (float) $withdrawal['amount'];
-            $hold = max(0, (float) $wallet['hold_balance'] - (float) $withdrawal['amount']);
+            $amountHeld = !empty($withdrawal['total_debited']) && (float) $withdrawal['total_debited'] > 0
+                ? (float) $withdrawal['total_debited']
+                : (float) $withdrawal['amount'];
+            $balance = (float) $wallet['balance'] + $amountHeld;
+            $hold = max(0, (float) $wallet['hold_balance'] - $amountHeld);
             $pdo->prepare("UPDATE wallets SET balance = ?, hold_balance = ?, last_activity_at = NOW() WHERE id = ?")
                 ->execute([$balance, $hold, (int) $wallet['id']]);
             $pdo->prepare("UPDATE wallet_withdrawals SET status = 'rejected', payout_status = 'rejected', admin_note = ?, reviewed_by = ?, reviewed_at = NOW(), updated_at = NOW() WHERE id = ?")
@@ -549,74 +557,144 @@ function wallet_admin_process_withdrawal(PDO $pdo, int $withdrawalId, int $admin
     }
 
     $provider = strtolower((string) $withdrawal['provider']);
-    if ($provider === 'monnify') {
-        $payout = monnify_initiate_wallet_withdrawal($withdrawal);
-    } elseif ($provider === 'paystack') {
-        $payout = paystack_initiate_wallet_withdrawal($withdrawal);
-    } else {
-        $payout = [
-            'success' => true,
-            'provider' => 'manual',
-            'payout_reference' => (string) $withdrawal['reference'],
-            'transfer_code' => '',
-            'payout_status' => 'manual_review',
-            'payload' => ['admin_note' => $adminNote],
-        ];
+    require_once __DIR__ . '/gateway-manager.php';
+    $payout = gateway_initiate_withdrawal($withdrawal);
+    if ($adminNote !== '') {
+        if (!isset($payout['payload']) || !is_array($payout['payload'])) {
+            $payout['payload'] = [];
+        }
+        $payout['payload']['admin_note'] = $adminNote;
     }
 
+    $effectiveProvider = strtolower((string) ($payout['provider'] ?? $provider));
+    return wallet_finalize_withdrawal_payout($pdo, $withdrawalId, $payout, $effectiveProvider, $adminId);
+}
+
+/**
+ * Finalize an approved withdrawal once the provider accepted the payout.
+ *
+ * Runs in its own transaction with row locks, and re-checks that the
+ * withdrawal is still in a payable state, so a payout can never be
+ * finalized twice or after the row moved on. Both the interactive
+ * approval flow and the reconciliation cron go through here.
+ *
+ * @return array{success: bool, status?: string, provider?: string, payout_status?: string, error?: string}
+ */
+function wallet_finalize_withdrawal_payout(PDO $pdo, int $withdrawalId, array $payout, string $provider, int $adminId = 0): array
+{
     $pdo->beginTransaction();
     try {
         $stmt = $pdo->prepare("SELECT * FROM wallet_withdrawals WHERE id = ? FOR UPDATE");
         $stmt->execute([$withdrawalId]);
         $current = $stmt->fetch();
-        $walletStmt = $pdo->prepare("SELECT * FROM wallets WHERE id = ? FOR UPDATE");
-        $walletStmt->execute([(int) $withdrawal['wallet_id']]);
-        $wallet = $walletStmt->fetch();
-        if (!$current || !$wallet) {
+        if (!$current) {
             throw new RuntimeException('Withdrawal state changed before payout update.');
         }
-        if (!$payout['success']) {
-            $pdo->prepare("UPDATE wallet_withdrawals SET status = 'pending', payout_status = 'failed', admin_note = ?, provider_payload = ?, updated_at = NOW() WHERE id = ?")
-                ->execute([($payout['error'] ?? 'Payout failed'), json_encode($payout, JSON_UNESCAPED_SLASHES), $withdrawalId]);
+
+        $actualProvider = strtolower((string) ($payout['provider'] ?? $current['provider'] ?? $provider));
+
+        if ((string) ($current['status'] ?? '') === 'paid') {
             $pdo->commit();
-            return ['success' => false, 'error' => $payout['error'] ?? 'Payout failed.'];
+            return [
+                'success' => true,
+                'status' => 'paid',
+                'provider' => $actualProvider,
+                'payout_status' => (string) ($current['payout_status'] ?? 'confirmed'),
+                'duplicate' => true,
+            ];
         }
 
-        $hold = max(0, (float) $wallet['hold_balance'] - (float) $withdrawal['amount']);
+        $isFailedPayout = empty($payout['success'])
+            || !empty($payout['failed'])
+            || in_array(strtolower((string) ($payout['payout_status'] ?? '')), ['failed', 'reversed', 'rejected'], true);
+
+        if ($isFailedPayout) {
+            $pdo->commit();
+            $reason = (string) ($payout['error'] ?? $payout['reason'] ?? 'Payout failed at provider');
+            if ($actualProvider !== 'manual' && empty($payout['circuit_open']) && function_exists('circuit_breaker_record_failure')) {
+                circuit_breaker_record_failure($pdo, $actualProvider, $reason);
+            }
+            $release = wallet_release_withdrawal_funds($pdo, $withdrawalId, 'failed', $reason, $adminId);
+            return [
+                'success' => !empty($release['success']),
+                'status' => 'failed',
+                'provider' => $actualProvider,
+                'payout_status' => 'failed',
+                'released' => !empty($release['released']),
+                'error' => $reason,
+            ];
+        }
+
+        if ($actualProvider !== 'manual' && function_exists('circuit_breaker_record_success')) {
+            circuit_breaker_record_success($pdo, $actualProvider);
+        }
+
+        if (!in_array((string) $current['status'], ['processing', 'pending', 'approved'], true)) {
+            throw new RuntimeException('Withdrawal is no longer in a payable state.');
+        }
+        $walletStmt = $pdo->prepare("SELECT * FROM wallets WHERE id = ? FOR UPDATE");
+        $walletStmt->execute([(int) $current['wallet_id']]);
+        $wallet = $walletStmt->fetch();
+        if (!$wallet) {
+            throw new RuntimeException('Linked wallet was not found.');
+        }
+
+        $amountHeld = !empty($current['total_debited']) && (float) $current['total_debited'] > 0
+            ? (float) $current['total_debited']
+            : (float) $current['amount'];
+        $hold = max(0, (float) $wallet['hold_balance'] - $amountHeld);
         $pdo->prepare("UPDATE wallets SET hold_balance = ?, last_activity_at = NOW() WHERE id = ?")
             ->execute([$hold, (int) $wallet['id']]);
         $pdo->prepare("
             UPDATE wallet_withdrawals
-            SET status = 'approved', payout_status = ?, payout_reference = ?, payout_transfer_code = ?,
+            SET provider = ?, status = 'paid', funds_released = 1, payout_status = ?, payout_reference = ?, payout_transfer_code = ?,
                 provider_payload = ?, completed_at = NOW(), updated_at = NOW()
             WHERE id = ?
         ")->execute([
+            $actualProvider,
             (string) ($payout['payout_status'] ?? 'initiated'),
-            (string) ($payout['payout_reference'] ?? $withdrawal['reference']),
-            (string) ($payout['transfer_code'] ?? ''),
+            (string) ($payout['payout_reference'] ?: $current['reference']),
+            (string) ($payout['transfer_code'] ?: $current['payout_transfer_code']),
             json_encode($payout['payload'] ?? $payout, JSON_UNESCAPED_SLASHES),
             $withdrawalId,
         ]);
         $pdo->prepare("
             UPDATE wallet_transactions
-            SET status = 'completed', provider_reference = ?, provider_payload = ?, completed_at = NOW()
+            SET provider = ?, status = 'completed', provider_reference = ?, provider_payload = ?, completed_at = NOW()
             WHERE reference = ?
         ")->execute([
-            (string) ($payout['payout_reference'] ?? $withdrawal['reference']),
+            $actualProvider,
+            (string) ($payout['payout_reference'] ?: $current['reference']),
             json_encode($payout['payload'] ?? $payout, JSON_UNESCAPED_SLASHES),
-            (string) $withdrawal['reference'],
+            (string) $current['reference'],
         ]);
         $pdo->commit();
         if (function_exists('admin_audit')) {
-            admin_audit($pdo, 'withdrawal_approved', 'Admin #' . $adminId . ' approved withdrawal #' . $withdrawalId . ' (NGN ' . number_format((float) $withdrawal['amount'], 2) . ') via ' . $provider . '.');
+            $actor = $adminId > 0 ? 'Admin #' . $adminId : 'System reconciliation';
+            admin_audit($pdo, 'withdrawal_approved', $actor . ' approved withdrawal #' . $withdrawalId . ' (NGN ' . number_format((float) $current['amount'], 2) . ') via ' . $actualProvider . '.');
         }
-        return ['success' => true, 'status' => 'approved', 'provider' => $provider, 'payout_status' => (string) ($payout['payout_status'] ?? 'initiated')];
+        return ['success' => true, 'status' => 'paid', 'provider' => $actualProvider, 'payout_status' => (string) ($payout['payout_status'] ?? 'initiated')];
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
         return ['success' => false, 'error' => $e->getMessage()];
     }
+}
+
+/**
+ * Ask the payout provider what actually happened to a withdrawal.
+ *
+ * Used by the reconciliation cron to resolve withdrawals that are stuck
+ * in 'processing' (or pending with a provider transfer code) after a
+ * crash between the provider call and the database commit.
+ *
+ * @return array{state: string, payload?: array, error?: string} state: success|failed|pending|unknown
+ */
+function wallet_query_payout_status(array $withdrawal): array
+{
+    require_once __DIR__ . '/gateway-manager.php';
+    return gateway_query_payout_status($withdrawal);
 }
 
 /**
@@ -661,7 +739,7 @@ function wallet_release_withdrawal_funds(PDO $pdo, int $withdrawalId, string $st
         }
 
         // A payout that actually completed must never be reversed here.
-        if ((string) $withdrawal['status'] === 'approved') {
+        if (in_array((string) $withdrawal['status'], ['approved', 'paid'], true)) {
             if ($ownsTransaction) {
                 $pdo->rollBack();
             }
@@ -678,9 +756,11 @@ function wallet_release_withdrawal_funds(PDO $pdo, int $withdrawalId, string $st
             return ['success' => false, 'released' => false, 'amount' => 0.0, 'error' => 'Linked wallet not found.'];
         }
 
-        $amount = (float) $withdrawal['amount'];
-        $newBalance = (float) $wallet['balance'] + $amount;
-        $newHold = max(0, (float) ($wallet['hold_balance'] ?? 0) - $amount);
+        $amountHeld = !empty($withdrawal['total_debited']) && (float) $withdrawal['total_debited'] > 0
+            ? (float) $withdrawal['total_debited']
+            : (float) $withdrawal['amount'];
+        $newBalance = (float) $wallet['balance'] + $amountHeld;
+        $newHold = max(0, (float) ($wallet['hold_balance'] ?? 0) - $amountHeld);
 
         $pdo->prepare('UPDATE wallets SET balance = ?, hold_balance = ?, last_activity_at = NOW() WHERE id = ?')
             ->execute([$newBalance, $newHold, (int) $wallet['id']]);
@@ -701,10 +781,10 @@ function wallet_release_withdrawal_funds(PDO $pdo, int $withdrawalId, string $st
             $pdo->commit();
         }
         if (function_exists('admin_audit')) {
-            admin_audit($pdo, 'withdrawal_funds_released', 'Returned NGN ' . number_format($amount, 2) . ' to wallet for withdrawal #' . $withdrawalId . ' (' . $status . ').');
+            admin_audit($pdo, 'withdrawal_funds_released', 'Returned NGN ' . number_format($amountHeld, 2) . ' to wallet for withdrawal #' . $withdrawalId . ' (' . $status . ').');
         }
 
-        return ['success' => true, 'released' => true, 'amount' => $amount, 'balance' => $newBalance, 'status' => $status];
+        return ['success' => true, 'released' => true, 'amount' => $amountHeld, 'balance' => $newBalance, 'status' => $status];
     } catch (Throwable $e) {
         if ($ownsTransaction && $pdo->inTransaction()) {
             $pdo->rollBack();

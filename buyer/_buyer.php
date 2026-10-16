@@ -7,8 +7,8 @@ require_once __DIR__ . '/../lib/monnify.php';
 require_once __DIR__ . '/../lib/support.php';
 require_once __DIR__ . '/../lib/admin-layout.php';
 
-if (session_status() !== PHP_SESSION_ACTIVE) {
-    session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    @session_start();
 }
 
 function buyer_boot(): PDO
@@ -125,8 +125,7 @@ function buyer_require(PDO $pdo): array
         redirect_to('register.php?activate=buyer');
     }
     if (!admin_feature_is_allowed($pdo, 'marketplace')) {
-        http_response_code(403);
-        exit('Forbidden: the marketplace module is disabled for your role.');
+        app_render_error_page(403, 'The marketplace module is disabled for your role.');
     }
     return $user;
 }
@@ -258,14 +257,19 @@ function buyer_page_start(string $title, string $active, ?array $user, array $co
         <a class="<?= $active === $item[0] ? 'active' : '' ?>" href="<?= e($item[3]) ?>"><i class="fas <?= e($item[2]) ?>"></i><?= e($item[1]) ?></a>
       <?php endforeach; ?>
     </nav>
+    <form action="search-results.php" method="get" style="margin:16px 0 0 0;display:flex;align-items:center;background:rgba(255,255,255,.1);border-radius:9px;border:1px solid rgba(255,255,255,.16)">
+      <span style="padding:0 10px;color:rgba(255,255,255,.5)"><i class="fas fa-search"></i></span>
+      <input name="q" type="text" placeholder="Search..." aria-label="Search" style="background:transparent;border:0;color:#fff;padding:10px 12px;width:100%;font:inherit;font-size:13px;outline:none;flex:1">
+    </form>
     <div class="side-card"><strong>Buyer workspace</strong><p>Orders, wallet, refunds, support, and profile tools stay inside your buyer account.</p><a class="btn light" href="../market/index.php">Shop Marketplace</a></div>
   </aside>
   <main class="main">
     <header class="top">
       <form class="search" action="search.php" method="get"><i class="fas fa-search"></i><input name="q" placeholder="Search products, orders, tickets, sellers..."></form>
-      <div class="top-actions"><a href="../market/index.php"><i class="fas fa-store"></i> Marketplace</a><a href="cart.php"><i class="fas fa-cart-shopping"></i> Cart</a><a href="orders.php"><i class="fas fa-truck"></i> Track</a><?php if ($user): ?><a href="profile.php"><i class="fas fa-user"></i> Profile</a><a href="profile.php#security"><i class="fas fa-lock"></i> Account</a><a href="logout.php"><i class="fas fa-right-from-bracket"></i> Logout</a><?php else: ?><a href="login.php">Login</a><?php endif; ?></div>
+      <div class="top-actions"><a href="../market/index.php"><i class="fas fa-store"></i> Marketplace</a><a href="cart.php"><i class="fas fa-cart-shopping"></i> Cart</a><a href="orders.php"><i class="fas fa-truck"></i> Track</a><?php if ($user): ?><a href="profile.php"><i class="fas fa-user"></i> Profile</a><a href="profile.php#security"><i class="fas fa-lock"></i> Account</a><a href="logout.php?_csrf=<?= e(csrf_token()) ?>"><i class="fas fa-right-from-bracket"></i> Logout</a><?php else: ?><a href="login.php">Login</a><?php endif; ?></div>
     </header>
     <section class="content">
+<?= page_breadcrumbs(auto_breadcrumbs(buyer_nav(), $active, 'Buyer Marketplace', 'index.php'), 'NATCODEV', '../index.php') ?>
 <?php
 }
 

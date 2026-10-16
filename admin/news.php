@@ -256,19 +256,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            // 5. Delete Article
+            // 5. Delete Article (Super Admin only)
             elseif ($action === 'delete') {
-                $id = (int) ($_POST['id'] ?? 0);
-                if ($id > 0) {
-                    try {
-                        $pdo->prepare("DELETE FROM coop_news WHERE id = ?")->execute([$id]);
-                        $pdo->prepare("DELETE FROM coop_news_versions WHERE news_id = ?")->execute([$id]);
-                        $pdo->prepare("DELETE FROM coop_news_feedback WHERE news_id = ?")->execute([$id]);
-                        $pdo->prepare("DELETE FROM coop_news_analytics WHERE news_id = ?")->execute([$id]);
-                        $message = 'Article deleted successfully.';
-                        $action = 'list';
-                    } catch (Throwable $e) {
-                        $error = 'Delete failed: ' . $e->getMessage();
+                if (!admin_current_user_is_super_admin($pdo)) {
+                    http_response_code(403);
+                    $error = 'Article deletion is restricted to the Super Admin.';
+                } else {
+                    $id = (int) ($_POST['id'] ?? 0);
+                    if ($id > 0) {
+                        try {
+                            $pdo->prepare("DELETE FROM coop_news WHERE id = ?")->execute([$id]);
+                            $pdo->prepare("DELETE FROM coop_news_versions WHERE news_id = ?")->execute([$id]);
+                            $pdo->prepare("DELETE FROM coop_news_feedback WHERE news_id = ?")->execute([$id]);
+                            $pdo->prepare("DELETE FROM coop_news_analytics WHERE news_id = ?")->execute([$id]);
+                            $message = 'Article deleted successfully.';
+                            $action = 'list';
+                        } catch (Throwable $e) {
+                            $error = 'Delete failed: ' . $e->getMessage();
+                        }
                     }
                 }
             }
@@ -501,12 +506,14 @@ admin_page_start('News & Communications Desk', [
             <a class="button secondary sm" href="news.php?action=edit&id=<?= (int) $item['id'] ?>"><i class="fas fa-edit"></i> Edit</a>
             <a class="button secondary sm" href="news.php?action=broadcast&id=<?= (int) $item['id'] ?>"><i class="fas fa-bullhorn"></i> Broadcast</a>
             <a class="button secondary sm" href="../news-detail.php?slug=<?= urlencode((string) $item['slug']) ?>" target="_blank" rel="noopener"><i class="fas fa-eye"></i> View</a>
+            <?php if (admin_current_user_is_super_admin($pdo)): ?>
             <form method="post" onsubmit="return confirm('Are you sure you want to delete this article?');" style="display:inline;margin:0">
               <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
               <input type="hidden" name="action" value="delete">
               <input type="hidden" name="id" value="<?= (int) $item['id'] ?>">
               <button type="submit" class="button secondary sm" style="color:#e11d48"><i class="fas fa-trash"></i> Delete</button>
             </form>
+            <?php endif; ?>
           </div>
         </div>
       </article>

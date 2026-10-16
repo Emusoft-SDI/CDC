@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" width="100%" height="100%">
+  <defs>
+    <linearGradient id="faBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#1E293B"/>
+    </linearGradient>
+    <filter id="faShadow" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="6" stdDeviation="5" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <rect width="960" height="480" rx="16" fill="url(#faBg)"/>
+
+  <!-- Title Header -->
+  <text x="480" y="44" text-anchor="middle" fill="#38BDF8" font-family="Arial, sans-serif" font-weight="900" font-size="13" letter-spacing="2">FIELD AGENT AUDIT &amp; QUALITY ASSURANCE</text>
+  <text x="480" y="76" text-anchor="middle" fill="#FFFFFF" font-family="Georgia, serif" font-weight="bold" font-size="24">Farm GPS Polygon &amp; Photographic Evidence Protocol</text>
+  <text x="480" y="100" text-anchor="middle" fill="#94A3B8" font-family="Arial, sans-serif" font-size="13">Requirements for tamper-proof verification, GPS polygon bounding, and photo compliance</text>
+
+  <!-- CARD 1: 4-Corner Polygon -->
+  <g transform="translate(45, 130)" filter="url(#faShadow)">
+    <rect width="270" height="275" rx="12" fill="#FFFFFF" stroke="#38BDF8" stroke-width="2"/>
+    <rect x="0" y="0" width="270" height="46" rx="12" fill="#0284C7"/>
+    <text x="135" y="28" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-weight="bold" font-size="14">📍 GPS Boundary Capture</text>
+    
+    <!-- Mini Map Graphic -->
+    <rect x="25" y="60" width="220" height="80" rx="6" fill="#F0F9FF" stroke="#BAE6FD"/>
+    <polygon points="50,120 80,75 190,85 220,125" fill="#38BDF8" fill-opacity="0.25" stroke="#0284C7" stroke-width="2"/>
+    <circle cx="50" cy="120" r="4" fill="#DC2626"/>
+    <circle cx="80" cy="75" r="4" fill="#DC2626"/>
+    <circle cx="190" cy="85" r="4" fill="#DC2626"/>
+    <circle cx="220" cy="125" r="4" fill="#DC2626"/>
+    <text x="135" y="105" text-anchor="middle" fill="#0369A1" font-size="11" font-weight="bold">Polygon Area: 2.4 Ha</text>
+
+    <text x="20" y="165" fill="#334155" font-family="Arial, sans-serif" font-size="11.5">
+      <tspan x="20" dy="0">• Minimum 4 corner coordinate points</tspan>
+      <tspan x="20" dy="18">• Device accuracy &lt; 5 metres required</tspan>
+      <tspan x="20" dy="18">• Stand at real property boundaries</tspan>
+      <tspan x="20" dy="18">• No synthetic or duplicate vertices</tspan>
+    </text>
+    <rect x="20" y="240" width="230" height="22" rx="4" fill="#E0F2FE"/>
+    <text x="135" y="255" text-anchor="middle" fill="#0369A1" font-family="Arial, sans-serif" font-weight="bold" font-size="10.5">Automated Satellite Overlap Check</text>
+  </g>
+
+  <!-- CARD 2: Photo Compliance -->
+  <g transform="translate(345, 130)" filter="url(#faShadow)">
+    <rect width="270" height="275" rx="12" fill="#FFFFFF" stroke="#22C55E" stroke-width="2"/>
+    <rect x="0" y="0" width="270" height="46" rx="12" fill="#16A34A"/>
+    <text x="135" y="28" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-weight="bold" font-size="14">📷 Accepted Photo Standard</text>
+    
+    <rect x="25" y="60" width="220" height="80" rx="6" fill="#F0FDF4" stroke="#BBF7D0"/>
+    <text x="135" y="90" text-anchor="middle" font-size="28">🌴📸👨‍🌾</text>
+    <text x="135" y="125" text-anchor="middle" fill="#15803D" font-size="10.5" font-weight="bold">✓ Clear Horizon + Grower on Site</text>
+
+    <text x="20" y="165" fill="#334155" font-family="Arial, sans-serif" font-size="11.5">
+      <tspan x="20" dy="0">• Taken in clear daylight (9am–4pm)</tspan>
+      <tspan x="20" dy="18">• Grower and palms clearly identifiable</tspan>
+      <tspan x="20" dy="18">• EXIF timestamp &amp; geo-tag intact</tspan>
+      <tspan x="20" dy="18">• Shows permanent visual landmarks</tspan>
+    </text>
+    <rect x="20" y="240" width="230" height="22" rx="4" fill="#DCFCE7"/>
+    <text x="135" y="255" text-anchor="middle" fill="#15803D" font-family="Arial, sans-serif" font-weight="bold" font-size="10.5">Auto-Approved in 24 Hours</text>
+  </g>
+
+  <!-- CARD 3: Immediate Rejection Reasons -->
+  <g transform="translate(645, 130)" filter="url(#faShadow)">
+    <rect width="270" height="275" rx="12" fill="#FFFFFF" stroke="#EF4444" stroke-width="2"/>
+    <rect x="0" y="0" width="270" height="46" rx="12" fill="#DC2626"/>
+    <text x="135" y="28" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-weight="bold" font-size="14">🚫 Causes for Rejection</text>
+    
+    <rect x="25" y="60" width="220" height="80" rx="6" fill="#FEF2F2" stroke="#FECACA"/>
+    <text x="135" y="90" text-anchor="middle" font-size="28">🌫️📵❌</text>
+    <text x="135" y="125" text-anchor="middle" fill="#B91C1C" font-size="10.5" font-weight="bold">✗ Blurred / Downloaded / Cropped</text>
+
+    <text x="20" y="165" fill="#7F1D1D" font-family="Arial, sans-serif" font-size="11.5">
+      <tspan x="20" dy="0">❌ Night time / dark photo submission</tspan>
+      <tspan x="20" dy="18">❌ Photo of computer screen or paper</tspan>
+      <tspan x="20" dy="18">❌ EXIF GPS coordinates mismatch farm</tspan>
+      <tspan x="20" dy="18">❌ Duplicate image from another grower</tspan>
+    </text>
+    <rect x="20" y="240" width="230" height="22" rx="4" fill="#FEE2E2"/>
+    <text x="135" y="255" text-anchor="middle" fill="#B91C1C" font-family="Arial, sans-serif" font-weight="bold" font-size="10.5">Triggers Automatic Agent Flagging</text>
+  </g>
+
+  <text x="480" y="445" text-anchor="middle" fill="#7DD3FC" font-family="Arial, sans-serif" font-size="12">🛡️ Governance Standard: 100% of National Coconut Initiative inputs and payouts require verified GPS polygons and audit-passed evidence.</text>
+</svg>

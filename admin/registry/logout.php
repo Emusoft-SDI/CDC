@@ -7,6 +7,10 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
 
+if (!verify_csrf((string) ($_GET['_csrf'] ?? ''))) {
+    app_render_error_page(403, 'Invalid security token.');
+}
+
 $_SESSION = [];
 if (ini_get('session.use_cookies')) {
     $params = session_get_cookie_params();

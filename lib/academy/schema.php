@@ -45,6 +45,7 @@ function academy_ensure_schema(PDO $pdo): void
     ");
     app_ensure_primary_auto_increment($pdo, 'academy_programs');
     app_add_column_if_missing($pdo, 'academy_programs', 'thumbnail', 'VARCHAR(255) NULL');
+    app_add_column_if_missing($pdo, 'academy_programs', 'prerequisites', 'TEXT NULL');
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS webinars (
@@ -160,6 +161,13 @@ function academy_ensure_schema(PDO $pdo): void
         } catch (Throwable $e) {
         }
     }
+    app_add_column_if_missing($pdo, 'academy_lessons', 'video_url', 'VARCHAR(500) NULL');
+    app_add_column_if_missing($pdo, 'academy_lessons', 'audio_url', 'VARCHAR(500) NULL');
+    app_add_column_if_missing($pdo, 'academy_lessons', 'audio_tracks', 'TEXT NULL');
+    app_add_column_if_missing($pdo, 'academy_lessons', 'audio_duration_seconds', 'INT NULL DEFAULT 0');
+    app_add_column_if_missing($pdo, 'academy_lessons', 'infographic_url', 'VARCHAR(500) NULL');
+    app_add_column_if_missing($pdo, 'academy_lessons', 'infographic_type', "VARCHAR(50) NULL DEFAULT 'process'");
+    app_add_column_if_missing($pdo, 'academy_lessons', 'visual_meta', 'LONGTEXT NULL');
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS academy_materials (
@@ -184,6 +192,8 @@ function academy_ensure_schema(PDO $pdo): void
         } catch (Throwable $e) {
         }
     }
+    app_add_column_if_missing($pdo, 'academy_materials', 'thumbnail_url', 'VARCHAR(500) NULL');
+    app_add_column_if_missing($pdo, 'academy_materials', 'filesize_bytes', 'BIGINT NULL DEFAULT 0');
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS academy_progress (
@@ -236,6 +246,7 @@ function academy_ensure_schema(PDO $pdo): void
             option_d VARCHAR(500) NULL,
             correct_option CHAR(1) NOT NULL DEFAULT 'A',
             points DECIMAL(6,2) NOT NULL DEFAULT 1,
+            rationale TEXT NULL,
             sort_order INT NOT NULL DEFAULT 0,
             status VARCHAR(30) NOT NULL DEFAULT 'active',
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -243,6 +254,7 @@ function academy_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
     app_ensure_primary_auto_increment($pdo, 'academy_questions');
+    app_add_column_if_missing($pdo, 'academy_questions', 'rationale', 'TEXT NULL');
     if (!academy_index_exists($pdo, 'academy_questions', 'uniq_academy_question_assessment_text')) {
         try {
             $pdo->exec("ALTER TABLE academy_questions ADD UNIQUE KEY uniq_academy_question_assessment_text (assessment_id, question_text(180))");
@@ -444,6 +456,88 @@ function academy_ensure_schema(PDO $pdo): void
     ");
     app_ensure_primary_auto_increment($pdo, 'academy_feedback');
 
+    // Academy sponsorship & recommendations for coordinators/cooperatives
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS academy_sponsorships (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            sponsor_type ENUM('coordinator','cooperative') NOT NULL DEFAULT 'coordinator',
+            sponsor_cooperative_id INT NULL,
+            sponsor_user_id INT NULL,
+            sponsor_role_key VARCHAR(60) NULL,
+            webinar_id INT NOT NULL,
+            sponsor_scope_type ENUM('global','state','lga','district','village','cooperative','users') NOT NULL DEFAULT 'cooperative',
+            sponsor_state_id INT NULL,
+            sponsor_lga VARCHAR(120) NULL,
+            sponsor_district VARCHAR(120) NULL,
+            sponsor_village VARCHAR(120) NULL,
+            target_cooperative_id INT NULL,
+            note TEXT NULL,
+            slots INT NULL,
+            status ENUM('draft','active','completed','expired','cancelled') NOT NULL DEFAULT 'active',
+            created_by INT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATETIME NULL,
+            updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_acad_sponsor_webinar (webinar_id),
+            INDEX idx_acad_sponsor_scope (sponsor_state_id, sponsor_lga, sponsor_district),
+            INDEX idx_acad_sponsor_coop (sponsor_cooperative_id, target_cooperative_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+    app_ensure_primary_auto_increment($pdo, 'academy_sponsorships');
+    foreach ([
+        'sponsor_type' => "ENUM('coordinator','cooperative') NOT NULL DEFAULT 'coordinator'",
+        'sponsor_scope_type' => "ENUM('global','state','lga','district','village','cooperative','users') NOT NULL DEFAULT 'cooperative'",
+        'sponsor_state_id' => 'INT NULL',
+        'sponsor_lga' => 'VARCHAR(120) NULL',
+        'sponsor_district' => 'VARCHAR(120) NULL',
+        'sponsor_village' => 'VARCHAR(120) NULL',
+        'target_cooperative_id' => 'INT NULL',
+        'note' => 'TEXT NULL',
+        'slots' => 'INT NULL',
+        'expires_at' => 'DATETIME NULL',
+    ] as $column => $def) {
+        app_add_column_if_missing($pdo, 'academy_sponsorships', $column, $def);
+    }
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS academy_sponsorship_targets (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            sponsorship_id INT NOT NULL,
+            user_id INT NOT NULL,
+            status ENUM('invited','enrolled','declined','completed') NOT NULL DEFAULT 'invited',
+            enrolled_at DATETIME NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_acad_sponsor_target (sponsorship_id, user_id),
+            INDEX idx_acad_sponsor_targets_user (user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+    app_ensure_primary_auto_increment($pdo, 'academy_sponsorship_targets');
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS academy_sponsorship_recommendations (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            recommender_type ENUM('coordinator','cooperative','admin','operator') NOT NULL DEFAULT 'coordinator',
+            recommender_user_id INT NOT NULL,
+            recommender_cooperative_id INT NULL,
+            recommender_role_key VARCHAR(60) NULL,
+            webinar_id INT NOT NULL,
+            recipient_scope_type ENUM('global','state','lga','district','village','cooperative','users') NOT NULL DEFAULT 'cooperative',
+            recipient_state_id INT NULL,
+            recipient_lga VARCHAR(120) NULL,
+            recipient_district VARCHAR(120) NULL,
+            recipient_village VARCHAR(120) NULL,
+            recipient_cooperative_id INT NULL,
+            message TEXT NULL,
+            status ENUM('pending','reviewed','approved','rejected','sponsored') NOT NULL DEFAULT 'pending',
+            reviewed_by INT NULL,
+            reviewed_at DATETIME NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_acad_rec_webinar (webinar_id),
+            INDEX idx_acad_rec_scope (recipient_state_id, recipient_lga)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+    app_ensure_primary_auto_increment($pdo, 'academy_sponsorship_recommendations');
+
     academy_ensure_seed_data($pdo);
 }
 function academy_ensure_seed_data(PDO $pdo): void
@@ -454,7 +548,7 @@ function academy_ensure_seed_data(PDO $pdo): void
     }
     $checked = true;
 
-    $seedVersion = '20260627-1';
+    $seedVersion = '20261014-quiz-boost-v3';
     $hasSettings = app_table_exists($pdo, 'settings');
     if ($hasSettings) {
         $stmt = $pdo->prepare("SELECT value FROM settings WHERE key_name = 'academy_seed_version' LIMIT 1");
@@ -465,6 +559,7 @@ function academy_ensure_seed_data(PDO $pdo): void
     }
 
     require_once __DIR__ . '/seeds.php';
+    require_once __DIR__ . '/assessments.php';
 
     academy_seed_programs($pdo);
     academy_seed_starter_program_content($pdo);
@@ -474,6 +569,7 @@ function academy_ensure_seed_data(PDO $pdo): void
     academy_seed_assignment_packs($pdo);
     academy_seed_certificate_pathways($pdo);
     academy_assign_programs_to_courses($pdo);
+    academy_ensure_quiz_question_invariants($pdo);
 
     if ($hasSettings) {
         try {

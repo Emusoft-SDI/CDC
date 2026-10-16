@@ -5,7 +5,7 @@ require_once __DIR__ . '/../config.php';
 
 session_start();
 $pdo = db();
-$user = require_user_role($pdo, ['field_agent', 'admin']);
+$user = require_user_role($pdo, ['field_agent', 'agronomist', 'extensionist', 'farm_hand', 'admin']);
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     json_response(['success' => false, 'error' => 'POST method required'], 405);

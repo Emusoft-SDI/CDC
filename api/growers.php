@@ -5,7 +5,7 @@ require_once __DIR__ . '/../config.php';
 
 session_start();
 $pdo = db();
-require_user_role($pdo, ['field_agent', 'admin']);
+require_user_role($pdo, ['field_agent', 'agronomist', 'extensionist', 'farm_hand', 'admin']);
 
 try {
     app_ensure_core_schema($pdo);

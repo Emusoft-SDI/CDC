@@ -16,6 +16,8 @@ function admin_ensure_audit_v2_schema(PDO $pdo): void
         return;
     }
     foreach ([
+        'actor_id' => 'INT NULL',
+        'actor_name' => 'VARCHAR(255) NULL',
         'entity_type' => 'VARCHAR(120) NULL',
         'entity_id' => 'INT NULL',
         'before_json' => 'MEDIUMTEXT NULL',

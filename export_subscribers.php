@@ -6,8 +6,7 @@ require_once __DIR__ . '/config.php';
 session_start();
 $pdo = db();
 if (!admin_session_is_authenticated($pdo)) {
-    http_response_code(403);
-    exit('Forbidden');
+    app_render_error_page(403, 'Sign in as an operator to export the subscriber list.');
 }
 
 $table = app_table_exists($pdo, 'newsletter_subscribers') ? 'newsletter_subscribers' : (app_table_exists($pdo, 'subscribers') ? 'subscribers' : '');

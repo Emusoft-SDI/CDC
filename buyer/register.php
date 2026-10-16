@@ -37,28 +37,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!verify_csrf($_POST['_csrf'] ?? null)) {
         $error = 'Security token expired. Refresh and try again.';
     } else {
-        if ($currentUser && (string) ($_POST['action'] ?? '') === 'activate_buyer') {
-            buyer_activate_access($pdo, $currentUser);
-            redirect_to('index.php');
-        }
-        $name = trim((string) ($_POST['name'] ?? ''));
-        $email = filter_var(trim((string) ($_POST['email'] ?? '')), FILTER_VALIDATE_EMAIL);
-        $phone = trim((string) ($_POST['phone'] ?? ''));
-        $password = (string) ($_POST['password'] ?? '');
-        if ($name === '' || !$email || strlen($password) < 6) {
-            $error = 'Enter your name, valid email, and a password of at least 6 characters.';
-        } else {
-            try {
-                app_ensure_user_verification_schema($pdo);
-                $stmt = $pdo->prepare("INSERT INTO users (name, email, password, phone, role, platform_role, account_status) VALUES (?, ?, ?, ?, 'grower', 'buyer', 'needs_confirmation')");
-                $stmt->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $phone]);
-                $userId = (int) $pdo->lastInsertId();
-                buyer_activate_access($pdo, ['id' => $userId]);
-                app_send_user_verification($pdo, $userId, 'NATCODEV Buyer');
-                $message = 'Buyer account created. Check your email and verify before logging in.';
-            } catch (Throwable $e) {
-                $error = 'Unable to create buyer account now. If this email is already registered, please log in and activate buyer access.';
+        // Every public sign-up goes through the shared registration wizard:
+        // the account is created as needs_confirmation and buyer access is
+        // activated by the buyer flow once the wizard completes.
+        try {
+            app_ensure_user_verification_schema($pdo);
+            $result = registration_wizard_begin($pdo, 'buyer', $_POST);
+            if (!empty($result['ok'])) {
+                redirect_to('../verify-otp.php');
             }
+            $error = (string) $result['message'];
+        } catch (Throwable $e) {
+            error_log('Buyer registration error: ' . $e->getMessage());
+            $error = 'Unable to create buyer account now. If this email is already registered, please log in and activate buyer access.';
         }
     }
 }?>
@@ -81,15 +72,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <a class="brand" href="../index.php"><img src="<?= e(app_primary_logo_url()) ?>" alt="NATCODEV"><strong>NATCODEV Buyer</strong></a>
     <?php if ($currentUser && !buyer_has_access($pdo, $currentUser)): ?>
       <h2>Activate buyer access</h2>
-      <p>You are logged in as <?= e((string) $currentUser['name']) ?>. Add Buyer access to this account so you can shop, track orders, use wallet finance, and contact buyer support.</p>
+      <p>You are logged in as <?= e((string) $currentUser['name']) ?>. Continue your buyer registration to add Buyer access to this account so you can shop, track orders, use wallet finance, and contact buyer support.</p>
       <?php if ($error): ?><div class="alert err"><?= e($error) ?></div><?php endif; ?>
-    <?php if ($message): ?><div class="alert ok"><?= e($message) ?></div><?php endif; ?>
-      <form method="post">
-        <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
-        <input type="hidden" name="action" value="activate_buyer">
-        <button class="btn">Activate Buyer Workspace</button>
-      </form>
-      <div class="links"><a href="../academy/dashboard.php">Back to Academy</a><a href="logout.php">Logout</a></div>
+      <?php if ($message): ?><div class="alert ok"><?= e($message) ?></div><?php endif; ?>
+      <a class="btn" href="../register-wizard.php?board=buyer">Start / continue buyer registration</a>
+      <div class="links"><a href="../academy/dashboard.php">Back to Academy</a><a href="logout.php?_csrf=<?= e(csrf_token()) ?>">Logout</a></div>
     <?php elseif ($currentUser && buyer_has_access($pdo, $currentUser)): ?>
       <h2>Buyer access active</h2>
       <p>Your account already has buyer workspace access.</p>

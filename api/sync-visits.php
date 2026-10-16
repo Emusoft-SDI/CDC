@@ -7,7 +7,7 @@ require_once __DIR__ . '/../lib/agronomy.php';
 
 session_start();
 $pdo = db();
-$user = require_user_role($pdo, ['field_agent', 'admin']);
+$user = require_user_role($pdo, ['field_agent', 'agronomist', 'extensionist', 'farm_hand', 'admin']);
 fm_ensure_schema($pdo);
 agronomy_ensure_schema($pdo);
 

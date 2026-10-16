@@ -123,7 +123,7 @@
       <nav class="support-rail-nav" aria-label="Support exits">
         <a href="<?= e(sd_url(['view' => 'overview', 'status' => 'active', 'scope' => 'all'])) ?>"><span><i class="fa-solid fa-house"></i> Support Home</span></a>
         <a href="<?= e(sd_url(['view' => 'public-entry'])) ?>"><span><i class="fa-solid fa-life-ring"></i> Public Entry</span></a>
-        <a href="logout.php"><span><i class="fa-solid fa-right-from-bracket"></i> Logout</span></a>
+        <a href="logout.php?_csrf=<?= e(csrf_token()) ?>"><span><i class="fa-solid fa-right-from-bracket"></i> Logout</span></a>
       </nav>
       <div class="support-rail-user">
         <div class="sd-avatar"><?= e(strtoupper(substr((string) ($admin['name'] ?? 'A'), 0, 1))) ?></div>

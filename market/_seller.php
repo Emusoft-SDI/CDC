@@ -109,6 +109,13 @@ function seller_query_context(PDO $pdo, array $user, bool $handlePost = false): 
                         $pdo->prepare("UPDATE marketplace_listings SET image_path = COALESCE(?, image_path), image_gallery = ?, shipping_options = ?, pickup_available = ?, local_delivery_available = ?, nationwide_shipping_available = ? WHERE id = ? AND seller_id = ?")->execute([$mainImagePath, json_encode($galleryImagePaths, JSON_UNESCAPED_SLASHES), $shippingOptions, $pickupAvailable, $localDeliveryAvailable, $nationwideShippingAvailable, $listingId, (int) $seller['id']]);
                         $message = 'Listing updated and sent for approval.';
                     } else {
+                        // Enforce the product limit of the seller's active plan
+                        // before creating the listing. One shared guard, so every
+                        // marketplace_listings insert path enforces it alike.
+                        $limitError = seller_listing_limit_error($pdo, (int) $seller['id']);
+                        if ($limitError !== '') {
+                            throw new RuntimeException($limitError);
+                        }
                         $slug = marketplace_unique_slug($pdo, 'marketplace_listings', $title);
                         $stmt = $pdo->prepare("
                             INSERT INTO marketplace_listings
@@ -221,7 +228,22 @@ function seller_query_context(PDO $pdo, array $user, bool $handlePost = false): 
     $sales = array_sum(array_map(static fn(array $row): float => (float) $row['total_amount'], array_filter($orders, static fn(array $row): bool => !in_array((string) $row['status'], ['cancelled'], true))));
     $openOrders = count(array_filter($orders, static fn(array $row): bool => !in_array((string) $row['status'], ['completed', 'cancelled'], true)));
     $pendingPayout = array_sum(array_map(static fn(array $row): float => (float) $row['total_amount'], array_filter($orders, static fn(array $row): bool => (string) ($row['payment_status'] ?? '') === 'paid' && empty($row['settled_at']))));
-    return compact('sellerTypes', 'listingTypes', 'categories', 'seller', 'message', 'error', 'listings', 'inquiries', 'orders', 'editListing', 'sales', 'openOrders', 'pendingPayout');
+    // Guarantee array shapes so consuming pages never receive null from a failed fetch.
+    return [
+        'sellerTypes' => $sellerTypes,
+        'listingTypes' => $listingTypes,
+        'categories' => $categories,
+        'seller' => $seller,
+        'message' => $message,
+        'error' => $error,
+        'listings' => is_array($listings) ? $listings : [],
+        'inquiries' => is_array($inquiries) ? $inquiries : [],
+        'orders' => is_array($orders) ? $orders : [],
+        'editListing' => $editListing,
+        'sales' => $sales,
+        'openOrders' => $openOrders,
+        'pendingPayout' => $pendingPayout,
+    ];
 }
 
 function seller_access_or_message(PDO $pdo, array $user): void
@@ -255,21 +277,21 @@ function seller_avatar(?array $seller, array $user): string
 function seller_header(string $title, string $active, array $user, ?array $seller): void
 {
     $menu = [
-        'overview' => ['Overview', 'seller-central.php', 'home'],
-        'storefront' => ['Storefront', $seller ? 'store.php?seller=' . rawurlencode((string) $seller['slug']) : 'storefront.php', 'external-link'],
-        'products' => ['Products', 'seller-products.php', 'package'],
-        'add' => ['Add Product', 'seller-add-product.php', 'plus-square'],
-        'inventory' => ['Inventory', 'seller-inventory.php', 'boxes'],
-        'orders' => ['Orders', 'seller-orders.php', 'shopping-bag'],
+        'overview' => ['Overview', 'seller-central.php', 'house'],
+        'storefront' => ['Storefront', $seller ? 'store.php?seller=' . rawurlencode((string) $seller['slug']) : 'storefront.php', 'arrow-up-right-from-square'],
+        'products' => ['Products', 'seller-products.php', 'box'],
+        'add' => ['Add Product', 'seller-add-product.php', 'square-plus'],
+        'inventory' => ['Inventory', 'seller-inventory.php', 'boxes-stacked'],
+        'orders' => ['Orders', 'seller-orders.php', 'bag-shopping'],
         'buyers' => ['Buyers', 'seller-buyers.php', 'users'],
-        'messages' => ['Messages', 'seller-messages.php', 'mail'],
-        'promotions' => ['Promotions', 'seller-promotions.php', 'megaphone'],
+        'messages' => ['Messages', 'seller-messages.php', 'envelope'],
+        'promotions' => ['Promotions', 'seller-promotions.php', 'bullhorn'],
         'payouts' => ['Payouts', 'seller-payouts.php', 'wallet'],
-        'disputes' => ['Disputes', 'seller-disputes.php', 'badge-alert'],
+        'disputes' => ['Disputes', 'seller-disputes.php', 'circle-exclamation'],
         'support' => ['Support', 'seller-support.php', 'headphones'],
-        'reports' => ['Reports', 'seller-reports.php', 'bar-chart-3'],
+        'reports' => ['Reports', 'seller-reports.php', 'chart-column'],
         'academy' => ['Seller Academy', '../academy/my-learning.php', 'graduation-cap'],
-        'settings' => ['Settings', 'seller-settings.php', 'settings'],
+        'settings' => ['Settings', 'seller-settings.php', 'gear'],
     ];
     $avatar = seller_avatar($seller, $user);
     $dashboardLinks = market_user_dashboard_links(db(), $user, 'seller');
@@ -280,7 +302,7 @@ function seller_header(string $title, string $active, array $user, ?array $selle
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><?= e($title) ?> - Seller Central</title>
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <style>
     :root{--green:#007a3d;--green2:#0f8f4b;--deep:#003f25;--ink:#07162f;--muted:#64748b;--line:#e2e8f0;--soft:#f7fbf8;--gold:#d49400;--orange:#f97316;--blue:#2563eb;--red:#dc2626;--shadow:0 18px 48px rgba(15,23,42,.08)}*{box-sizing:border-box}body{margin:0;background:#f8fbfa;color:var(--ink);font-family:Inter,"Segoe UI",Arial,sans-serif}.sc-shell{display:grid;grid-template-columns:278px minmax(0,1fr);min-height:100vh}.sc-side{height:100vh;position:sticky;top:0;overflow:auto;background:linear-gradient(155deg,#006b36,#00381f 72%);color:#fff;padding:22px 18px}.sc-brand{display:flex;gap:12px;align-items:center;color:#fff;text-decoration:none;padding-bottom:18px;border-bottom:1px solid rgba(255,255,255,.15)}.sc-brand img{width:54px;height:54px;border-radius:50%;object-fit:contain;background:#fff}.sc-brand strong{font-size:1.45rem;display:block}.sc-brand span span{display:block;font-size:.78rem;line-height:1.25;opacity:.9}.sc-store{display:flex;gap:12px;align-items:center;margin:24px 0;padding:14px;border:1px solid rgba(255,255,255,.18);border-radius:14px;background:rgba(255,255,255,.08)}.sc-store img{width:58px;height:58px;border-radius:50%;object-fit:cover}.sc-store b,.sc-store span{display:block}.sc-store span{font-size:.82rem;color:#c8f5d9}.sc-menu{display:grid;gap:7px}.sc-menu a{display:flex;align-items:center;gap:12px;color:#fff;text-decoration:none;font-weight:850;padding:11px 13px;border-radius:10px}.sc-menu a.active,.sc-menu a:hover{background:linear-gradient(90deg,#0f9f55,#087140);box-shadow:0 10px 22px rgba(0,0,0,.18)}.sc-upgrade{margin-top:30px;border:1px solid rgba(255,255,255,.18);border-radius:14px;padding:16px;background:rgba(255,255,255,.06)}.sc-main{min-width:0}.sc-top{height:72px;border-bottom:1px solid var(--line);background:#fff;display:flex;align-items:center;gap:18px;padding:0 28px;position:sticky;top:0;z-index:5}.sc-search{flex:1;max-width:610px;display:flex;align-items:center;gap:9px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:11px 14px}.sc-search input{border:0;background:transparent;outline:0;width:100%;font:inherit}.sc-chip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:#fff;font-weight:850;color:var(--ink);text-decoration:none}.sc-content{padding:28px}.sc-title{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:22px}.sc-title h1{margin:0 0 6px;font-size:2rem;line-height:1.1}.sc-title p{margin:0;color:var(--muted)}.sc-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:16px;margin-bottom:18px}.sc-card{background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}.sc-kpi{padding:18px;display:flex;align-items:center;gap:13px}.sc-icon{width:48px;height:48px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:#eaf7ef;color:var(--green);flex:none}.sc-icon.blue{background:#eaf1ff;color:var(--blue)}.sc-icon.orange{background:#fff2e6;color:var(--orange)}.sc-icon.gold{background:#fff6dc;color:var(--gold)}.sc-icon.red{background:#fee2e2;color:var(--red)}.sc-icon.purple{background:#f2e8ff;color:#7c3aed}.sc-kpi small{display:block;color:var(--muted);font-weight:850}.sc-kpi b{display:block;font-size:1.35rem}.sc-kpi span{font-size:.82rem;color:var(--green);font-weight:850}.sc-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px}.span-3{grid-column:span 3}.span-4{grid-column:span 4}.span-5{grid-column:span 5}.span-6{grid-column:span 6}.span-7{grid-column:span 7}.span-8{grid-column:span 8}.span-12{grid-column:span 12}.sc-panel{padding:16px}.sc-panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid #edf2f7;padding-bottom:10px}.sc-panel-head h2{font-size:1rem;margin:0}.sc-link{color:var(--green);font-weight:950;text-decoration:none}.sc-list{display:grid;gap:10px}.sc-row{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:10px;border-bottom:1px solid #edf2f7}.sc-row:last-child{border-bottom:0}.thumb{width:56px;height:56px;border-radius:8px;object-fit:cover;background:#eaf7ef}.muted{color:var(--muted)}.badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:5px 9px;font-size:.75rem;font-weight:950;background:#eef2f7;color:#334155}.badge.good{background:#e8f8ee;color:#087140}.badge.warn{background:#fff4dc;color:#a16207}.badge.danger{background:#fee2e2;color:#b91c1c}.badge.blue{background:#eaf1ff;color:#1d4ed8}.sc-table{width:100%;border-collapse:collapse}.sc-table th,.sc-table td{text-align:left;border-bottom:1px solid #edf2f7;padding:11px}.sc-table th{font-size:.78rem;text-transform:uppercase;color:#64748b;background:#f8fafc}.sc-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid var(--green);background:var(--green);color:#fff;border-radius:8px;padding:10px 14px;text-decoration:none;font-weight:950;cursor:pointer}.sc-btn.secondary{background:#fff;color:var(--green)}.sc-btn.soft{background:#eef8f1;color:var(--green);border-color:#d9efe1}.sc-actions{display:flex;gap:10px;flex-wrap:wrap}.sc-form{display:grid;gap:12px}.sc-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.sc-form-grid .wide{grid-column:1/-1}.sc-form input,.sc-form select,.sc-form textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:8px;font:inherit}.sc-form textarea{min-height:100px}.quick-actions{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.quick-actions a{display:grid;place-items:center;text-align:center;gap:7px;min-height:94px;border:1px solid var(--line);border-radius:12px;text-decoration:none;color:var(--ink);font-weight:950;background:#fff}.quick-actions small{display:block;color:var(--muted);font-weight:500}.alert{padding:12px 14px;border-radius:10px;margin-bottom:14px;font-weight:850}.alert.ok{background:#eaf8ef;color:#11602f;border:1px solid #bce6c8}.alert.err{background:#fff1f2;color:#b91c1c;border:1px solid #fecdd3}.empty{padding:22px;border:1px dashed var(--line);border-radius:12px;color:var(--muted);background:#fbfdfc}.footer{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:.9rem;padding:20px 28px;border-top:1px solid var(--line);background:#fff;margin-top:12px}@media(max-width:1250px){.sc-kpis{grid-template-columns:repeat(3,1fr)}.span-3,.span-4,.span-5,.span-6,.span-7,.span-8{grid-column:span 12}.quick-actions{grid-template-columns:repeat(3,1fr)}}@media(max-width:860px){.sc-shell{grid-template-columns:1fr}.sc-side{position:relative;height:auto}.sc-top{position:relative;height:auto;flex-wrap:wrap;padding:14px}.sc-content{padding:18px}.sc-kpis,.sc-form-grid{grid-template-columns:1fr}.quick-actions{grid-template-columns:1fr}.footer{display:block}.sc-title{display:block}}
   </style>
@@ -292,24 +314,25 @@ function seller_header(string $title, string $active, array $user, ?array $selle
     <div class="sc-store"><img src="<?= e($avatar) ?>" alt=""><div><b><?= e((string) ($seller['store_name'] ?? $user['name'] ?? 'Seller')) ?></b><span><?= $seller ? e(marketplace_status_label((string) $seller['approval_status'])) : 'Store pending setup' ?></span><span>Seller ID: <?= $seller ? 'NAT-SL-' . str_pad((string) $seller['id'], 5, '0', STR_PAD_LEFT) : 'Not created' ?></span></div></div>
     <nav class="sc-menu">
       <?php foreach ($menu as $key => [$label, $href, $icon]): ?>
-        <a href="<?= e($href) ?>" class="<?= $active === $key ? 'active' : '' ?>"><i data-lucide="<?= e($icon) ?>"></i><?= e($label) ?></a>
+        <a href="<?= e($href) ?>" class="<?= $active === $key ? 'active' : '' ?>"><i class="fa-solid fa-<?= e($icon) ?>"></i><?= e($label) ?></a>
       <?php endforeach; ?>
     </nav>
     <div class="sc-upgrade"><h3>Role Access</h3><p>Move only between dashboards enabled for this account.</p><?php foreach ($dashboardLinks as $dash): ?><a class="sc-btn secondary" style="margin:6px 6px 0 0" href="<?= e((string) $dash['href']) ?>"><?= e((string) $dash['label']) ?></a><?php endforeach; ?></div>
   </aside>
   <section class="sc-main">
     <header class="sc-top">
-      <a class="sc-chip" href="seller-central.php"><i data-lucide="menu"></i></a>
-      <form class="sc-search" action="seller-search.php" method="get"><i data-lucide="search"></i><input name="q" placeholder="Search products, orders, buyers..."><span class="badge good">Ctrl + K</span></form>
-      <?php foreach ($dashboardLinks as $dash): ?><a class="sc-chip <?= !empty($dash['active']) ? 'active' : '' ?>" href="<?= e((string) $dash['href']) ?>"><i data-lucide="<?= e((string) $dash['icon']) ?>"></i><?= e((string) $dash['label']) ?></a><?php endforeach; ?>
-      <a class="sc-chip" href="index.php"><i data-lucide="store"></i> Marketplace</a>
-      <a class="sc-chip" href="../academy/my-learning.php"><i data-lucide="graduation-cap"></i> Academy</a>
-      <a class="sc-chip" href="seller-payouts.php"><i data-lucide="wallet"></i> Wallet</a>
-      <a class="sc-chip" href="seller-settings.php"><i data-lucide="user"></i> Profile</a>
-      <a class="sc-chip" href="seller-settings.php#account"><i data-lucide="settings"></i> Account</a>
-      <a class="sc-chip" href="logout.php"><i data-lucide="log-out"></i> Logout</a>
+      <a class="sc-chip" href="seller-central.php"><i class="fa-solid fa-bars"></i></a>
+      <form class="sc-search" action="seller-search.php" method="get"><i class="fa-solid fa-magnifying-glass"></i><input name="q" placeholder="Search products, orders, buyers..."><span class="badge good">Ctrl + K</span></form>
+      <?php foreach ($dashboardLinks as $dash): ?><a class="sc-chip <?= !empty($dash['active']) ? 'active' : '' ?>" href="<?= e((string) $dash['href']) ?>"><i class="fa-solid fa-<?= e((string) $dash['icon']) ?>"></i><?= e((string) $dash['label']) ?></a><?php endforeach; ?>
+      <a class="sc-chip" href="index.php"><i class="fa-solid fa-store"></i> Marketplace</a>
+      <a class="sc-chip" href="../academy/my-learning.php"><i class="fa-solid fa-graduation-cap"></i> Academy</a>
+      <a class="sc-chip" href="seller-payouts.php"><i class="fa-solid fa-wallet"></i> Wallet</a>
+      <a class="sc-chip" href="seller-settings.php"><i class="fa-solid fa-user"></i> Profile</a>
+      <a class="sc-chip" href="seller-settings.php#account"><i class="fa-solid fa-gear"></i> Account</a>
+      <a class="sc-chip" href="logout.php?_csrf=<?= e(csrf_token()) ?>"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
     </header>
     <main class="sc-content">
+      <?= page_breadcrumbs(auto_breadcrumbs($menu, $active, 'Seller Central', 'seller-central.php'), 'NATCODEV', '../index.php') ?>
       <div class="sc-title"><div><h1><?= e($title) ?></h1><p>Manage your store, products, orders, and growth on NATCODEV Marketplace.</p></div><span class="sc-chip">Store Health <b style="color:var(--green)">Excellent</b></span></div>
 <?php
 }
@@ -322,7 +345,7 @@ function seller_footer(): void
   </section>
 </div>
 <script src="../lib/location-picker.js"></script>
-<script>if(window.lucide){lucide.createIcons();}</script>
+
 </body>
 </html>
 <?php
@@ -330,20 +353,20 @@ function seller_footer(): void
 
 function seller_kpis(array $ctx): void
 {
-    $listings = $ctx['listings'];
-    $orders = $ctx['orders'];
-    $sales = (float) $ctx['sales'];
-    $openOrders = (int) $ctx['openOrders'];
+    $listings = $ctx['listings'] ?? [];
+    $orders = $ctx['orders'] ?? [];
+    $sales = (float) ($ctx['sales'] ?? 0);
+    $openOrders = (int) ($ctx['openOrders'] ?? 0);
     $lowStock = count(array_filter($listings, static fn(array $row): bool => (float) ($row['quantity_available'] ?? 99) > 0 && (float) ($row['quantity_available'] ?? 99) <= 10));
-    $pendingPayout = (float) $ctx['pendingPayout'];
+    $pendingPayout = (float) ($ctx['pendingPayout'] ?? 0);
     ?>
     <section class="sc-kpis">
-      <div class="sc-card sc-kpi"><span class="sc-icon"><i data-lucide="wallet"></i></span><div><small>Todayâ€™s Sales</small><b><?= e(marketplace_money($sales)) ?></b><span>+ active revenue</span></div></div>
-      <div class="sc-card sc-kpi"><span class="sc-icon orange"><i data-lucide="shopping-bag"></i></span><div><small>Open Orders</small><b><?= $openOrders ?></b><span>Needs fulfillment</span></div></div>
-      <div class="sc-card sc-kpi"><span class="sc-icon blue"><i data-lucide="package"></i></span><div><small>Active Products</small><b><?= count($listings) ?></b><span><?= count(array_filter($listings, static fn(array $r): bool => (string) $r['approval_status'] === 'approved')) ?> approved</span></div></div>
-      <div class="sc-card sc-kpi"><span class="sc-icon orange"><i data-lucide="triangle-alert"></i></span><div><small>Low Stock Items</small><b><?= $lowStock ?></b><span>Review inventory</span></div></div>
-      <div class="sc-card sc-kpi"><span class="sc-icon gold"><i data-lucide="coins"></i></span><div><small>Pending Payout</small><b><?= e(marketplace_money($pendingPayout)) ?></b><span>Wallet settlement</span></div></div>
-      <div class="sc-card sc-kpi"><span class="sc-icon"><i data-lucide="star"></i></span><div><small>Store Rating</small><b>4.7</b><span>Verified reviews</span></div></div>
+      <div class="sc-card sc-kpi"><span class="sc-icon"><i class="fa-solid fa-wallet"></i></span><div><small>Todayâ€™s Sales</small><b><?= e(marketplace_money($sales)) ?></b><span>+ active revenue</span></div></div>
+      <div class="sc-card sc-kpi"><span class="sc-icon orange"><i class="fa-solid fa-bag-shopping"></i></span><div><small>Open Orders</small><b><?= $openOrders ?></b><span>Needs fulfillment</span></div></div>
+      <div class="sc-card sc-kpi"><span class="sc-icon blue"><i class="fa-solid fa-box"></i></span><div><small>Active Products</small><b><?= count($listings) ?></b><span><?= count(array_filter($listings, static fn(array $r): bool => (string) $r['approval_status'] === 'approved')) ?> approved</span></div></div>
+      <div class="sc-card sc-kpi"><span class="sc-icon orange"><i class="fa-solid fa-triangle-exclamation"></i></span><div><small>Low Stock Items</small><b><?= $lowStock ?></b><span>Review inventory</span></div></div>
+      <div class="sc-card sc-kpi"><span class="sc-icon gold"><i class="fa-solid fa-coins"></i></span><div><small>Pending Payout</small><b><?= e(marketplace_money($pendingPayout)) ?></b><span>Wallet settlement</span></div></div>
+      <div class="sc-card sc-kpi"><span class="sc-icon"><i class="fa-solid fa-star"></i></span><div><small>Store Rating</small><b>4.7</b><span>Verified reviews</span></div></div>
     </section>
 <?php
 }

@@ -359,13 +359,40 @@ dashboard_page_start('Overview', [
   <a class="btn-customize" href="profile.php#preferences">Customize Dashboard</a>
 </div>
 
+<?php
+$moduleGates = [
+    'marketplace' => admin_feature_is_allowed($pdo, 'marketplace'),
+    'training'    => admin_feature_is_allowed($pdo, 'training'),
+    'support'     => admin_feature_is_allowed($pdo, 'support'),
+    'wallet'      => admin_feature_is_allowed($pdo, 'wallet'),
+    'healthcare'  => admin_feature_is_allowed($pdo, 'healthcare'),
+];
+
+?>
+
 <section class="dash-grid">
+  <?php if ($moduleGates['wallet']): ?>
   <article class="card col-span-1"><div class="stat-card"><div class="stat-icon"><?= gd_icon('wallet') ?></div><div><div class="stat-label">Wallet Balance</div><div class="stat-value"><?= e(gd_money($walletBalance)) ?></div><a class="link" href="wallet.php">View wallet</a></div></div></article>
+  <?php else: ?>
+  <article class="card col-span-1" style="background:#f3f4f6;border-color:#e5e7eb;opacity:.75;pointer-events:none"><div class="stat-card"><div class="stat-icon" style="background:#f3f4f6;color:#9ca3af"><?= gd_icon('wallet') ?></div><div><div class="stat-label">Wallet</div><div class="stat-value" style="color:#6b7280">Module temporarily unavailable</div></div></div></article>
+  <?php endif; ?>
   <article class="card col-span-1"><div class="stat-card"><div class="stat-icon"><?= gd_icon('seedling') ?></div><div><div class="stat-label">Farm Score</div><div class="stat-value"><?= (int) $farmScore ?><small>/100</small></div><a class="link" href="farm-health.php">View details</a></div></div></article>
   <article class="card col-span-1"><div class="stat-card"><div class="stat-icon"><?= gd_icon('tree') ?></div><div><div class="stat-label">Coconut Survival</div><div class="stat-value"><?= $coconutSurvival !== null ? (int) $coconutSurvival . '%' : 'Pending' ?></div><a class="link" href="fields.php">View stands</a></div></div></article>
+  <?php if ($moduleGates['marketplace']): ?>
   <article class="card col-span-1"><div class="stat-card"><div class="stat-icon orange"><?= gd_icon('coins') ?></div><div><div class="stat-label">Monthly Cashflow</div><div class="stat-value"><?= e(gd_money($sellerStats['sales'])) ?></div><a class="link" href="reports.php">View cashflow</a></div></div></article>
+  <?php else: ?>
+  <article class="card col-span-1" style="background:#f3f4f6;border-color:#e5e7eb;opacity:.75;pointer-events:none"><div class="stat-card"><div class="stat-icon" style="background:#f3f4f6;color:#9ca3af"><?= gd_icon('coins') ?></div><div><div class="stat-label">Cashflow</div><div class="stat-value" style="color:#6b7280">Module temporarily unavailable</div></div></div></article>
+  <?php endif; ?>
+  <?php if ($moduleGates['training']): ?>
   <article class="card col-span-1"><div class="stat-card"><div class="stat-icon purple"><?= gd_icon('academy') ?></div><div><div class="stat-label">Academy Progress</div><div class="stat-value"><?= (int) $academy['avg_progress'] ?>%</div><a class="link" href="../academy/index.php?screen=learning">Continue learning</a></div></div></article>
+  <?php else: ?>
+  <article class="card col-span-1" style="background:#f3f4f6;border-color:#e5e7eb;opacity:.75;pointer-events:none"><div class="stat-card"><div class="stat-icon" style="background:#f3f4f6;color:#9ca3af"><?= gd_icon('academy') ?></div><div><div class="stat-label">Academy</div><div class="stat-value" style="color:#6b7280">Module temporarily unavailable</div></div></div></article>
+  <?php endif; ?>
+  <?php if ($moduleGates['support']): ?>
   <article class="card col-span-1"><div class="stat-card"><div class="stat-icon blue"><?= gd_icon('headset') ?></div><div><div class="stat-label">Support</div><div class="stat-value"><?= (int) $unreadMessages ?></div><a class="link" href="inbox.php">View tickets</a></div></div></article>
+  <?php else: ?>
+  <article class="card col-span-1" style="background:#f3f4f6;border-color:#e5e7eb;opacity:.75;pointer-events:none"><div class="stat-card"><div class="stat-icon" style="background:#f3f4f6;color:#9ca3af"><?= gd_icon('headset') ?></div><div><div class="stat-label">Support</div><div class="stat-value" style="color:#6b7280">Module temporarily unavailable</div></div></div></article>
+  <?php endif; ?>
 </section>
 
 <section class="dashboard-grid">
@@ -412,34 +439,51 @@ dashboard_page_start('Overview', [
 <details class="dashboard-fold" open>
   <summary><span>Operational Intelligence</span><small>Academy, certificates, marketplace, wallet, support, and healthcare</small></summary>
   <div class="fold-body g6">
+  <?php if ($moduleGates['training']): ?>
   <article class="card">
     <div class="card-h"><h3>Academy Progress</h3><a class="link" href="../academy/index.php?screen=learning">View all</a></div>
     <?php foreach (array_slice($academyCourses, 0, 3) as $course): ?><div class="table-lite-row"><div class="task-main"><span class="row-icon"><?= gd_icon('academy') ?></span><div class="act-info"><div class="nm"><?= e((string) $course['title']) ?></div><div class="dt"><?= (int) $course['progress_percent'] ?>% complete</div></div></div><span class="badge-pill"><?= e(gd_status((string) $course['completion_status'])) ?></span></div><?php endforeach; ?>
     <?php if (count($academyCourses) > 3): ?><div class="preview-note">Showing 3 of <?= count($academyCourses) ?> courses. View all opens your learning workspace.</div><?php endif; ?>
     <?php if (!$academyCourses): ?><div class="table-lite-row"><div class="task-main"><span class="row-icon"><?= gd_icon('academy') ?></span><div class="act-info"><div class="nm">No course yet</div><div class="dt">Enroll from the Academy catalog.</div></div></div><a class="link" href="../academy/index.php?screen=catalog">Enroll</a></div><?php endif; ?>
   </article>
+  <?php else: ?>
+  <article class="card" style="background:#f3f4f6;border-color:#e5e7eb;opacity:.75;pointer-events:none"><div class="card-h"><h3>Academy Progress</h3></div><div style="padding:18px;text-align:center;color:#6b7280;font-weight:800">Module temporarily unavailable</div></article>
+  <?php endif; ?>
   <article class="card">
     <div class="card-h"><h3>Certificate Status</h3><a class="link" href="certificates.php">View all</a></div>
     <div class="table-lite-row"><div class="task-main"><span class="row-icon"><?= gd_icon('award') ?></span><div class="act-info"><div class="nm">Verified Grower Credential</div><div class="dt"><?= $certificateReady ? 'Ref: ' . e($certificateRef) : 'Complete verification to unlock' ?></div></div></div><span class="badge-pill <?= $certificateReady ? 'bp-green' : 'bp-orange' ?>"><?= $certificateReady ? 'Active' : 'Pending' ?></span></div>
     <div class="table-lite-row"><div class="task-main"><span class="row-icon"><?= gd_icon('academy') ?></span><div class="act-info"><div class="nm">Academy Certificates</div><div class="dt"><?= (int) $academy['certificates'] ?> issued</div></div></div><span class="badge-pill bp-blue">Available</span></div>
   </article>
+  <?php if ($moduleGates['marketplace']): ?>
   <article class="card">
     <div class="card-h"><h3>Marketplace & Seller</h3><a class="link" href="../market/index.php">Open</a></div>
     <div class="table-lite-row"><div class="task-main"><span class="row-icon"><?= gd_icon('store') ?></span><div class="act-info"><div class="nm">Active Listings</div><div class="dt"><?= (int) $sellerStats['listings'] ?> products/services</div></div></div><a class="link" href="../market/seller-central.php">Manage</a></div>
     <div class="table-lite-row"><div class="task-main"><span class="row-icon"><?= gd_icon('cart') ?></span><div class="act-info"><div class="nm">Orders Received</div><div class="dt"><?= (int) $sellerStats['orders'] ?> in 30 days</div></div></div><span class="badge-pill bp-orange"><?= (int) $sellerStats['orders'] ?></span></div>
   </article>
+  <?php else: ?>
+  <article class="card" style="background:#f3f4f6;border-color:#e5e7eb;opacity:.75;pointer-events:none"><div class="card-h"><h3>Marketplace & Seller</h3></div><div style="padding:18px;text-align:center;color:#6b7280;font-weight:800">Module temporarily unavailable</div></article>
+  <?php endif; ?>
+  <?php if ($moduleGates['wallet']): ?>
   <article class="card">
     <div class="card-h"><h3>Wallet Transactions</h3><a class="link" href="wallet.php">View all</a></div>
     <?php foreach (array_slice($walletTransactions, 0, 3) as $tx): ?><div class="table-lite-row"><div class="task-main"><span class="row-icon"><?= gd_icon('wallet') ?></span><div class="act-info"><div class="nm"><?= e(mb_substr((string) $tx['description'], 0, 42)) ?></div><div class="dt"><?= e(date('M j, Y', strtotime((string) $tx['created_at']))) ?></div></div></div><span class="badge-pill <?= (string) $tx['direction'] === 'outflow' ? 'bp-orange' : 'bp-green' ?>"><?= ((string) $tx['direction'] === 'outflow' ? '-' : '+') . e(gd_money((float) $tx['amount'])) ?></span></div><?php endforeach; ?>
     <?php if (count($walletTransactions) > 3): ?><div class="preview-note">Showing latest 3 transactions. View all opens the full wallet history.</div><?php endif; ?>
     <?php if (!$walletTransactions): ?><div class="table-lite-row"><div class="task-main"><span class="row-icon"><?= gd_icon('wallet') ?></span><div class="act-info"><div class="nm">No wallet transaction yet</div><div class="dt">Fund wallet or pay for a course to begin.</div></div></div><a class="link" href="wallet.php">Open</a></div><?php endif; ?>
   </article>
+  <?php else: ?>
+  <article class="card" style="background:#f3f4f6;border-color:#e5e7eb;opacity:.75;pointer-events:none"><div class="card-h"><h3>Wallet Transactions</h3></div><div style="padding:18px;text-align:center;color:#6b7280;font-weight:800">Module temporarily unavailable</div></article>
+  <?php endif; ?>
+  <?php if ($moduleGates['support']): ?>
   <article class="card">
     <div class="card-h"><h3>Support Desk</h3><a class="link" href="inbox.php">View all</a></div>
     <?php foreach (array_slice($messages, 0, 3) as $message): ?><div class="table-lite-row"><div class="task-main"><span class="row-icon"><?= gd_icon('headset') ?></span><div class="act-info"><div class="nm"><?= e((string) ($message['ticket_id'] ?: 'Support update')) ?></div><div class="dt"><?= e(mb_substr((string) $message['message'], 0, 58)) ?></div></div></div><span class="badge-pill <?= (int) $message['is_read'] === 0 ? 'bp-orange' : 'bp-green' ?>"><?= (int) $message['is_read'] === 0 ? 'New' : 'Read' ?></span></div><?php endforeach; ?>
     <?php if (count($messages) > 3): ?><div class="preview-note">Showing latest 3 support updates. View all opens the full desk.</div><?php endif; ?>
     <?php if (!$messages): ?><div class="table-lite-row"><div class="task-main"><span class="row-icon"><?= gd_icon('headset') ?></span><div class="act-info"><div class="nm">No support issue</div><div class="dt">Open a ticket when you need help.</div></div></div><a class="link" href="inbox.php">Open</a></div><?php endif; ?>
   </article>
+  <?php else: ?>
+  <article class="card" style="background:#f3f4f6;border-color:#e5e7eb;opacity:.75;pointer-events:none"><div class="card-h"><h3>Support Desk</h3></div><div style="padding:18px;text-align:center;color:#6b7280;font-weight:800">Module temporarily unavailable</div></article>
+  <?php endif; ?>
+  <?php if ($moduleGates['healthcare']): ?>
   <article class="card">
     <div class="card-h"><h3>Healthcare</h3><a class="link" href="healthcare.php">Open</a></div>
     <?php if ($healthStatus): ?>
@@ -449,6 +493,9 @@ dashboard_page_start('Overview', [
     <?php endif; ?>
     <div class="table-lite-row"><div class="task-main"><span class="row-icon"><?= gd_icon('task') ?></span><div class="act-info"><div class="nm">Field worker safety</div><div class="dt">Keep hydration and safety checks visible.</div></div></div><a class="link" href="healthcare.php">Open</a></div>
   </article>
+  <?php else: ?>
+  <article class="card" style="background:#f3f4f6;border-color:#e5e7eb;opacity:.75;pointer-events:none"><div class="card-h"><h3>Healthcare</h3></div><div style="padding:18px;text-align:center;color:#6b7280;font-weight:800">Module temporarily unavailable</div></article>
+  <?php endif; ?>
 </div>
 </details>
 
@@ -457,12 +504,28 @@ dashboard_page_start('Overview', [
   <div class="quick-actions">
     <a class="qa-item" href="farm-health.php"><span class="qa-ic green"><?= gd_icon('edit') ?></span><span class="qa-txt"><span class="t">Record Farm Activity</span><span class="s">Log field work & updates</span></span></a>
     <a class="qa-item" href="fields.php#intercrops"><span class="qa-ic green"><?= gd_icon('cart') ?></span><span class="qa-txt"><span class="t">Add Intercrop Sale</span><span class="s">Record produce sales</span></span></a>
+    <?php if ($moduleGates['wallet']): ?>
     <a class="qa-item" href="wallet.php"><span class="qa-ic teal"><?= gd_icon('wallet') ?></span><span class="qa-txt"><span class="t">Fund Wallet</span><span class="s">Add money to wallet</span></span></a>
+    <?php else: ?>
+    <div class="qa-item qa-disabled" style="background:#f3f4f6;border-color:#e5e7eb;opacity:.75;pointer-events:none"><span class="qa-ic" style="background:#f3f4f6;color:#9ca3af"><?= gd_icon('wallet') ?></span><span class="qa-txt"><span class="t">Wallet</span><span class="s">Module temporarily unavailable</span></span></div>
+    <?php endif; ?>
+    <?php if ($moduleGates['training']): ?>
     <a class="qa-item" href="../academy/index.php?screen=learning"><span class="qa-ic purple"><?= gd_icon('academy') ?></span><span class="qa-txt"><span class="t">Continue Course</span><span class="s">Resume learning</span></span></a>
+    <?php else: ?>
+    <div class="qa-item qa-disabled" style="background:#f3f4f6;border-color:#e5e7eb;opacity:.75;pointer-events:none"><span class="qa-ic" style="background:#f3f4f6;color:#9ca3af"><?= gd_icon('academy') ?></span><span class="qa-txt"><span class="t">Academy</span><span class="s">Module temporarily unavailable</span></span></div>
+    <?php endif; ?>
+    <?php if ($moduleGates['marketplace']): ?>
     <a class="qa-item" href="../market/index.php"><span class="qa-ic orange"><?= gd_icon('store') ?></span><span class="qa-txt"><span class="t">Open Marketplace</span><span class="s">Buy & sell farm inputs</span></span></a>
+    <?php else: ?>
+    <div class="qa-item qa-disabled" style="background:#f3f4f6;border-color:#e5e7eb;opacity:.75;pointer-events:none"><span class="qa-ic" style="background:#f3f4f6;color:#9ca3af"><?= gd_icon('store') ?></span><span class="qa-txt"><span class="t">Marketplace</span><span class="s">Module temporarily unavailable</span></span></div>
+    <?php endif; ?>
     <a class="qa-item" href="agronomist.php"><span class="qa-ic green"><?= gd_icon('comments') ?></span><span class="qa-txt"><span class="t">Request Advisory</span><span class="s">Get expert advice</span></span></a>
     <a class="qa-item" href="documents.php"><span class="qa-ic blue"><?= gd_icon('camera') ?></span><span class="qa-txt"><span class="t">Upload Evidence</span><span class="s">Photos & documents</span></span></a>
+    <?php if ($moduleGates['support']): ?>
     <a class="qa-item" href="inbox.php"><span class="qa-ic red"><?= gd_icon('headset') ?></span><span class="qa-txt"><span class="t">Request Support</span><span class="s">Get help from team</span></span></a>
+    <?php else: ?>
+    <div class="qa-item qa-disabled" style="background:#f3f4f6;border-color:#e5e7eb;opacity:.75;pointer-events:none"><span class="qa-ic" style="background:#f3f4f6;color:#9ca3af"><?= gd_icon('headset') ?></span><span class="qa-txt"><span class="t">Support</span><span class="s">Module temporarily unavailable</span></span></div>
+    <?php endif; ?>
   </div>
 </section>
 </div>

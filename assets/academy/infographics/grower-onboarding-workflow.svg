@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F3D1B"/>
+      <stop offset="100%" stop-color="#1B5E20"/>
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F8FAFC"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+    <filter id="cardShadow" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="8" stdDeviation="6" flood-color="#000000" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <!-- Background Canvas -->
+  <rect width="960" height="480" rx="16" fill="url(#bgGrad)"/>
+  
+  <!-- Title Header -->
+  <text x="480" y="44" text-anchor="middle" fill="#FACC15" font-family="Arial, sans-serif" font-weight="900" font-size="13" letter-spacing="2">NATCODEV ACADEMY INFOGRAPHIC</text>
+  <text x="480" y="78" text-anchor="middle" fill="#FFFFFF" font-family="Georgia, serif" font-weight="bold" font-size="24">Coconut Grower Digital Onboarding Workflow</text>
+  <text x="480" y="102" text-anchor="middle" fill="#D1E7DD" font-family="Arial, sans-serif" font-size="13">The 4 verified stages from initial registry enrollment to accredited market harvest</text>
+
+  <!-- Stage Connector Line -->
+  <path d="M 140 220 L 820 220" stroke="#34D399" stroke-width="4" stroke-dasharray="8 6"/>
+
+  <!-- STAGE 1: Profile & ID -->
+  <g class="infographic-hotspot" transform="translate(60, 140)" filter="url(#cardShadow)">
+    <rect width="190" height="260" rx="12" fill="url(#cardGrad)" stroke="#A7F3D0" stroke-width="2"/>
+    <circle cx="95" cy="50" r="32" fill="#E8F5E9" stroke="#1B5E20" stroke-width="3"/>
+    <!-- Icon ID -->
+    <text x="95" y="58" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="#1B5E20">👤</text>
+    <rect x="25" y="94" width="140" height="24" rx="12" fill="#1B5E20"/>
+    <text x="95" y="110" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-weight="bold" font-size="11">STAGE 1: IDENTITY</text>
+    <text x="95" y="142" text-anchor="middle" fill="#0F3D1B" font-family="Arial, sans-serif" font-weight="bold" font-size="14">Profile &amp; NIN/BVN</text>
+    <text x="20" y="170" fill="#475569" font-family="Arial, sans-serif" font-size="11" width="150">
+      <tspan x="20" dy="0">• Exact legal name match</tspan>
+      <tspan x="20" dy="16">• Reachable primary phone</tspan>
+      <tspan x="20" dy="16">• State &amp; LGA dropdown</tspan>
+      <tspan x="20" dy="16">• Government ID upload</tspan>
+    </text>
+    <rect x="20" y="226" width="150" height="20" rx="4" fill="#DCFCE7"/>
+    <text x="95" y="240" text-anchor="middle" fill="#15803D" font-family="Arial, sans-serif" font-weight="bold" font-size="10">✓ Prevents Duplication</text>
+  </g>
+
+  <!-- STAGE 2: Farm Verification -->
+  <g class="infographic-hotspot" transform="translate(280, 140)" filter="url(#cardShadow)">
+    <rect width="190" height="260" rx="12" fill="url(#cardGrad)" stroke="#A7F3D0" stroke-width="2"/>
+    <circle cx="95" cy="50" r="32" fill="#E8F5E9" stroke="#1B5E20" stroke-width="3"/>
+    <!-- Icon GPS -->
+    <text x="95" y="58" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="#1B5E20">📍</text>
+    <rect x="25" y="94" width="140" height="24" rx="12" fill="#1B5E20"/>
+    <text x="95" y="110" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-weight="bold" font-size="11">STAGE 2: FARM AUDIT</text>
+    <text x="95" y="142" text-anchor="middle" fill="#0F3D1B" font-family="Arial, sans-serif" font-weight="bold" font-size="14">GPS &amp; Land Tenure</text>
+    <text x="20" y="170" fill="#475569" font-family="Arial, sans-serif" font-size="11">
+      <tspan x="20" dy="0">• Field agent site visit</tspan>
+      <tspan x="20" dy="16">• 4-coordinate polygon</tspan>
+      <tspan x="20" dy="16">• Mature palm stand count</tspan>
+      <tspan x="20" dy="16">• Cooperative tenure letter</tspan>
+    </text>
+    <rect x="20" y="226" width="150" height="20" rx="4" fill="#DCFCE7"/>
+    <text x="95" y="240" text-anchor="middle" fill="#15803D" font-family="Arial, sans-serif" font-weight="bold" font-size="10">✓ Geographic Integrity</text>
+  </g>
+
+  <!-- STAGE 3: Wallet Activation -->
+  <g class="infographic-hotspot" transform="translate(500, 140)" filter="url(#cardShadow)">
+    <rect width="190" height="260" rx="12" fill="url(#cardGrad)" stroke="#A7F3D0" stroke-width="2"/>
+    <circle cx="95" cy="50" r="32" fill="#FEF3C7" stroke="#D97706" stroke-width="3"/>
+    <!-- Icon Wallet -->
+    <text x="95" y="58" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="#D97706">💳</text>
+    <rect x="25" y="94" width="140" height="24" rx="12" fill="url(#goldGrad)"/>
+    <text x="95" y="110" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-weight="bold" font-size="11">STAGE 3: FINANCIAL</text>
+    <text x="95" y="142" text-anchor="middle" fill="#0F3D1B" font-family="Arial, sans-serif" font-weight="bold" font-size="14">Wallet &amp; Funding</text>
+    <text x="20" y="170" fill="#475569" font-family="Arial, sans-serif" font-size="11">
+      <tspan x="20" dy="0">• Virtual bank account</tspan>
+      <tspan x="20" dy="16">• Monnify card / transfer</tspan>
+      <tspan x="20" dy="16">• Zero cash middleman</tspan>
+      <tspan x="20" dy="16">• Input subsidy credit</tspan>
+    </text>
+    <rect x="20" y="226" width="150" height="20" rx="4" fill="#FEF3C7"/>
+    <text x="95" y="240" text-anchor="middle" fill="#B45309" font-family="Arial, sans-serif" font-weight="bold" font-size="10">✓ Direct Bank Settlement</text>
+  </g>
+
+  <!-- STAGE 4: Certification & Market -->
+  <g class="infographic-hotspot" transform="translate(720, 140)" filter="url(#cardShadow)">
+    <rect width="190" height="260" rx="12" fill="url(#cardGrad)" stroke="#A7F3D0" stroke-width="2"/>
+    <circle cx="95" cy="50" r="32" fill="#E8F5E9" stroke="#1B5E20" stroke-width="3"/>
+    <!-- Icon Certificate -->
+    <text x="95" y="58" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="#1B5E20">🎓</text>
+    <rect x="25" y="94" width="140" height="24" rx="12" fill="#1B5E20"/>
+    <text x="95" y="110" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-weight="bold" font-size="11">STAGE 4: ACCREDITATION</text>
+    <text x="95" y="142" text-anchor="middle" fill="#0F3D1B" font-family="Arial, sans-serif" font-weight="bold" font-size="14">Verified Badge</text>
+    <text x="20" y="170" fill="#475569" font-family="Arial, sans-serif" font-size="11">
+      <tspan x="20" dy="0">• Complete all 3 lessons</tspan>
+      <tspan x="20" dy="16">• Pass exam (&gt;= 70%)</tspan>
+      <tspan x="20" dy="16">• QR-verified certificate</tspan>
+      <tspan x="20" dy="16">• Premium buyer access</tspan>
+    </text>
+    <rect x="20" y="226" width="150" height="20" rx="4" fill="#DCFCE7"/>
+    <text x="95" y="240" text-anchor="middle" fill="#15803D" font-family="Arial, sans-serif" font-weight="bold" font-size="10">✓ Traceable Coconut Supply</text>
+  </g>
+
+  <!-- Footer Tip -->
+  <text x="480" y="445" text-anchor="middle" fill="#A7F3D0" font-family="Arial, sans-serif" font-size="12">💡 Pro-Tip: Growers completing all 4 steps achieve 38% faster input approvals and instant marketplace listing verification.</text>
+</svg>

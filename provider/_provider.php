@@ -371,8 +371,7 @@ function provider_require(PDO $pdo): array
     }
     // Provider account must confirm email before workspace access.
     if (!admin_feature_is_allowed($pdo, 'providers')) {
-        http_response_code(403);
-        exit('Forbidden: the providers module is disabled for your role.');
+        app_render_error_page(403, 'The providers module is disabled for your role.');
     }
 
     return $user;
@@ -557,9 +556,10 @@ function provider_page_start(string $title, string $active, ?array $user, ?array
   <main class="main">
     <header class="top">
       <form class="search" action="search.php" method="get"><i class="fas fa-search"></i><input name="q" placeholder="Search orders, requests, products, customers..."></form>
-      <div class="top-actions"><a href="../market/index.php"><i class="fas fa-store"></i> Marketplace</a><a href="support.php"><i class="fas fa-envelope"></i> Support</a><a href="profile.php"><i class="fas fa-user"></i> Profile</a><a href="settings.php"><i class="fas fa-gear"></i> Settings</a><a href="logout.php"><i class="fas fa-right-from-bracket"></i> Logout</a></div>
+      <div class="top-actions"><a href="../market/index.php"><i class="fas fa-store"></i> Marketplace</a><a href="support.php"><i class="fas fa-envelope"></i> Support</a><a href="profile.php"><i class="fas fa-user"></i> Profile</a><a href="settings.php"><i class="fas fa-gear"></i> Settings</a><a href="logout.php?_csrf=<?= e(csrf_token()) ?>"><i class="fas fa-right-from-bracket"></i> Logout</a></div>
     </header>
     <section class="content">
+<?= page_breadcrumbs(auto_breadcrumbs(provider_nav(), $active, 'Provider Console', 'index.php'), 'NATCODEV', '../index.php') ?>
 <?php
 }
 

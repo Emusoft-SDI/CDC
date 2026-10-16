@@ -27,6 +27,9 @@ $settings = [
     'social_login_enabled' => '0',
     'google_oauth_enabled' => '0',
     'facebook_oauth_enabled' => '0',
+    'home_template' => 'a',
+    'market_template' => 'a',
+    'academy_template' => 'a',
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -39,6 +42,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $settings['social_login_enabled'] = isset($_POST['social_login_enabled']) ? '1' : '0';
         $settings['google_oauth_enabled'] = isset($_POST['google_oauth_enabled']) ? '1' : '0';
         $settings['facebook_oauth_enabled'] = isset($_POST['facebook_oauth_enabled']) ? '1' : '0';
+        $settings['home_template'] = in_array($_POST['home_template'] ?? 'a', ['a', 'b'], true) ? $_POST['home_template'] : 'a';
+        $settings['market_template'] = in_array($_POST['market_template'] ?? 'a', ['a', 'b'], true) ? $_POST['market_template'] : 'a';
+        $settings['academy_template'] = in_array($_POST['academy_template'] ?? 'a', ['a', 'b'], true) ? $_POST['academy_template'] : 'a';
         $settings['sms_verification_timeout'] = (string) max(60, min(3600, (int) ($_POST['sms_verification_timeout'] ?? 300)));
 
         $stmt = $pdo->prepare("
@@ -130,6 +136,27 @@ admin_page_start('Settings', [
       <h2>Optional Modules</h2>
       <p class="muted">Enable or pause operational modules that require extra hardware, setup, or integrations.</p>
       <label><input type="checkbox" name="iot_module_enabled" <?= $settings['iot_module_enabled'] === '1' ? 'checked' : '' ?>> Enable IoT module controls</label>
+    </div>
+
+    <div class="setting-section">
+      <h2>Homepage</h2>
+      <p class="muted">Choose the public home page layout shown to visitors by default. <strong>Template A</strong> is the original dense layout; <strong>Template B</strong> is a focused, less-dense layout. Operators can live-preview either with <code>?template=a</code> or <code>?template=b</code> (the choice sticks in a cookie while browsing).</p>
+      <label><input type="radio" name="home_template" value="a" <?= $settings['home_template'] === 'a' ? 'checked' : '' ?>> Template A — original dense layout</label>
+      <label><input type="radio" name="home_template" value="b" <?= $settings['home_template'] === 'b' ? 'checked' : '' ?>> Template B — focused, less-dense layout</label>
+    </div>
+
+    <div class="setting-section">
+      <h2>Marketplace</h2>
+      <p class="muted">Choose the public marketplace landing layout. <strong>Template A</strong> shows the dense hero with 4 shop paths and 4 featured picks; <strong>Template B</strong> condenses to 2 shop paths, fewer featured picks, and 3-column grids for a calmer, more focused experience. Operators can live-preview with <code>market/index.php?template=a</code> or <code>?template=b</code>.</p>
+      <label><input type="radio" name="market_template" value="a" <?= $settings['market_template'] === 'a' ? 'checked' : '' ?>> Template A — original dense layout</label>
+      <label><input type="radio" name="market_template" value="b" <?= $settings['market_template'] === 'b' ? 'checked' : '' ?>> Template B — focused, less-dense layout</label>
+    </div>
+
+    <div class="setting-section">
+      <h2>Academy</h2>
+      <p class="muted">Choose the public Academy landing layout. <strong>Template A</strong> keeps the dense hero with two CTAs and 4-column pathway grids; <strong>Template B</strong> streamlines to a single primary CTA and 2-column course/program grids for a focused experience. Operators can live-preview with <code>academy/index.php?template=a</code> or <code>?template=b</code>.</p>
+      <label><input type="radio" name="academy_template" value="a" <?= $settings['academy_template'] === 'a' ? 'checked' : '' ?>> Template A — original dense layout</label>
+      <label><input type="radio" name="academy_template" value="b" <?= $settings['academy_template'] === 'b' ? 'checked' : '' ?>> Template B — focused, less-dense layout</label>
     </div>
 
     <div class="actions"><button type="submit">Save Settings</button></div>

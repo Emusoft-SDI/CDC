@@ -22,6 +22,7 @@ if (!app_is_production() && $provided === '') {
     $provided = trim((string) ($_GET['token'] ?? ''));
 }
 $force = !empty($_POST['force']) || (!app_is_production() && !empty($_GET['force']));
+$action = (string) ($_GET['action'] ?? 'backup');
 
 header('Content-Type: application/json');
 header('X-Content-Type-Options: nosniff');
@@ -34,10 +35,17 @@ if ($expected === '' || $provided === '' || !hash_equals($expected, $provided)) 
 }
 
 try {
-    $result = dr_run_integrity_backup($pdo, null, $force);
+    if ($action === 'drill') {
+        $result = dr_run_restore_drill($pdo, null);
+    } elseif ($action === 'sync_events') {
+        $count = dr_process_sync_events($pdo);
+        $result = ['status' => 'done', 'processed' => $count];
+    } else {
+        $result = dr_run_integrity_backup($pdo, null, $force);
+    }
     echo json_encode(['ok' => true] + $result, JSON_UNESCAPED_SLASHES);
 } catch (Throwable $e) {
     error_log('Backup runner failed: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['ok' => false, 'error' => 'backup_failed']);
+    echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
 }

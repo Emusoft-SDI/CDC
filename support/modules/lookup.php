@@ -294,6 +294,19 @@
           <span>You rated this support experience <strong><?= (int) $selectedTicket['rating'] ?> / 5 stars</strong>. Thank you for your feedback!</span>
         </div>
       <?php endif; ?>
+      <?php if ($isSupportStaff && !empty($selectedTicket) && function_exists('support_ticket_coordinator_scope_chain')): $chain = support_ticket_coordinator_scope_chain($pdo, $selectedTicket); if (!empty($chain)): ?>
+        <section class="panel" style="margin-top:12px">
+          <h3>Coordinator Escalation Chain</h3>
+          <table class="table">
+            <thead><tr><th>Role</th><th>User ID</th><th>State/LGA</th></tr></thead>
+            <tbody>
+            <?php foreach ($chain as $c): ?>
+              <tr><td><?= e($c['role_key'] ?? '') ?></td><td><?= (int) ($c['user_id'] ?? 0) ?></td><td><?= e(($c['state'] ?? '') . ' / ' . ($c['lga'] ?? '')) ?></td></tr>
+            <?php endforeach; ?>
+            </tbody>
+          </table>
+        </section>
+      <?php endif; endif; ?>
     </div>
   <?php endif; ?>
 </div>

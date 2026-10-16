@@ -77,6 +77,40 @@ Features:
 - Analytics and reporting
 - System configuration
 
+## Platform Kernel
+
+The admin platform is built on a set of additive, opt-in kernel primitives so new
+capabilities can be introduced without rewriting existing pages: a generic action
+registry dispatched through `POST admin/action.php`, a dual-control approval
+workflow queued in `admin_action_requests` and applied via `admin_apply_approval()`,
+structured audit v2 events, a DB-backed metrics cache, a durable job queue with
+retry/idempotency, a search index, and a health report. Every primitive is
+registered at bootstrap and falls back silently when its table or helper is
+absent, so unregistered actions and legacy pages behave exactly as before. To plug
+in a new feature: register an action (`admin_register_action`) or job handler
+(`admin_register_job_handler`) or approval handler (`admin_register_approval_handler`)
+from any loaded library, then call the matching dispatch/enqueue/apply function —
+no existing page needs to change.
+
+| Primitive | Register | Dispatch / use | Notes |
+| --- | --- | --- | --- |
+| Action registry | `admin_register_action(string $key, callable $handler, ?string $capability = null)` | `POST admin/action.php` → `admin_dispatch_action(PDO, string $key, array $input)` | JSON result; CSRF + capability enforced by the endpoint |
+| Approval workflow | `admin_register_approval_handler(string $type, callable $handler)` | Queue row in `admin_action_requests` → `admin_apply_approval(PDO, array $request, string $decision, string $note)` | Handler signature: `fn(PDO $pdo, array $request, string $decision, string $note)`; `decision` is `approve`/`reject` |
+| Audit v2 | — | `admin_audit_event(PDO, string $action, string $entityType, ?int $entityId, array $before, array $after, string $outcome, string $description)` | Adds entity/actor/request context columns to `audit_log`; falls back to `admin_audit()` |
+| Metrics cache | — | `admin_metric(PDO, string $key, int $ttl, callable $compute)` / `admin_metric_invalidate(PDO, string $prefix = '')` | DB-backed TTL cache for expensive aggregates |
+| Job queue | `admin_register_job_handler(string $jobType, callable $handler)` | `admin_enqueue(PDO, string $jobType, array $payload, int $delaySeconds = 0)`; worker: `php cron/admin-jobs.php` → `admin_run_jobs(PDO, int $limit)` | Retry with backoff; `admin_idempotent(PDO, string $key, callable $fn)` for exactly-once work |
+| Search index | — | `admin_search_upsert(PDO, string $type, int $id, string $title, string $subtitle, string $url, string $keywords)` / `admin_search_query(PDO, string $query, int $limit)` | Global admin search backing store |
+| Health report | — | `admin_health_report(PDO)` | Returns `checks` (database, queue, cron, ...) plus an overall `ok` flag |
+| Page shell | — | `admin_page_start(PDO, string $title, array $opts)` / `admin_page_end()` | Renders the `nc-hub` workspace grid + topbar (`lib/layout/html_layout.php:196,418`); wrap legacy controllers with `admin_workspace_render()` (`lib/admin-workspace.php:35`) |
+
+Require-list convention: there is no central kernel loader. Every portal page
+lists its own requires at the top — the bootstrap (`config.php`), then its
+workspace middleware (`admin/` → `admin_require()`/`admin_require_feature()`
+from `lib/layout/auth.php`; `field-agent/` → `_field.php`;
+`coordination/` → `_coordination.php`; `support/agent.php` → agent session
+checks) — then feature-gates the request. New pages follow the same
+top-of-file require list so the kernel primitives are available.
+
 ## Database Design
 
 ### Key Tables

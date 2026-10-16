@@ -45,7 +45,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Recruitment application not found.';
         } elseif ($action === 'approve') {
             [$storedRole, $isAgronomist, $isExtensionist, $specialty] = recruitment_role_storage((string) $app['role_applied']);
-            $temporaryPassword = bin2hex(random_bytes(4));
+            // No plain-text temporary password: the approved applicant activates
+            // the staff account through the claim link issued by
+            // staff_account_claim_begin().
+            $placeholderPassword = bin2hex(random_bytes(16));
             try {
                 $pdo->beginTransaction();
                 $userStmt = $pdo->prepare("
@@ -64,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $app['name'],
                     $app['email'],
                     $app['phone'],
-                    password_hash($temporaryPassword, PASSWORD_DEFAULT),
+                    password_hash($placeholderPassword, PASSWORD_DEFAULT),
                     $storedRole,
                     $isAgronomist,
                     $isExtensionist,
@@ -94,14 +97,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ")->execute([$notes, $_SESSION['user_id'] ?? null, $userId, $id]);
                 $pdo->commit();
 
+                // Guard against re-opening an ALREADY-CLAIMED account:
+                // the INSERT ... ON DUPLICATE KEY UPDATE above can match
+                // an existing user, and re-approving a claimed account
+                // must not reset it to claimable. Only still-unclaimed
+                // accounts are issued a claim link.
+                staff_claim_ensure_schema($pdo);
+                $claimedStmt = $pdo->prepare('SELECT claimed_at FROM users WHERE id = ? LIMIT 1');
+                $claimedStmt->execute([$userId]);
+                $claimedAt = $claimedStmt->fetchColumn();
+                if ($claimedAt === null || $claimedAt === false) {
+                    $claim = staff_account_claim_begin($pdo, $userId);
+                    $message = $claim['ok']
+                        ? 'Application approved and staff user created; claim link sent.'
+                        : 'Application approved and staff user created, but the claim email could not be delivered.';
+                } else {
+                    $message = 'Application approved; the staff account was already claimed and remains active.';
+                }
                 natcodev_notify_user($pdo, $userId, 'recruitment_approved', 'NATCODEV Recruitment Approved', [
                     'role' => $roles[$app['role_applied']] ?? $app['role_applied'],
                     'app_ref' => $app['app_ref'],
                     'login_url' => app_base_url() . '/login.php',
                     'field_agent_url' => app_base_url() . '/field-agent/',
-                    'temporary_password' => $temporaryPassword,
-                ], "Your NATCODEV recruitment application {$app['app_ref']} has been approved. Login: " . app_base_url() . "/login.php Temporary password: {$temporaryPassword}. Field agent console: " . app_base_url() . "/field-agent/");
-                $message = 'Application approved and staff user created.';
+                ], "Your NATCODEV recruitment application {$app['app_ref']} has been approved. Activate your staff account with the claim link sent to your email. Field agent console: " . app_base_url() . "/field-agent/");
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();

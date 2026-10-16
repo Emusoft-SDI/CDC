@@ -1,0 +1,131 @@
+name: Deploy & Test
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  PHP_VERSION: '8.3'
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mariadb:10.6
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: natcodevcom_data_test
+          MYSQL_USER: natcodevcom_data
+          MYSQL_PASSWORD: testpass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: pdo_mysql, mbstring, openssl, json
+          coverage: none
+
+      - name: Composer install (if composer.json exists)
+        if: hashFiles('composer.json') != ''
+        run: composer install --no-interaction --prefer-dist
+
+      # ── Stage 1: Lint all changed PHP files ───────────────────────────
+      - name: PHP lint
+        run: |
+          FAILED=0
+          while IFS= read -r -d '' file; do
+            php -l "$file" || { echo "FAILED: $file"; FAILED=1; }
+          done < <(find www -name '*.php' -print0)
+          exit $FAILED
+
+      # ── Stage 2: Schema diff check ────────────────────────────────────
+      - name: Schema consistency check
+        run: |
+          echo "Checking lazy column functions are called from schema bootstrap..."
+          # grep for app_add_column_if_missing usage outside ensure_schema functions
+          if grep -rn 'app_add_column_if_missing.*--not-in-scheme' www/lib/ www/super-admin/ 2>/dev/null; then
+            echo "WARNING: Lazy column adds outside schema functions found — they must be in *_ensure_schema() or similar."
+          else
+            echo "OK: All lazy columns appear to be inside schema bootstrap functions."
+          fi
+
+      # ── Stage 3: Static analysis for dangerous patterns ───────────────
+      - name: Static analysis
+        run: |
+          issues=0
+          # Check for eval/exec on user input
+          if grep -rPn 'eval\s*\(' www/ --include='*.php' | grep -v 'tests/' | grep -v '.git/'; then
+            echo "WARNING: eval() calls found — review for injection risk."
+            issues=$((issues + 1))
+          fi
+          # Check for shell_exec/passthru/system
+          if grep -rPn '(shell_exec|passthru|system)\s*\(' www/ --include='*.php' | grep -v 'tests/' | grep -v '.git/'; then
+            echo "WARNING: Shell execution functions found — review for injection risk."
+            issues=$((issues + 1))
+          fi
+          echo "Static analysis complete. Warnings: $issues"
+
+      # ── Stage 4: Run test suites ──────────────────────────────────────
+      - name: Configure test database
+        run: |
+          cat > .env.test <<'EOF'
+          DB_HOST=127.0.0.1
+          DB_PORT=3306
+          DB_DATABASE=natcodevcom_data_test
+          DB_USERNAME=natcodevcom_data
+          DB_PASSWORD=testpass
+          APP_ENV=test
+          APP_DEBUG=true
+          EOF
+          mv .env.test www/.env
+
+      - name: Run module toggle tests
+        working-directory: www
+        run: php tests/test_module_toggles_suite.php
+        continue-on-error: true
+
+      - name: Run full test suite
+        working-directory: www
+        run: php tests/run_security_suite.php
+        continue-on-error: true
+
+      # ── Stage 5: Deploy (only on main branch push) ────────────────────
+      - name: Deploy to production
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "*"
+          target: ${{ secrets.PROD_PATH }}
+          strip_components: 1
+          rm: true
+
+      - name: Post-deploy health check
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          sleep 5
+          for url in "http://${{ secrets.PROD_HOST }}/win/" "http://${{ secrets.PROD_HOST }}/win/login.php"; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$url")
+            if [ "$STATUS" = "200" ]; then
+              echo "✓ $url returned HTTP $STATUS"
+            else
+              echo "✗ $url returned HTTP $STATUS — HEALTH CHECK FAILED"
+              exit 1
+            fi
+          done

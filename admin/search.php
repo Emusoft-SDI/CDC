@@ -68,16 +68,57 @@ if ($format === 'json') {
     exit;
 }
 
+// Saved views: load the current admin's views and handle save/delete actions.
+$userId = admin_current_user_id($pdo);
+$savedViews = $userId !== null ? admin_saved_views($pdo, $userId, 'search') : [];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!verify_csrf($_POST['_csrf'] ?? null)) {
+        http_response_code(403);
+        exit('Invalid security token.');
+    }
+    if ($userId !== null) {
+        $action = (string) ($_POST['action'] ?? '');
+        $target = trim((string) ($_POST['q'] ?? ''));
+        if ($action === 'save_view') {
+            $name = mb_substr(trim((string) ($_POST['view_name'] ?? '')), 0, 120);
+            if ($name !== '') {
+                admin_save_view($pdo, $userId, 'search', $name, ['q' => $target]);
+            }
+            redirect_to('search.php?q=' . urlencode($target) . '&saved=1');
+        }
+        if ($action === 'delete_view') {
+            $viewId = (int) ($_POST['view_id'] ?? 0);
+            if ($viewId > 0 && app_table_exists($pdo, 'admin_saved_views')) {
+                $pdo->prepare('DELETE FROM admin_saved_views WHERE id = ? AND user_id = ?')
+                    ->execute([$viewId, $userId]);
+            }
+            redirect_to('search.php?q=' . urlencode($target) . '&deleted=1');
+        }
+    }
+}
+
 admin_page_start('Admin Search', [
     'active' => 'index.php',
     'description' => 'Find admin modules, imports, exports, generated reports, and operational workspaces.',
-    'css' => '.admin-search{display:grid;gap:14px}.search-form{display:flex;gap:10px}.search-form input{min-height:46px;flex:1}.search-result{display:block;border:1px solid var(--line);background:#fff;border-radius:8px;padding:15px;color:inherit}.search-result:hover{text-decoration:none;border-color:#acd8bf;box-shadow:0 12px 28px rgba(16,24,40,.08)}.search-result strong{display:block;color:#101828}.search-result span{display:block;color:var(--muted);margin-top:4px}.search-kind{display:inline-flex;border-radius:999px;padding:2px 8px;font-size:.68rem;font-weight:900;background:#e8f6ec;color:#0f6b3c;margin-left:6px}@media(max-width:700px){.search-form{display:grid}}',
+    'css' => '.admin-search{display:grid;gap:14px}.search-form{display:flex;gap:10px}.search-form input{min-height:46px;flex:1}.search-result{display:block;border:1px solid var(--line);background:#fff;border-radius:8px;padding:15px;color:inherit}.search-result:hover{text-decoration:none;border-color:#acd8bf;box-shadow:0 12px 28px rgba(16,24,40,.08)}.search-result strong{display:block;color:#101828}.search-result span{display:block;color:var(--muted);margin-top:4px}.search-kind{display:inline-flex;border-radius:999px;padding:2px 8px;font-size:.68rem;font-weight:900;background:#e8f6ec;color:#0f6b3c;margin-left:6px}.saved-view{display:flex;gap:10px;align-items:stretch}.saved-view .search-result{flex:1}.saved-view form{margin:0}.saved-view button{min-height:46px}@media(max-width:700px){.search-form{display:grid}.saved-view{display:grid}}',
 ]);
 ?>
 <form class="search-form panel" method="get">
   <input name="q" value="<?= e($query) ?>" placeholder="Search admin modules, exports, imports, reports...">
   <button type="submit">Search</button>
 </form>
+<?php if ((string) ($_GET['saved'] ?? '') === '1'): ?><div class="panel">Saved view saved.</div><?php endif; ?>
+<?php if ((string) ($_GET['deleted'] ?? '') === '1'): ?><div class="panel">Saved view deleted.</div><?php endif; ?>
+<?php if ($query !== '' && $userId !== null): ?>
+<form class="search-form panel" method="post" action="search.php">
+  <input type="hidden" name="action" value="save_view">
+  <input type="hidden" name="q" value="<?= e($query) ?>">
+  <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+  <input name="view_name" placeholder="Name this view..." maxlength="120" required>
+  <button type="submit">Save this view</button>
+</form>
+<?php endif; ?>
 <?php if ($records): ?>
 <section class="admin-search">
   <h3>Matching records (<?= count($records) ?>)</h3>
@@ -86,6 +127,30 @@ admin_page_start('Admin Search', [
       <strong><?= e($item['title']) ?><span class="search-kind"><?= e($item['kind']) ?></span></strong>
       <span><?= e($item['description']) ?></span>
     </a>
+  <?php endforeach; ?>
+</section>
+<?php endif; ?>
+<?php if ($savedViews): ?>
+<section class="admin-search">
+  <h3>Saved views (<?= count($savedViews) ?>)</h3>
+  <?php foreach ($savedViews as $view): ?>
+    <?php
+    $saved = json_decode((string) ($view['query_json'] ?? ''), true);
+    $viewQuery = is_array($saved) ? trim((string) ($saved['q'] ?? '')) : '';
+    ?>
+    <div class="saved-view">
+      <a class="search-result" href="search.php?q=<?= e(urlencode($viewQuery)) ?>">
+        <strong><?= e((string) $view['name']) ?></strong>
+        <span><?= e($viewQuery === '' ? 'All modules' : $viewQuery) ?></span>
+      </a>
+      <form method="post" action="search.php">
+        <input type="hidden" name="action" value="delete_view">
+        <input type="hidden" name="view_id" value="<?= (int) $view['id'] ?>">
+        <input type="hidden" name="q" value="<?= e($query) ?>">
+        <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
+        <button type="submit" class="secondary" onclick="return confirm('Delete this saved view?')">Delete</button>
+      </form>
+    </div>
   <?php endforeach; ?>
 </section>
 <?php endif; ?>

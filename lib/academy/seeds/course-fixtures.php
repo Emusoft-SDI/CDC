@@ -129,25 +129,53 @@ function academy_seed_course_twenty_fixture(PDO $pdo): void
 
     $questionStmt = $pdo->prepare("
         INSERT INTO academy_questions
-            (assessment_id, question_text, option_a, option_b, option_c, option_d, correct_option, points, sort_order, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 'active')
+            (assessment_id, question_text, option_a, option_b, option_c, option_d, correct_option, points, rationale, sort_order, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 'active')
         ON DUPLICATE KEY UPDATE
             option_a = VALUES(option_a),
             option_b = VALUES(option_b),
             option_c = VALUES(option_c),
             option_d = VALUES(option_d),
             correct_option = VALUES(correct_option),
+            points = VALUES(points),
+            rationale = VALUES(rationale),
             sort_order = VALUES(sort_order),
             status = 'active'
     ");
     foreach ([
-        ['What is course ID 20 used to validate?', 'Full Academy public listing and learner flow', 'Only password reset', 'Only product deletion', 'Only provider payout', 'A'],
-        ['Who can see the seeded QA course?', 'All Academy stakeholder roles', 'Only deleted users', 'Only anonymous orders', 'Only expired sessions', 'A'],
-        ['What happens after a learner enrolls in the free QA course?', 'The course appears in My Learning', 'The cart is emptied', 'The role is auto-approved as vendor', 'The account is deleted', 'A'],
-        ['What must happen before certificate eligibility?', 'Complete learning and pass the assessment', 'Skip all lessons', 'Use another learner reference', 'Close the browser only', 'A'],
-        ['Why is pagination required for Academy listings?', 'So courses remain discoverable as the catalog grows', 'To hide active courses', 'To remove search', 'To block enrollment', 'A'],
+        ['What is course ID 20 used to validate?', 'Full Academy public listing and learner flow', 'Only password reset', 'Only product deletion', 'Only provider payout', 'A', 'Course ID 20 is the designated QA fixture to test end-to-end registration, enrollment, learning, and certification.'],
+        ['Who can see the seeded QA course?', 'All Academy stakeholder roles', 'Only deleted users', 'Only anonymous orders', 'Only expired sessions', 'A', 'The QA fixture is configured to be accessible across all stakeholder roles to validate multi-persona access.'],
+        ['What happens after a learner enrolls in the free QA course?', 'The course appears in My Learning', 'The cart is emptied', 'The role is auto-approved as vendor', 'The account is deleted', 'A', 'Free enrollment immediately grants course access and transitions the learner dashboard into My Learning view.'],
+        ['What must happen before certificate eligibility?', 'Complete learning and pass the assessment', 'Skip all lessons', 'Use another learner reference', 'Close the browser only', 'A', 'Certificate eligibility requires 100% completion of required lesson modules and achieving the passing score.'],
+        ['Why is pagination required for Academy listings?', 'So courses remain discoverable as the catalog grows', 'To hide active courses', 'To remove search', 'To block enrollment', 'A', 'Pagination ensures platform performance and intuitive catalog navigation as course offerings scale.'],
+        ['How does the system prevent duplicate enrollments for the same user and course?', 'Through a unique composite database constraint on webinar_id and user_id', 'By deleting previous enrollment history', 'By charging double payment fees', 'By locking the user session permanently', 'A', 'The unique database constraint prevents race conditions and redundant registration records.'],
+        ['What is the role of the 1-minute video brief attached to each course?', 'Provides a high-impact, visual summary of core learning objectives', 'Replaces all reading modules completely', 'Transfers wallet funds automatically', 'Acts as a mandatory prerequisite payment check', 'A', 'Video briefs summarize critical operational takeaways to orient learners before deep-dive modules.'],
+        ['Where are learner assessment attempts and recorded scores stored?', 'In the academy_attempts database table with timestamped answers', 'In temporary browser cookies only', 'In public website logs', 'In an unencrypted text file on the client desktop', 'A', 'Server-side attempt tracking guarantees auditability and prevents score tampering.'],
+        ['What status is assigned to a registration when a required certificate requires approval?', 'Pending status awaiting administrative review', 'Immediate rejection with penalty', 'Instant automatic issuance', 'Cancellation of course enrollment', 'A', 'Certificates flagged with approval requirements enter a pending queue for authorized coordinator inspection.'],
+        ['What happens when a learner passes the assessment and finishes all required lessons?', 'Certificate status updates to eligible and unlocks issuance', 'The account is logged out immediately', 'All past attempts are purged from history', 'The course is removed from catalog listings', 'A', 'Fulfilling both lesson and assessment requirements unlocks immediate or pending certificate issuance.'],
     ] as $index => $question) {
-        $questionStmt->execute(array_merge([$assessmentId], $question, [($index + 1) * 10]));
+        $letters = ['A', 'B', 'C', 'D'];
+        $target = $index % 4;
+        $options = [$question[1], $question[2], $question[3], $question[4]];
+        $correctText = $options[0];
+        $distractors = array_slice($options, 1);
+        array_splice($distractors, $target, 0, [$correctText]);
+        $correctLetter = $letters[$target];
+        $origRat = trim((string) ($question[6] ?? ''));
+        $cleanRat = preg_replace('/^Option [A-D] is correct:?\s*/i', '', $origRat);
+        $rat = "Option {$correctLetter} is correct: {$cleanRat}";
+
+        $questionStmt->execute([
+            $assessmentId,
+            $question[0],
+            $distractors[0],
+            $distractors[1],
+            $distractors[2],
+            $distractors[3],
+            $correctLetter,
+            $rat,
+            ($index + 1) * 10,
+        ]);
     }
 }
 
@@ -176,31 +204,54 @@ function academy_seed_course_137_assignment(PDO $pdo): void
 
     $questionStmt = $pdo->prepare("
         INSERT INTO academy_questions
-            (assessment_id, question_text, option_a, option_b, option_c, option_d, correct_option, points, sort_order, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 'active')
+            (assessment_id, question_text, option_a, option_b, option_c, option_d, correct_option, points, rationale, sort_order, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 'active')
         ON DUPLICATE KEY UPDATE
             option_a = VALUES(option_a),
             option_b = VALUES(option_b),
             option_c = VALUES(option_c),
             option_d = VALUES(option_d),
             correct_option = VALUES(correct_option),
+            points = VALUES(points),
+            rationale = VALUES(rationale),
             sort_order = VALUES(sort_order),
             status = 'active'
     ");
 
     foreach ([
-        ['What should a learner confirm before requesting a NATCODEV course certificate?', 'All required lessons are completed and the assessment is passed', 'Only the course title is visible', 'The browser tab has been closed', 'A wallet balance is hidden', 'A'],
-        ['Which record best proves practical learning progress?', 'Completed lessons, submitted assessment, and recorded score', 'A screenshot with no course data', 'A blank profile page', 'A public support message only', 'A'],
-        ['When a course includes paid enrollment, what should happen before full access is granted?', 'Payment or approved sponsorship should be confirmed in the system', 'The learner should skip payment', 'The admin menu should be opened', 'The certificate should be issued first', 'A'],
-        ['What is the correct action if a learner does not meet the pass mark?', 'Review the course material and retake within the allowed attempts', 'Request a certificate immediately', 'Delete the course record', 'Change another user profile', 'A'],
-        ['Why should assignments use database questions instead of page placeholders?', 'So learner scores, attempts, and certificates are traceable', 'So every learner gets automatic full marks', 'So the quiz can ignore submissions', 'So support tickets become public', 'A'],
-        ['Which behavior protects certificate integrity?', 'Issue certificates only after completion and a passing assessment result', 'Issue certificates before enrollment', 'Approve certificates with no score', 'Reuse another learner certificate', 'A'],
-        ['What should a learner do when course instructions are unclear?', 'Use the logged-in Academy Help and Support channel', 'Post private account data publicly', 'Open the grower dashboard', 'Ignore the assessment', 'A'],
-        ['Which option describes a professional course assessment question?', 'It checks a real learning outcome with one correct answer', 'It has no connection to the lesson', 'It has no answer options', 'It awards marks randomly', 'A'],
-        ['Why are retake limits important in Academy assessments?', 'They keep assessment attempts controlled and auditable', 'They remove the need for lessons', 'They make every user an admin', 'They hide failed attempts', 'A'],
-        ['What should the platform show after a valid quiz submission?', 'Score, pass status, and updated certificate eligibility where applicable', 'A blank dashboard only', 'A public login page only', 'Another learner wallet', 'A'],
+        ['What should a learner confirm before requesting a NATCODEV course certificate?', 'All required lessons are completed and the assessment is passed', 'Only the course title is visible', 'The browser tab has been closed', 'A wallet balance is hidden', 'A', 'Certificate requests require verified proof of lesson completion and a passing assessment score.'],
+        ['Which record best proves practical learning progress?', 'Completed lessons, submitted assessment, and recorded score', 'A screenshot with no course data', 'A blank profile page', 'A public support message only', 'A', 'Audit-ready platform progress rows prove academic diligence and verified test performance.'],
+        ['When a course includes paid enrollment, what should happen before full access is granted?', 'Payment or approved sponsorship should be confirmed in the system', 'The learner should skip payment', 'The admin menu should be opened', 'The certificate should be issued first', 'A', 'Paid courses require verified checkout confirmation via Monnify, wallet, or admin sponsorship.'],
+        ['What is the correct action if a learner does not meet the pass mark?', 'Review the course material and retake within the allowed attempts', 'Request a certificate immediately', 'Delete the course record', 'Change another user profile', 'A', 'Reviewing modules and re-attempting within limits reinforces competency without compromising integrity.'],
+        ['Why should assignments use database questions instead of page placeholders?', 'So learner scores, attempts, and certificates are traceable', 'So every learner gets automatic full marks', 'So the quiz can ignore submissions', 'So support tickets become public', 'A', 'Database-backed assessment questions ensure tamper-proof scoring and auditable educational records.'],
+        ['Which behavior protects certificate integrity?', 'Issue certificates only after completion and a passing assessment result', 'Issue certificates before enrollment', 'Approve certificates with no score', 'Reuse another learner certificate', 'A', 'Credentials maintain market and institutional value only when issued against verifiable achievements.'],
+        ['What should a learner do when course instructions are unclear?', 'Use the logged-in Academy Help and Support channel', 'Post private account data publicly', 'Open the grower dashboard', 'Ignore the assessment', 'A', 'The internal Help and Support ticketing system provides direct access to instructors and curriculum coordinators.'],
+        ['Which option describes a professional course assessment question?', 'It checks a real learning outcome with one correct answer', 'It has no connection to the lesson', 'It has no answer options', 'It awards marks randomly', 'A', 'Quality assessment questions evaluate defined learning competencies using unambiguous single-choice answers.'],
+        ['Why are retake limits important in Academy assessments?', 'They keep assessment attempts controlled and auditable', 'They remove the need for lessons', 'They make every user an admin', 'They hide failed attempts', 'A', 'Retake limits discourage blind guessing and ensure candidates study materials thoroughly.'],
+        ['What should the platform show after a valid quiz submission?', 'Score, pass status, and updated certificate eligibility where applicable', 'A blank dashboard only', 'A public login page only', 'Another learner wallet', 'A', 'Transparent learner feedback provides immediate clarity on score, passing threshold, and next steps.'],
     ] as $index => $question) {
-        $questionStmt->execute(array_merge([$assessmentId], $question, [($index + 1) * 10]));
+        $letters = ['A', 'B', 'C', 'D'];
+        $target = $index % 4;
+        $options = [$question[1], $question[2], $question[3], $question[4]];
+        $correctText = $options[0];
+        $distractors = array_slice($options, 1);
+        array_splice($distractors, $target, 0, [$correctText]);
+        $correctLetter = $letters[$target];
+        $origRat = trim((string) ($question[6] ?? ''));
+        $cleanRat = preg_replace('/^Option [A-D] is correct:?\s*/i', '', $origRat);
+        $rat = "Option {$correctLetter} is correct: {$cleanRat}";
+
+        $questionStmt->execute([
+            $assessmentId,
+            $question[0],
+            $distractors[0],
+            $distractors[1],
+            $distractors[2],
+            $distractors[3],
+            $correctLetter,
+            $rat,
+            ($index + 1) * 10,
+        ]);
     }
 }
 

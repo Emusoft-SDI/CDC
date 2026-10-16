@@ -6,24 +6,21 @@ require_once __DIR__ . '/_provider.php';
 $pdo = provider_boot();
 $user = current_user($pdo);
 if (!$user) {
-    http_response_code(401);
-    exit('Authentication required.');
+    app_render_error_page(401, 'Sign in to view this document.');
 }
 
 $stmt = $pdo->prepare("SELECT d.*, pr.user_id provider_user_id, pr.email provider_email FROM provider_accreditation_documents d JOIN provider_registry pr ON pr.id=d.provider_id AND pr.deleted_at IS NULL WHERE d.id=? LIMIT 1");
 $stmt->execute([max(0, (int) ($_GET['id'] ?? 0))]);
 $document = $stmt->fetch();
 if (!$document) {
-    http_response_code(404);
-    exit('Document not found.');
+    app_render_error_page(404, 'The requested document could not be found.');
 }
 
 $isOwner = (int) ($document['provider_user_id'] ?? 0) === (int) $user['id']
     || (string) ($document['provider_email'] ?? '') === (string) ($user['email'] ?? '');
 $isAdmin = admin_session_is_authenticated($pdo);
 if (!$isOwner && !$isAdmin) {
-    http_response_code(403);
-    exit('Forbidden.');
+    app_render_error_page(403, 'You do not have access to this document.');
 }
 
 $root = realpath(dirname(__DIR__));

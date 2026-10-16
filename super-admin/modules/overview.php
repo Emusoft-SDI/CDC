@@ -54,7 +54,7 @@ $auditRows = app_table_exists($pdo, 'audit_log')
     </div>
     <div class="actions">
       <a class="button" href="index.php?view=users">Open User Governance</a>
-      <a class="button secondary" href="index.php?export=users">Export CSV</a>
+      <form method="post" style="display:inline"><input type="hidden" name="action" value="export_users"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><button type="submit" class="button secondary">Export CSV</button></form>
     </div>
   </div>
   <div class="role-summary">

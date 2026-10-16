@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../_auth.php';
 require_once __DIR__ . '/../../lib/admin-layout.php';
 require_once __DIR__ . '/../../lib/monnify.php';
+require_once __DIR__ . '/../../lib/wallet-dual-control.php';
 
 $pdo = db();
 admin_require($pdo, 'wallet');
@@ -14,6 +15,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['user_id'], $_POST['am
     } elseif (!app_check_rate_limit('admin_wallet_fund', 10, 600)) {
         $error = 'Too many funding attempts. Try again later.';
     } else {
+        if (wallet_dual_control_required($pdo, (float) $_POST['amount'])) {
+            $requestId = wallet_queue_credit_approval($pdo, (int) $_POST['user_id'], (float) $_POST['amount'], (int) ($admin['id'] ?? 0), (string) ($_POST['note'] ?? ''));
+            header('Location: fund_wallet.php?msg=queued&request=' . $requestId);
+            exit;
+        }
         $result = wallet_admin_credit(
             $pdo,
             (int) $_POST['user_id'],
@@ -55,7 +61,7 @@ $users = $pdo->query("SELECT id, name FROM users ORDER BY name")->fetchAll();
 <div class="main">
     <h1>Fund Wallet</h1>
     <div class="card">
-        <?php if (isset($_GET['msg'])): ?><p style="color:#166534;">Wallet funded successfully.</p><?php endif; ?>
+        <?php if (isset($_GET['msg'])): ?><p style="color:#166534;"><?= (string) ($_GET['msg']) === 'queued' ? 'Credit queued for Super Admin approval (request #' . (int) ($_GET['request'] ?? 0) . '). No funds moved yet.' : 'Wallet funded successfully.' ?></p><?php endif; ?>
         <?php if ($error): ?><p style="color:#a32020;"><?= e($error) ?></p><?php endif; ?>
         <form method="POST">
             <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">

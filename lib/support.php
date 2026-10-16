@@ -648,3 +648,143 @@ function support_badge_class(string $value): string
         default => 'neutral',
     };
 }
+
+/**
+ * Resolve the location of a support ticket requester and find the
+ * coordinator chain (village → district → LGA → state → regional →
+ * national) that covers that location.
+ *
+ * Used by the support desk "Escalate to Coordinator" feature.
+ */
+function support_ticket_coordinator_scope(PDO $pdo, int $userId, int $ticketId): array
+{
+    // Load coordination helpers for state-alias resolution
+    if (!function_exists('coord_state_aliases')) {
+        require_once __DIR__ . '/../coordination/_coordination.php';
+    }
+
+    $location = ['state' => '', 'state_id' => 0, 'lga' => '', 'lga_id' => 0, 'district' => '', 'village' => ''];
+
+    // Try to resolve location from the user's most recent application record
+    if ($userId > 0 && app_table_exists($pdo, 'applications')) {
+        $sql = "SELECT a.state_id, ns.state_name, a.lga_id, nl.lga_name, a.district, a.village
+                FROM applications a
+                LEFT JOIN nigeria_states ns ON ns.id = a.state_id
+                LEFT JOIN nigeria_lgas nl ON nl.id = a.lga_id
+                WHERE a.user_id = ?
+                ORDER BY a.created_at DESC, a.id DESC LIMIT 1";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([$userId]);
+        $app = $stmt->fetch();
+        if ($app) {
+            $location['state']    = trim((string) ($app['state_name'] ?? ''));
+            $location['state_id'] = (int) ($app['state_id'] ?? 0);
+            $location['lga']      = trim((string) ($app['lga_name'] ?? ''));
+            $location['lga_id']   = (int) ($app['lga_id'] ?? 0);
+            $location['district'] = trim((string) ($app['district'] ?? ''));
+            $location['village']  = trim((string) ($app['village'] ?? ''));
+        } elseif (app_table_exists($pdo, 'users')) {
+            // Fallback: try the user's raw location field
+            $stmt2 = $pdo->prepare('SELECT location FROM users WHERE id = ?');
+            $stmt2->execute([$userId]);
+            $u = $stmt2->fetch();
+            if ($u && trim((string) ($u['location'] ?? '')) !== '') {
+                $loc = trim((string) $u['location']);
+                $resolved = coord_resolve_state($pdo, $loc);
+                if ($resolved['resolved'] ?? false) {
+                    $location['state']    = (string) ($resolved['state_name'] ?? '');
+                    $location['state_id'] = (int) ($resolved['id'] ?? 0);
+                } else {
+                    $location['state'] = $loc;
+                }
+            }
+        }
+    }
+
+    $chain = [];
+
+    // Below-state tiers: match scope_value exactly (case-insensitive)
+    $belowStateTiers = [
+        ['role' => 'village_coordinator', 'scope_type' => 'village', 'label' => 'Village', 'value' => $location['village']],
+        ['role' => 'district_coordinator', 'scope_type' => 'district', 'label' => 'District', 'value' => $location['district']],
+        ['role' => 'lga_coordinator', 'scope_type' => 'lga', 'label' => 'LGA', 'value' => $location['lga']],
+    ];
+    foreach ($belowStateTiers as $tier) {
+        if ($tier['value'] === '' || !app_table_exists($pdo, 'user_role_assignments')) {
+            continue;
+        }
+        $stmt = $pdo->prepare(
+            "SELECT u.id, u.name, u.email, ura.scope_value
+             FROM users u
+             INNER JOIN user_role_assignments ura ON ura.user_id = u.id
+             WHERE ura.role_key = ? AND ura.scope_type = ? AND ura.status = 'active'
+               AND LOWER(COALESCE(ura.scope_value, '')) = LOWER(?)
+             LIMIT 5"
+        );
+        $stmt->execute([$tier['role'], $tier['scope_type'], $tier['value']]);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $c) {
+            $c['tier']    = $tier['label'];
+            $c['enclave'] = $tier['value'];
+            $chain[] = $c;
+        }
+    }
+
+    // State coordinators — use state aliases (FCT / Abuja, etc.)
+    if ($location['state'] !== '' && app_table_exists($pdo, 'user_role_assignments')) {
+        $aliases = coord_state_aliases($location['state']);
+        $placeholders = implode(',', array_fill(0, count($aliases), '?'));
+        $stmt = $pdo->prepare(
+            "SELECT u.id, u.name, u.email, ura.scope_value
+             FROM users u
+             INNER JOIN user_role_assignments ura ON ura.user_id = u.id
+             WHERE ura.role_key = 'state_coordinator' AND ura.scope_type = 'state' AND ura.status = 'active'
+               AND LOWER(COALESCE(ura.scope_value, '')) IN ({$placeholders})
+             LIMIT 10"
+        );
+        $stmt->execute(array_map('strtolower', $aliases));
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $c) {
+            $c['tier']    = 'State';
+            $c['enclave'] = $location['state'];
+            $chain[] = $c;
+        }
+    }
+
+    // Regional + national coordinators (cover everything)
+    if (app_table_exists($pdo, 'user_role_assignments')) {
+        $stmt = $pdo->prepare(
+            "SELECT u.id, u.name, u.email, ura.role_key, ura.scope_value
+             FROM users u
+             INNER JOIN user_role_assignments ura ON ura.user_id = u.id
+             WHERE ura.role_key IN ('regional_coordinator','national_coordinator') AND ura.status = 'active'
+             ORDER BY FIELD(ura.role_key, 'national_coordinator','regional_coordinator')
+             LIMIT 10"
+        );
+        $stmt->execute();
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $c) {
+            $c['tier']       = ucfirst(str_replace('_', ' ', (string) $c['role_key']));
+            $c['enclave']    = (string) ($c['scope_value'] ?: 'All');
+            unset($c['role_key']);
+            $chain[] = $c;
+        }
+    }
+
+    return [
+        'location'  => $location,
+        'chain'     => $chain,
+        'ticket_id' => $ticketId,
+    ];
+}
+
+/**
+ * Add an internal note to a support ticket.
+ */
+function support_add_internal_note(PDO $pdo, int $ticketId, int $adminId, string $note): void
+{
+    support_ensure_schema($pdo);
+    $stmt = $pdo->prepare("
+        INSERT INTO support_ticket_messages (ticket_id, admin_id, author_name, author_role, message, visibility)
+        VALUES (?, ?, 'Support Staff', 'support_agent', ?, 'internal')
+    ");
+    $stmt->execute([$ticketId, $adminId, $note]);
+    $pdo->prepare("UPDATE support_tickets SET last_activity_at = NOW() WHERE id = ?")->execute([$ticketId]);
+}

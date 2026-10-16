@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/lib/registration-wizard.php';
 
 $token = trim((string) ($_GET['token'] ?? ''));
 if ($token === '' || !preg_match('/^[a-f0-9]{64}$/i', $token)) {
@@ -19,7 +20,7 @@ try {
     app_ensure_core_schema($pdo);
     app_ensure_user_verification_schema($pdo);
 
-    $stmt = $pdo->prepare("SELECT id, app_ref, name, email, confirmed, created_at FROM applications WHERE confirmation_token = ? LIMIT 1");
+    $stmt = $pdo->prepare("SELECT id, app_ref, name, email, confirmed, created_at, cooperative_id FROM applications WHERE confirmation_token = ? LIMIT 1");
     $stmt->execute([$token]);
     $app = $stmt->fetch();
 
@@ -35,18 +36,34 @@ try {
         if ($newlyConfirmed) {
             $pdo->prepare("UPDATE applications SET confirmed = 1, confirmed_at = NOW(), team_notified = 1 WHERE id = ?")->execute([$app['id']]);
 
+            // Imported cooperative members inherit the
+            // cooperative stamped on their application row,
+            // and get the membership row on confirmation.
+            $cooperativeId = app_column_exists($pdo, 'applications', 'cooperative_id') ? (int) ($app['cooperative_id'] ?? 0) : 0;
+            $cooperativeColumn = $cooperativeId > 0 && app_column_exists($pdo, 'users', 'cooperative_id');
+
             $existingUserStmt = $pdo->prepare("SELECT id FROM users WHERE email = ? LIMIT 1");
             $existingUserStmt->execute([$app['email']]);
             $existingUserId = (int) ($existingUserStmt->fetchColumn() ?: 0);
             $temporaryPassword = $existingUserId > 0 ? '' : bin2hex(random_bytes(4));
             $passwordHash = $existingUserId > 0 ? '' : password_hash($temporaryPassword, PASSWORD_DEFAULT);
             if ($existingUserId > 0) {
-                $pdo->prepare("UPDATE users SET application_id = ?, name = ?, account_status = 'active', email_verified_at = COALESCE(email_verified_at, NOW()), email_verification_token = NULL WHERE id = ?")->execute([$app['id'], $app['name'], $existingUserId]);
+                $pdo->prepare("UPDATE users SET application_id = ?, name = ?, account_status = 'active', email_verified_at = COALESCE(email_verified_at, NOW()), email_verification_token = NULL" . ($cooperativeColumn ? ', cooperative_id = ?' : '') . " WHERE id = ?")->execute($cooperativeColumn ? [$app['id'], $app['name'], $cooperativeId, $existingUserId] : [$app['id'], $app['name'], $existingUserId]);
             } else {
                 $pdo->prepare("
-                    INSERT INTO users (email, password, application_id, name, role, account_status, email_verified_at)
-                    VALUES (?, ?, ?, ?, 'grower', 'active', NOW())
-                ")->execute([$app['email'], $passwordHash, $app['id'], $app['name']]);
+                    INSERT INTO users (email, password, application_id, name, role, account_status, email_verified_at" . ($cooperativeColumn ? ', cooperative_id' : '') . ")
+                    VALUES (?, ?, ?, ?, 'grower', 'active', NOW()" . ($cooperativeColumn ? ', ?' : '') . ")
+                ")->execute($cooperativeColumn ? [$app['email'], $passwordHash, $app['id'], $app['name'], $cooperativeId] : [$app['email'], $passwordHash, $app['id'], $app['name']]);
+            }
+
+            if ($cooperativeId > 0) {
+                $newUserId = $existingUserId > 0 ? $existingUserId : (int) $pdo->lastInsertId();
+                if (!function_exists('cooperative_link_member')) {
+                    require_once __DIR__ . '/lib/cooperatives.php';
+                }
+                if (function_exists('cooperative_link_member')) {
+                    cooperative_link_member($pdo, $cooperativeId, $newUserId);
+                }
             }
 
             $loginUrl = app_base_url() . '/login.php';
@@ -65,7 +82,7 @@ try {
         $confirmedEmail = (string) $app['email'];
         $message = 'Your application and dashboard account are active.';
     } else {
-        $stmt = $pdo->prepare("SELECT id, name, email, email_verification_sent_at FROM users WHERE email_verification_token = ? LIMIT 1");
+        $stmt = $pdo->prepare("SELECT id, name, email, platform_role, email_verification_sent_at FROM users WHERE email_verification_token = ? LIMIT 1");
         $stmt->execute([$token]);
         $user = $stmt->fetch();
         if (!$user) {
@@ -85,6 +102,36 @@ try {
         $confirmedName = (string) $user['name'];
         $confirmedEmail = (string) $user['email'];
         $message = 'Your email is verified. You can now login.';
+
+        // An unfinished registration can be finalized right from here instead of
+        // leaving the account active-but-incomplete. The confirmation link is
+        // followed signed-out, and the wizard's resume flow needs a session
+        // user id, so log the account in here (the same session keys a
+        // successful login sets — see verify-otp.php's success path) and send
+        // the user straight into the wizard to finish the draft.
+        $platformRole = strtolower((string) ($user['platform_role'] ?? ''));
+        $boardSlug = in_array($platformRole, ['buyer', 'seller', 'learner', 'provider'], true) ? $platformRole : 'grower';
+        try {
+            $draft = registration_wizard_find_by_user($pdo, $boardSlug, (int) $user['id'], true);
+            if ($draft !== null) {
+                if (session_status() !== PHP_SESSION_ACTIVE) {
+                    session_start();
+                }
+                session_regenerate_id(true);
+                $_SESSION['user_id'] = (int) $user['id'];
+                if (app_column_exists($pdo, 'users', 'last_login_at')) {
+                    $pdo->prepare('UPDATE users SET last_login_at = NOW() WHERE id = ?')->execute([(int) $user['id']]);
+                }
+                if (app_column_exists($pdo, 'users', 'session_epoch')) {
+                    $epochStmt = $pdo->prepare('SELECT session_epoch FROM users WHERE id = ? LIMIT 1');
+                    $epochStmt->execute([(int) $user['id']]);
+                    $_SESSION['session_epoch'] = (int) $epochStmt->fetchColumn();
+                }
+                redirect_to('register-wizard.php?board=' . urlencode($boardSlug) . '&resume=1');
+            }
+        } catch (Throwable $e) {
+            error_log('Registration draft lookup skipped: ' . $e->getMessage());
+        }
     }
 } catch (Throwable $e) {
     error_log('Confirmation error: ' . $e->getMessage());

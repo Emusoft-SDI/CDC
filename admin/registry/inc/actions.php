@@ -5,6 +5,7 @@ require_once __DIR__ . '/init.php';
 require_once __DIR__ . '/common.php';
 require_once __DIR__ . '/../../../lib/notification-dispatch.php';
 require_once __DIR__ . '/../../../lib/admin-user-import.php';
+require_once __DIR__ . '/../../../lib/admin-approvals.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? '');
@@ -389,14 +390,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                  throw new RuntimeException('A user with this email already exists.');
             }
 
-            $tempPassword = bin2hex(random_bytes(6));
-            $password = password_hash($tempPassword, PASSWORD_DEFAULT);
+            // No plain-text temporary password: the field agent activates the
+            // account through the claim link issued by staff_account_claim_begin().
+            $placeholderPassword = bin2hex(random_bytes(16));
+            $password = password_hash($placeholderPassword, PASSWORD_DEFAULT);
             $stmt = $pdo->prepare("INSERT INTO users (name, email, password, role, location) VALUES (?, ?, ?, 'field_agent', ?)");
             $stmt->execute([$name, $email, $password, $location]);
-            
-            admin_notify_new_user($email, $name, $tempPassword, 'Field Agent');
-            
-            header("Location: {$redirectPage}?message=Field+Agent+deployed+and+notified");
+
+            $claim = staff_account_claim_begin($pdo, (int) $pdo->lastInsertId());
+
+            header("Location: {$redirectPage}?message=" . urlencode($claim['ok'] ? 'Field Agent deployed; claim link sent' : 'Field Agent deployed; claim email delivery failed'));
             exit;
         }
 

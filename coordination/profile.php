@@ -26,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 }
-$scope = coord_state_filter($pdo, $user);
+$scope = coord_scope_filter($pdo, $user);
 $wallet = wallet_get_or_create($pdo, (int) $user['id']);
 coord_header('Coordinator Profile & Security', 'Manage leadership identity, contact details, password, scope, account settings, and safe exit.', $user, 'profile');
 ?>
@@ -35,6 +35,6 @@ coord_header('Coordinator Profile & Security', 'Manage leadership identity, cont
 <div class="kpis"><div class="kpi"><i class="fas fa-crown"></i><b><?= e(coord_role_label(coord_role_key($user))) ?></b><span>Leadership channel</span></div><div class="kpi"><i class="fas fa-location-dot"></i><b><?= e((string) $scope['label']) ?></b><span>Operating scope</span></div><div class="kpi"><i class="fas fa-wallet"></i><b>NGN <?= e(number_format((float) ($wallet['balance'] ?? 0), 2)) ?></b><span>Wallet balance</span></div><div class="kpi"><i class="fas fa-user-shield"></i><b><?= e((string) ($user['account_status'] ?? 'active')) ?></b><span>Account status</span></div><div class="kpi"><i class="fas fa-envelope"></i><b><?= e((string) ($user['email'] ?? '')) ?></b><span>Email</span></div></div>
 <div class="grid">
   <?php workspace_account_render_profile_forms($user, 'coordination', 'Account Profile', 'Change Password'); ?>
-  <section class="card span-12"><h2>Workspace Exit</h2><p><a class="btn" href="<?= e(coord_home(coord_role_key($user))) ?>">Back to Workspace</a> <a class="btn light" href="../index.php">NATCODEV Home</a> <a class="btn light" href="logout.php">Logout</a></p></section>
+  <section class="card span-12"><h2>Workspace Exit</h2><p><a class="btn" href="<?= e(coord_home(coord_role_key($user))) ?>">Back to Workspace</a> <a class="btn light" href="../index.php">NATCODEV Home</a> <a class="btn light" href="logout.php?_csrf=<?= e(csrf_token()) ?>">Logout</a></p></section>
 </div>
 <?php coord_footer(); ?>

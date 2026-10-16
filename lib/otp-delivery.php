@@ -144,7 +144,8 @@ function otp_begin_email_login_challenge(PDO $pdo, array $user, string $nextDest
     otp_ensure_schema($pdo);
     $otp = (string) random_int(100000, 999999);
     $expires = date('Y-m-d H:i:s', strtotime('+10 minutes'));
-    $delivery = otp_send_code($pdo, (int) $user['id'], $otp, 'login', null, (string) $email);
+    $phone = (string) ($user['phone'] ?? '');
+    $delivery = otp_send_code($pdo, (int) $user['id'], $otp, 'login', $phone, (string) $email);
     if (!$delivery['ok']) {
         return ['ok' => false, 'message' => 'OTP could not be delivered to the confirmed email. ' . implode(' ', $delivery['errors'] ?: ['Check mail settings and try again.'])];
     }

@@ -33,6 +33,22 @@ if (!$board) {
     $board = registration_wizard_board('grower');
 }
 $boardSlug = (string) ($board['slug'] ?? $boardSlug);
+
+// Gate board access by module state. Seller requires marketplace; learner requires training.
+$requiredFeature = match ($boardSlug) {
+    'seller', 'marketplace_seller' => 'marketplace',
+    'learner' => 'training',
+    default => null,
+};
+if ($requiredFeature !== null && !admin_feature_is_allowed($pdo, $requiredFeature)) {
+    require_once __DIR__ . '/lib/auth-layout.php';
+    layout_render_page(
+        'Registration Unavailable',
+        '<p>This registration type is currently disabled. Please try again later or contact support.</p>',
+        'back'
+    );
+    exit;
+}
 $steps = registration_wizard_steps($board);
 $stepCount = count($steps);
 
@@ -55,78 +71,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         try {
             if ($action === 'start') {
-                $name = trim((string) ($_POST['name'] ?? ''));
-                $email = (string) filter_var(trim((string) ($_POST['email'] ?? '')), FILTER_VALIDATE_EMAIL);
-                $phone = trim((string) ($_POST['phone'] ?? ''));
-                $password = (string) ($_POST['password'] ?? '');
-
-                $digits = (string) preg_replace('/\D+/', '', $phone);
-                if ($name === '') {
-                    $errors[] = 'Enter your full name.';
+                $result = registration_wizard_begin($pdo, $boardSlug, $_POST);
+                if (!empty($result['ok'])) {
+                    redirect_to('verify-otp.php');
                 }
-                if ($email === '') {
-                    $errors[] = 'Enter a valid email address.';
-                }
-                if (strlen($digits) < 10 || strlen($digits) > 15) {
-                    $errors[] = 'Enter a valid phone number.';
-                }
-                if (strlen($password) < 8) {
-                    $errors[] = 'Choose a password of at least 8 characters.';
-                }
-                if (!app_check_rate_limit('registration_start', 6, 900)) {
-                    $errors[] = 'Too many registration attempts. Please try again in a few minutes.';
-                }
-
-                if (!$errors) {
-                    $stmt = $pdo->prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1');
-                    $stmt->execute([$email]);
-                    $user = $stmt->fetch() ?: null;
-
-                    if ($user && (string) $user['account_status'] === 'active' && !empty($user['email_verified_at'])) {
-                        $errors[] = 'That email is already registered. Please sign in instead, or use a different email.';
-                    } elseif (($phoneOwner = registration_wizard_phone_owner($pdo, $phone, $user ? (int) $user['id'] : 0)) !== null) {
-                        // Phone is not unique in the users table, so without this two
-                        // accounts could share a number and SMS about either one would go
-                        // to a single handset.
-                        $errors[] = registration_wizard_phone_conflict_message($phoneOwner);
-                    } else {
-                        if ($user) {
-                            // Unverified account from an earlier attempt: reuse it rather
-                            // than creating a duplicate the unique index would reject.
-                            $userId = (int) $user['id'];
-                            $pdo->prepare('UPDATE users SET name = ?, phone = ?, password = ?, role = ?, platform_role = ? WHERE id = ?')
-                                ->execute([$name, $phone, password_hash($password, PASSWORD_DEFAULT), (string) $board['role'], (string) $board['platform_role'], $userId]);
-                        } else {
-                            $pdo->prepare('INSERT INTO users (name, email, password, phone, role, platform_role, account_status) VALUES (?, ?, ?, ?, ?, ?, ?)')
-                                ->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $phone, (string) $board['role'], (string) $board['platform_role'], 'needs_confirmation']);
-                            $userId = (int) $pdo->lastInsertId();
-                        }
-
-                        $existing = registration_wizard_find_by_email($pdo, $boardSlug, $email);
-                        if ($existing) {
-                            $pdo->prepare('UPDATE registration_drafts SET user_id = ?, phone = ?, updated_at = NOW() WHERE id = ?')
-                                ->execute([$userId, $phone, (int) $existing['id']]);
-                        } else {
-                            // Seed the first step with what the entry form already
-                            // collected, plus the application type when the entry page
-                            // passed one (apply.php?type=cooperative, for example).
-                            $seed = ['name' => $name, 'phone' => $phone];
-                            $memberType = strtolower(trim((string) ($_POST['member_type'] ?? '')));
-                            if (in_array($memberType, ['individual', 'corporate', 'cooperative'], true)) {
-                                $seed['member_type'] = $memberType;
-                            }
-                            $pdo->prepare('INSERT INTO registration_drafts (board, user_id, email, phone, payload, current_step, created_at, updated_at)
-                                VALUES (?, ?, ?, ?, ?, 1, NOW(), NOW())')
-                                ->execute([$boardSlug, $userId, $email, $phone, json_encode([(string) $steps[0]['key'] => $seed])]);
-                        }
-
-                        $otp = registration_wizard_otp_begin($pdo, $boardSlug, ['id' => $userId, 'email' => $email]);
-                        if (!empty($otp['ok'])) {
-                            redirect_to('verify-otp.php');
-                        }
-                        $errors[] = (string) $otp['message'];
-                    }
-                }
+                $errors = array_merge($errors, $result['errors']);
             } elseif ($action === 'resume') {
                 $email = (string) filter_var(trim((string) ($_POST['email'] ?? '')), FILTER_VALIDATE_EMAIL);
                 if ($email === '') {
@@ -141,7 +90,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     if (!$user) {
                         $errors[] = 'We could not find a registration for that email. You can start a new one below.';
-                    } elseif ((string) $user['account_status'] === 'active' && !empty($user['email_verified_at'])) {
+                    } elseif ((string) $user['account_status'] === 'active' && !empty($user['email_verified_at'])
+                        // An active, verified account can still hold an
+                        // unfinished draft (for example one resumed straight
+                        // from the confirmation link): let them continue it.
+                        // Only reject as "already complete" when no open
+                        // draft remains.
+                        && registration_wizard_find_by_user($pdo, $boardSlug, (int) $user['id'], true) === null) {
                         $errors[] = 'That registration is already complete. Please sign in.';
                     } elseif (!$existing) {
                         // Registered before this wizard existed, or a draft was removed:
@@ -149,13 +104,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $pdo->prepare('INSERT INTO registration_drafts (board, user_id, email, phone, payload, current_step, created_at, updated_at)
                             VALUES (?, ?, ?, ?, ?, 1, NOW(), NOW())')
                             ->execute([$boardSlug, (int) $user['id'], $email, (string) ($user['phone'] ?? ''), json_encode([])]);
-                        $otp = registration_wizard_otp_begin($pdo, $boardSlug, ['id' => (int) $user['id'], 'email' => $email]);
+                        $otp = registration_wizard_otp_begin($pdo, $boardSlug, $user);
                         if (!empty($otp['ok'])) {
                             redirect_to('verify-otp.php');
                         }
                         $errors[] = (string) $otp['message'];
                     } else {
-                        $otp = registration_wizard_otp_begin($pdo, $boardSlug, ['id' => (int) $user['id'], 'email' => $email]);
+                        $otp = registration_wizard_otp_begin($pdo, $boardSlug, $user);
                         if (!empty($otp['ok'])) {
                             redirect_to('verify-otp.php');
                         }
@@ -241,7 +196,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string) ($_POST['action'] ?? '') =
         if ($isLast) {
             $result = registration_wizard_finalize($pdo, $boardSlug, $draft);
             if (!empty($result['ok'])) {
-                redirect_to('register-wizard.php?board=' . rawurlencode($boardSlug) . '&done=1');
+                $doneUrl = 'register-wizard.php?board=' . rawurlencode($boardSlug) . '&done=1';
+                if (!empty($result['fund_wallet'])) {
+                    // Paid plan the wallet could not cover: carry the flag
+                    // through to the confirmation screen so the seller can
+                    // fund the wallet and activate the subscription.
+                    $doneUrl .= '&fund_wallet=1';
+                }
+                redirect_to($doneUrl);
             }
             $errors[] = (string) $result['message'];
             $currentIndex = $index;
@@ -373,11 +335,20 @@ if ($mode === 'entry' && $sessionUserId > 0) {
 <?php endif; ?>
 
 <?php if ($mode === 'done'): ?>
+    <?php $fundWallet = $boardSlug === 'seller' && isset($_GET['fund_wallet']); ?>
     <section class="rw-card rw-done">
       <div class="rw-done__tick" aria-hidden="true">&#10003;</div>
       <h1>Registration complete</h1>
       <p class="lead">Your <?= e(strtolower((string) $board['short'])) ?> registration has been submitted<?= $boardSlug === 'grower' ? ' and is now awaiting review' : '' ?>.</p>
+      <?php if ($fundWallet): ?>
+        <div class="rw-alert" style="background:#fffbeb;color:#92400e;border:1px solid #fde68a" role="status">
+          <strong>One step left.</strong> Your store is registered on a paid plan. Fund your seller wallet to activate the subscription and unlock your plan's listing limit.
+        </div>
+      <?php endif; ?>
       <div class="rw-actions" style="justify-content:center">
+        <?php if ($fundWallet): ?>
+          <a class="rw-btn" href="market/seller-central.php?fund_wallet=1">Fund wallet to activate plan</a>
+        <?php endif; ?>
         <a class="rw-btn" href="<?= e((string) $board['dashboard']) ?>">Continue to my dashboard</a>
         <a class="rw-btn rw-btn--ghost" href="index.php">Back to home</a>
       </div>
